@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Calendar card -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M36,30 h36 a8,8 0 0 1 8,8 v34 a8,8 0 0 1 -8,8 h-36 a8,8 0 0 1 -8,-8 v-34 a8,8 0 0 1 8,-8 z" />
+
+    <!-- Header band -->
+    <path
+        android:fillColor="#1E3A8A"
+        android:pathData="M36,30 h36 a8,8 0 0 1 8,8 v8 h-52 v-8 a8,8 0 0 1 8,-8 z" />
+
+    <!-- Shift cells: work / break -->
+    <path android:fillColor="#BFDBFE" android:pathData="M34,52 h11 v8 h-11 z" />
+    <path android:fillColor="#BFDBFE" android:pathData="M48.5,52 h11 v8 h-11 z" />
+    <path android:fillColor="#34D399" android:pathData="M63,52 h11 v8 h-11 z" />
+    <path android:fillColor="#BFDBFE" android:pathData="M34,65 h11 v8 h-11 z" />
+    <path android:fillColor="#34D399" android:pathData="M48.5,65 h11 v8 h-11 z" />
+    <path android:fillColor="#BFDBFE" android:pathData="M63,65 h11 v8 h-11 z" />
+</vector>
