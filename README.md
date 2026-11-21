@@ -1,18 +1,18 @@
-# TSV secret 근무표 — Android APK
+# TSV 근무표 — Android APK
 
-「TSV secret 근무표」 웹 앱(`index.html`)을 그대로 담은 안드로이드 WebView 앱입니다.
+「TSV 근무표」 웹 앱(`index.html`)을 그대로 담은 안드로이드 WebView 앱입니다.
 앱은 인터넷 없이 동작하며, 근무표 데이터는 기기 안(`localStorage` + 네이티브 백업)에만 저장됩니다.
 
 ## 구성
 
 | 항목 | 값 |
 | --- | --- |
-| 앱 이름 | TSV secret 근무표 |
+| 앱 이름 | TSV 근무표 |
 | 패키지 | `com.tsvsecret.schedule` |
 | compileSdk / targetSdk | 34 / 34 |
 | minSdk | 24 (Android 7.0) |
 | AGP / Gradle / Java | 8.3.2 / 8.7 / 17 |
-| 버전 | versionCode 2 / versionName 1.1 |
+| 버전 | versionCode 3 / versionName 1.2 |
 
 ## 웹 앱 기능 연결 상태
 
@@ -38,7 +38,27 @@ gradle assembleDebug   # 로컬에 Android SDK + JDK 17이 있을 때
 
 APK 경로: `app/build/outputs/apk/debug/app-debug.apk`
 
+## 서명 (고정 디버그 키)
+
+업데이트 설치 시 서명이 바뀌어 재설치를 요구하는 일이 없도록, 디버그 빌드도
+저장소에 함께 보관된 고정 키로 서명합니다.
+
+| 항목 | 값 |
+| --- | --- |
+| 키스토어 | `app/tsv-fixed-debug.p12` (PKCS12) |
+| 별칭 / 비밀번호 | `tsvdebug` / `tsvdebug123` |
+| 인증서 주체 | `CN=TSV Schedule` |
+| 유효 기간 | 2026-11-21 ~ 2054-04-08 (10,000일) |
+| 인증서 SHA-256 | `94BDFB6F45551996E9526D0F1FB99D96EA65009BE90D02B3E88DA2EB38CDD1D5` |
+
+이 지문이 바뀌면 기존 설치본 위에 덮어 설치할 수 없습니다. 새 키를 만들지 말고 이 파일을 계속 사용하세요.
+
 ## 아이콘
 
-`tools/generate_icons.py`로 레거시 런처 PNG(mdpi~xxxhdpi)를 생성합니다.
-API 26+는 `mipmap-anydpi-v26/ic_launcher.xml`(적응형 아이콘, 모노크롬 포함)을 사용합니다.
+`tools/generate_icons_v2.py`가 `/workspace/tsv-secret-schedule/icon-v2-square.png`(1024×1024)에서
+아이콘을 생성합니다.
+
+- 레거시: `ic_launcher.png`(스퀘어클), `ic_launcher_round.png`(원) — mdpi 48 ~ xxxhdpi 192
+- 적응형(API 26+): 배경 `#0f172a`, 전경 `ic_launcher_foreground.png`(108dp, 아트워크를 캔버스의 400/432로 축소해
+  66dp 안전 영역 안에 TSV/AMMK가 잘리지 않게 배치, 가장자리는 부드럽게 페이드), 모노크롬 `ic_launcher_monochrome.png`
+- `tools/icon-preview-v2.png` — 레거시/적응형 미리보기

@@ -48,7 +48,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Full-screen WebView shell for the local 「TSV secret 근무표」 app.
+ * Full-screen WebView shell for the local 「TSV 근무표」 app.
  *
  * The web app lives in assets/index.html and is loaded from
  * file:///android_asset/index.html. All app features (localStorage, JSON import,
@@ -432,7 +432,7 @@ public class MainActivity extends Activity {
     private static String sanitizeFileName(String raw, String mime) {
         String name = raw == null ? "" : raw.trim();
         if (name.isEmpty()) {
-            name = "TSV-secret-근무표-" + System.currentTimeMillis();
+            name = "TSV-근무표-" + System.currentTimeMillis();
         }
         name = name.replaceAll("[\\\\/:*?\"<>|\\r\\n\\t]", "_");
         int dot = name.lastIndexOf('.');
@@ -479,7 +479,7 @@ public class MainActivity extends Activity {
                 ext = "pdf";
             }
         }
-        return "TSV-secret-근무표-" + System.currentTimeMillis() + "." + ext;
+        return "TSV-근무표-" + System.currentTimeMillis() + "." + ext;
     }
 
     // -------------------------------------------------------------- insets/UI
@@ -592,7 +592,7 @@ public class MainActivity extends Activity {
                     ClipboardManager manager =
                             (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
                     if (manager != null) {
-                        manager.setPrimaryClip(ClipData.newPlainText("TSV secret 근무표", text));
+                        manager.setPrimaryClip(ClipData.newPlainText("TSV 근무표", text));
                     }
                 } catch (Exception e) {
                     Log.w(TAG, "Clipboard failed", e);

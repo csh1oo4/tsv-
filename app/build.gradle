@@ -10,13 +10,26 @@ android {
         applicationId "com.tsvsecret.schedule"
         minSdk 24
         targetSdk 34
-        versionCode 2
-        versionName "1.1"
+        versionCode 3
+        versionName "1.2"
+    }
+
+    // Fixed debug key: keeps the signing certificate identical across every build so
+    // updates install over the previous version without uninstalling.
+    signingConfigs {
+        debug {
+            storeFile file('tsv-fixed-debug.p12')
+            storeType 'PKCS12'
+            storePassword 'tsvdebug123'
+            keyAlias 'tsvdebug'
+            keyPassword 'tsvdebug123'
+        }
     }
 
     buildTypes {
         debug {
             minifyEnabled false
+            signingConfig signingConfigs.debug
         }
         release {
             minifyEnabled false

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>TSV secret 근무표</title>
+  <title>TSV 근무표</title>
   <link rel="preconnect" href="https://cdn.jsdelivr.net" />
   <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" rel="stylesheet" />
   <style>
@@ -918,7 +918,7 @@
         <div class="brand-left">
           <div class="brand-title">
             <span id="shiftEmoji">☀️</span>
-            <span>TSV secret 근무표</span>
+            <span>TSV 근무표</span>
           </div>
           <span class="brand-badge" id="modeBadge">주간</span>
         </div>
@@ -1548,7 +1548,7 @@
 
     function exportJsonFile() {
       const payload = {
-        app: 'TSV secret 근무표',
+        app: 'TSV 근무표',
         exportedAt: new Date().toISOString(),
         current: state,
         savedList: savedList
@@ -1556,7 +1556,7 @@
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `TSV-secret-근무표-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `TSV-근무표-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(a.href);
       showToast('근무표 파일을 저장했어요');
@@ -1622,7 +1622,7 @@
 
       ctx.fillStyle = '#ffffff';
       ctx.font = 'bold 20px sans-serif';
-      ctx.fillText(`${isNight ? '🌙' : '☀️'} TSV secret 근무표 — ${getScheduleTitle(state)}`, 38, 52);
+      ctx.fillText(`${isNight ? '🌙' : '☀️'} TSV 근무표 — ${getScheduleTitle(state)}`, 38, 52);
 
       ctx.font = '600 13px sans-serif';
       ctx.fillStyle = 'rgba(255,255,255,0.92)';
@@ -1672,7 +1672,7 @@
       });
 
       const link = document.createElement('a');
-      link.download = `TSV-secret-근무표-${getScheduleTitle(state)}.png`;
+      link.download = `TSV-근무표-${getScheduleTitle(state)}.png`;
       link.href = canvas.toDataURL('image/png');
       link.click();
       showToast('근무표 이미지를 저장했어요');
