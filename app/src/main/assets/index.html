@@ -10,65 +10,68 @@
   <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" rel="stylesheet" />
   <style>
     :root {
-      --bg: #f3f6fb;
+      --bg: #f1f5fb;
       --surface: #ffffff;
-      --surface-2: #f8fafc;
-      --border: #e2e8f0;
+      --surface-2: #f8fafd;
+      --border: #dfe7f3;
       --text: #0f172a;
-      --text-muted: #64748b;
+      --text-muted: #5b6b84;
       --accent: #2563eb;
       --accent-soft: #dbeafe;
       --accent-text: #1d4ed8;
-      --header-grad: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%);
+      --header-grad: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 55%, #60a5fa 100%);
       --break-bg: #d1fae5;
       --break-solid: #10b981;
       --break-border: #34d399;
       --break-text: #065f46;
-      --work-view-bg: #f8fafc;
-      --work-view-text: #64748b;
-      --team-a-bg: #eff6ff;
-      --team-a-border: #bfdbfe;
+      --work-view-bg: #f4f7fc;
+      --work-view-text: #334155;
+      --team-a-bg: #eef5ff;
+      --team-a-border: #bfd8fe;
       --team-a-text: #1e40af;
-      --team-b-bg: #f0f9ff;
-      --team-b-border: #bae6fd;
-      --team-b-text: #0369a1;
+      --team-b-bg: #ecfeff;
+      --team-b-border: #a5f3fc;
+      --team-b-text: #0e7490;
       --team-c-bg: #f5f3ff;
       --team-c-border: #ddd6fe;
       --team-c-text: #5b21b6;
-      --shadow: 0 4px 20px rgba(15, 23, 42, 0.06);
+      --shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
       --danger: #dc2626;
       --danger-soft: #fee2e2;
+      --trad-gold: #d97706;
     }
 
+    /* Bright, high-readability Night theme (Soft Lavender / Violet) */
     body.night {
-      --bg: #080d18;
-      --surface: #111827;
-      --surface-2: #1a2336;
-      --border: #263248;
-      --text: #f1f5f9;
-      --text-muted: #94a3b8;
-      --accent: #6366f1;
-      --accent-soft: rgba(99, 102, 241, 0.18);
-      --accent-text: #a5b4fc;
-      --header-grad: linear-gradient(135deg, #1e1b4b 0%, #312e81 60%, #4338ca 100%);
-      --break-bg: rgba(16, 185, 129, 0.22);
+      --bg: #f3f0ff;
+      --surface: #ffffff;
+      --surface-2: #f8f6ff;
+      --border: #e4ddfb;
+      --text: #1e1b4b;
+      --text-muted: #5b5480;
+      --accent: #7c3aed;
+      --accent-soft: #ede9fe;
+      --accent-text: #6d28d9;
+      --header-grad: linear-gradient(135deg, #6d28d9 0%, #7c3aed 55%, #a78bfa 100%);
+      --break-bg: #d1fae5;
       --break-solid: #10b981;
-      --break-border: rgba(52, 211, 153, 0.55);
-      --break-text: #6ee7b7;
-      --work-view-bg: #151e30;
-      --work-view-text: #94a3b8;
-      --team-a-bg: rgba(59, 130, 246, 0.16);
-      --team-a-border: rgba(96, 165, 250, 0.35);
-      --team-a-text: #93c5fd;
-      --team-b-bg: rgba(14, 165, 233, 0.16);
-      --team-b-border: rgba(56, 189, 248, 0.35);
-      --team-b-text: #7dd3fc;
-      --team-c-bg: rgba(168, 85, 247, 0.16);
-      --team-c-border: rgba(192, 132, 252, 0.35);
-      --team-c-text: #d8b4fe;
-      --shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
-      --danger: #f87171;
-      --danger-soft: rgba(239, 68, 68, 0.16);
+      --break-border: #34d399;
+      --break-text: #065f46;
+      --work-view-bg: #f7f5ff;
+      --work-view-text: #3b3363;
+      --team-a-bg: #f3f0ff;
+      --team-a-border: #d8ccfe;
+      --team-a-text: #5b21b6;
+      --team-b-bg: #fdf2f8;
+      --team-b-border: #fbcfe8;
+      --team-b-text: #9d174d;
+      --team-c-bg: #eef2ff;
+      --team-c-border: #c7d2fe;
+      --team-c-text: #3730a3;
+      --shadow: 0 8px 24px rgba(91, 33, 182, 0.08);
+      --danger: #dc2626;
+      --danger-soft: #fee2e2;
+      --trad-gold: #d97706;
     }
 
     * {
@@ -79,39 +82,59 @@
     body {
       margin: 0;
       font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
-      background: var(--bg);
+      background-color: var(--bg);
       color: var(--text);
-      transition: background 0.25s ease, color 0.25s ease;
-      padding-bottom: 92px;
+      transition: background-color 0.25s ease, color 0.25s ease;
+      padding-bottom: 94px;
+      position: relative;
+    }
+
+    /* Very subtle traditional lattice pattern on background (never interferes with text) */
+    body.view-mode::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.45;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96' viewBox='0 0 96 96'%3E%3Cg fill='none' stroke='%2364748b' stroke-opacity='0.07' stroke-width='1'%3E%3Cpath d='M48 0 L96 48 L48 96 L0 48 Z'/%3E%3Ccircle cx='48' cy='48' r='18'/%3E%3C/g%3E%3C/svg%3E");
     }
 
     .app-shell {
       max-width: 760px;
       margin: 0 auto;
       padding: 14px 14px 28px;
+      position: relative;
+      z-index: 1;
     }
 
     /* Header */
     .top-header {
       background: var(--header-grad);
       color: #ffffff;
-      border-radius: 20px;
-      padding: 18px 18px 16px;
+      border-radius: 26px;
+      padding: 18px 18px 22px;
       box-shadow: var(--shadow);
       margin-bottom: 14px;
       position: relative;
       overflow: hidden;
     }
 
-    .top-header::after {
-      content: '';
+    /* Subtle traditional pattern (low opacity so text stays 100% crisp) */
+    .header-trad-bg {
       position: absolute;
-      right: -30px;
-      top: -30px;
-      width: 140px;
-      height: 140px;
-      border-radius: 50%;
-      background: rgba(255, 255, 255, 0.08);
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.06;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='none' stroke='%23ffffff' stroke-width='1.2'%3E%3Ccircle cx='60' cy='60' r='26'/%3E%3Cpath d='M0 60 Q30 30 60 60 T120 60'/%3E%3C/g%3E%3C/svg%3E");
+    }
+
+    .header-wave {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: -1px;
+      height: 18px;
       pointer-events: none;
     }
 
@@ -119,16 +142,30 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 10px;
+      gap: 8px;
+      position: relative;
+      z-index: 2;
+      flex-wrap: nowrap;
+    }
+
+    .brand-left {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      flex: 1;
     }
 
     .brand-title {
-      display: flex;
+      display: inline-flex;
       align-items: center;
-      gap: 8px;
-      font-size: 18px;
+      gap: 5px;
+      font-size: 16px;
       font-weight: 800;
       letter-spacing: -0.02em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .brand-badge {
@@ -136,32 +173,38 @@
       font-weight: 700;
       padding: 3px 8px;
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.22);
-      backdrop-filter: blur(6px);
+      background: rgba(255, 255, 255, 0.24);
+      white-space: nowrap;
+      flex-shrink: 0;
     }
 
     .header-actions {
       display: flex;
+      align-items: center;
       gap: 6px;
+      flex-shrink: 0;
     }
 
     .icon-btn {
-      border: none;
+      border: 1px solid rgba(255, 255, 255, 0.28);
       background: rgba(255, 255, 255, 0.18);
       color: #fff;
+      font-family: inherit;
       font-size: 12px;
-      font-weight: 600;
-      padding: 7px 11px;
-      border-radius: 10px;
+      font-weight: 700;
+      padding: 6px 10px;
+      border-radius: 999px;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
       gap: 4px;
+      white-space: nowrap;
+      flex-shrink: 0;
       transition: background 0.15s;
     }
 
     .icon-btn:active {
-      background: rgba(255, 255, 255, 0.3);
+      background: rgba(255, 255, 255, 0.32);
     }
 
     .current-title-bar {
@@ -171,61 +214,90 @@
       justify-content: space-between;
       gap: 8px;
       flex-wrap: wrap;
+      position: relative;
+      z-index: 2;
     }
 
     .schedule-pill {
-      font-size: 14px;
+      font-size: 13.5px;
       font-weight: 700;
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      background: rgba(0, 0, 0, 0.2);
+      background: rgba(0, 0, 0, 0.22);
       padding: 6px 12px;
-      border-radius: 12px;
+      border-radius: 999px;
+      white-space: nowrap;
     }
 
     .status-lock-badge {
       font-size: 11px;
       font-weight: 700;
-      padding: 3px 8px;
+      padding: 4px 10px;
       border-radius: 999px;
       background: rgba(16, 185, 129, 0.28);
-      color: #ecfdf5;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      color: #ffffff;
+      white-space: nowrap;
     }
 
     .status-edit-badge {
       font-size: 11px;
       font-weight: 700;
-      padding: 3px 8px;
+      padding: 4px 10px;
       border-radius: 999px;
       background: rgba(245, 158, 11, 0.32);
-      color: #fef3c7;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      color: #ffffff;
+      white-space: nowrap;
     }
 
     .header-sub {
       font-size: 12px;
-      opacity: 0.88;
+      opacity: 0.94;
+      white-space: nowrap;
     }
 
-    /* Cards */
+    /* Cards with Curved K-Modern Accent */
     .card {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 18px;
-      padding: 14px;
+      border-radius: 24px;
+      padding: 15px;
       box-shadow: var(--shadow);
-      margin-bottom: 12px;
+      margin-bottom: 13px;
       transition: background 0.25s, border-color 0.25s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    body.view-mode .card::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 28px;
+      right: 28px;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--trad-gold), transparent);
+      opacity: 0.35;
+      pointer-events: none;
     }
 
     .section-label {
       font-size: 12px;
       font-weight: 700;
       color: var(--text-muted);
-      margin-bottom: 8px;
+      margin-bottom: 9px;
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 8px;
+    }
+
+    .trad-ornament {
+      color: var(--trad-gold);
+      font-size: 12px;
+      margin-right: 4px;
     }
 
     /* Controls Grid */
@@ -245,7 +317,7 @@
       display: flex;
       background: var(--surface-2);
       border: 1px solid var(--border);
-      border-radius: 12px;
+      border-radius: 14px;
       padding: 3px;
       gap: 3px;
     }
@@ -259,19 +331,16 @@
       font-size: 13px;
       font-weight: 700;
       padding: 8px 6px;
-      border-radius: 9px;
+      border-radius: 11px;
       cursor: pointer;
+      white-space: nowrap;
       transition: all 0.18s ease;
     }
 
     .seg-btn.active {
       background: var(--accent);
       color: #ffffff;
-      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
-    }
-
-    body.night .seg-btn.active {
-      box-shadow: 0 2px 10px rgba(99, 102, 241, 0.35);
+      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.22);
     }
 
     .input-box {
@@ -283,7 +352,7 @@
       font-size: 13px;
       font-weight: 600;
       padding: 9px 12px;
-      border-radius: 11px;
+      border-radius: 12px;
       outline: none;
     }
 
@@ -295,7 +364,7 @@
     .teams-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 8px;
+      gap: 9px;
     }
 
     .teams-grid.two-cols {
@@ -309,8 +378,8 @@
     }
 
     .team-card {
-      border-radius: 14px;
-      padding: 11px 12px;
+      border-radius: 18px;
+      padding: 12px 13px;
       border: 1px solid var(--border);
       background: var(--surface-2);
     }
@@ -327,7 +396,7 @@
     }
 
     .team-tag {
-      font-size: 13px;
+      font-size: 14px;
       font-weight: 800;
     }
     .team-a .team-tag { color: var(--team-a-text); }
@@ -338,7 +407,7 @@
       font-size: 15px;
       font-weight: 800;
       color: var(--text);
-      margin-bottom: 6px;
+      margin-bottom: 7px;
       word-break: keep-all;
     }
 
@@ -357,7 +426,7 @@
       font-size: 13px;
       font-weight: 600;
       padding: 7px 9px;
-      border-radius: 9px;
+      border-radius: 10px;
       outline: none;
       margin-bottom: 8px;
     }
@@ -371,7 +440,7 @@
       justify-content: space-between;
       align-items: center;
       gap: 6px;
-      font-size: 11.5px;
+      font-size: 12px;
       font-weight: 700;
     }
 
@@ -383,25 +452,25 @@
       color: var(--break-text);
       background: var(--break-bg);
       border: 1px solid var(--break-border);
-      padding: 2px 8px;
+      padding: 3px 9px;
       border-radius: 999px;
     }
 
     .break-ranges-wrap {
-      margin-top: 8px;
+      margin-top: 9px;
       display: flex;
       flex-wrap: wrap;
-      gap: 4px;
+      gap: 5px;
     }
 
     .break-chip {
-      font-size: 10.5px;
+      font-size: 11px;
       font-weight: 700;
       color: var(--break-text);
       background: var(--surface);
       border: 1px solid var(--break-border);
-      padding: 2px 6px;
-      border-radius: 6px;
+      padding: 3px 8px;
+      border-radius: 999px;
       font-variant-numeric: tabular-nums;
     }
 
@@ -424,8 +493,8 @@
       font-family: inherit;
       font-size: 11.5px;
       font-weight: 700;
-      padding: 5px 10px;
-      border-radius: 8px;
+      padding: 6px 11px;
+      border-radius: 999px;
       cursor: pointer;
     }
 
@@ -436,8 +505,9 @@
     /* Edit Timetable */
     .table-wrap {
       overflow-x: auto;
-      border-radius: 14px;
+      border-radius: 18px;
       border: 1px solid var(--border);
+      background: var(--surface);
     }
 
     table.timetable {
@@ -486,7 +556,7 @@
     .slot-btn {
       width: 100%;
       min-height: 38px;
-      border-radius: 9px;
+      border-radius: 12px;
       border: 1px solid transparent;
       font-family: inherit;
       font-size: 12px;
@@ -514,7 +584,7 @@
       color: var(--break-text);
     }
 
-    /* Clean View-Only Timetable */
+    /* Clean Curved View-Only Timetable with Merged Rowspan Break Blocks */
     .view-legend {
       display: flex;
       align-items: center;
@@ -540,9 +610,9 @@
     }
 
     .dot-box {
-      width: 10px;
-      height: 10px;
-      border-radius: 3px;
+      width: 11px;
+      height: 11px;
+      border-radius: 999px;
       display: inline-block;
     }
 
@@ -551,80 +621,58 @@
 
     table.view-table {
       width: 100%;
-      border-collapse: collapse;
+      border-collapse: separate;
+      border-spacing: 5px 5px;
       table-layout: fixed;
+      padding: 4px;
     }
 
     table.view-table th {
-      background: var(--surface-2);
       color: var(--text);
       font-size: 13px;
       font-weight: 800;
-      padding: 11px 6px;
-      border-bottom: 1px solid var(--border);
+      padding: 8px 6px 6px;
       text-align: center;
     }
 
     table.view-table th.time-col {
-      width: 96px;
+      width: 92px;
       color: var(--text-muted);
       font-size: 12px;
     }
 
     table.view-table td {
-      border-bottom: 1px solid var(--border);
-      border-left: 1px solid var(--border);
       padding: 0;
       height: 36px;
       text-align: center;
       vertical-align: middle;
     }
 
-    table.view-table tr:last-child td {
-      border-bottom: none;
-    }
-
     table.view-table td.time-cell {
-      border-left: none;
       font-size: 12px;
       font-weight: 700;
       color: var(--text-muted);
-      background: var(--surface-2);
       font-variant-numeric: tabular-nums;
-      padding: 0 4px;
+      padding: 0 2px;
     }
 
-    .view-cell-inner {
-      height: 100%;
-      min-height: 36px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: -0.01em;
-    }
-
-    .view-cell-work {
+    table.view-table td.view-td-work {
       background: var(--work-view-bg);
       color: var(--work-view-text);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 700;
     }
 
-    .view-cell-break {
+    table.view-table td.view-td-break {
       background: var(--break-bg);
       color: var(--break-text);
+      border: 1.5px solid var(--break-border);
+      border-radius: 14px;
+      font-size: 12.5px;
       font-weight: 800;
-      position: relative;
-    }
-
-    .view-cell-break::before {
-      content: '';
-      position: absolute;
-      left: 0;
-      top: 0;
-      bottom: 0;
-      width: 4px;
-      background: var(--break-solid);
+      box-shadow: 0 2px 8px rgba(16, 185, 129, 0.14);
     }
 
     /* Bottom Action Bar */
@@ -652,7 +700,7 @@
     .btn-primary, .btn-secondary {
       flex: 1;
       border: none;
-      border-radius: 12px;
+      border-radius: 14px;
       padding: 12px 10px;
       font-family: inherit;
       font-size: 13.5px;
@@ -662,6 +710,7 @@
       align-items: center;
       justify-content: center;
       gap: 5px;
+      white-space: nowrap;
     }
 
     .btn-primary {
@@ -679,7 +728,7 @@
     .modal-backdrop {
       position: fixed;
       inset: 0;
-      background: rgba(2, 6, 23, 0.6);
+      background: rgba(15, 23, 42, 0.55);
       backdrop-filter: blur(4px);
       display: none;
       align-items: flex-end;
@@ -705,9 +754,9 @@
       overflow-y: auto;
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 20px;
+      border-radius: 24px;
       padding: 18px;
-      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
     }
 
     .modal-header {
@@ -737,7 +786,7 @@
     .saved-item {
       border: 1px solid var(--border);
       background: var(--surface-2);
-      border-radius: 14px;
+      border-radius: 16px;
       padding: 12px;
       margin-bottom: 8px;
       display: flex;
@@ -781,9 +830,10 @@
       font-family: inherit;
       font-size: 12px;
       font-weight: 700;
-      padding: 6px 9px;
-      border-radius: 8px;
+      padding: 6px 10px;
+      border-radius: 10px;
       cursor: pointer;
+      white-space: nowrap;
     }
 
     .btn-sm.del {
@@ -849,11 +899,6 @@
       box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
     }
 
-    body.night .toast {
-      background: #e2e8f0;
-      color: #0f172a;
-    }
-
     .toast.show {
       opacity: 1;
       transform: translateX(-50%) translateY(0);
@@ -868,14 +913,17 @@
   <div class="app-shell">
     <!-- Top Header -->
     <header class="top-header">
+      <div class="header-trad-bg"></div>
       <div class="brand-row">
-        <div class="brand-title">
-          <span id="shiftEmoji">☀️</span>
-          <span>TSV secret 근무표</span>
+        <div class="brand-left">
+          <div class="brand-title">
+            <span id="shiftEmoji">☀️</span>
+            <span>TSV secret 근무표</span>
+          </div>
           <span class="brand-badge" id="modeBadge">주간</span>
         </div>
         <div class="header-actions">
-          <button class="icon-btn" onclick="openSavedModal()">📂 목록 (<span id="savedCount">0</span>)</button>
+          <button class="icon-btn" onclick="openSavedModal()">📂 목록(<span id="savedCount">0</span>)</button>
           <button class="icon-btn" onclick="openShareModal()">🔗 공유</button>
         </div>
       </div>
@@ -886,12 +934,15 @@
         </div>
         <div class="header-sub" id="timeRangeLabel">07:00 ~ 18:00 · 30분 단위</div>
       </div>
+      <svg class="header-wave" viewBox="0 0 1200 40" preserveAspectRatio="none">
+        <path d="M0,25 C300,45 450,5 750,25 C950,38 1100,12 1200,22 L1200,40 L0,40 Z" fill="rgba(255,255,255,0.16)"/>
+      </svg>
     </header>
 
     <!-- Settings Card (Visible ONLY in Edit Mode) -->
     <section class="card" id="settingsCard">
       <div class="section-label">
-        <span>근무 설정</span>
+        <span><span class="trad-ornament">❖</span>근무 설정</span>
         <span>총 11시간 (22구간)</span>
       </div>
       <div class="controls-grid">
@@ -903,9 +954,10 @@
           </div>
         </div>
         <div>
-          <div class="section-label" style="margin-bottom:5px;">요일 구분</div>
+          <div class="section-label" style="margin-bottom:5px;">근무일 구분</div>
           <div class="seg-group">
             <button class="seg-btn active" id="btnWeekday" onclick="setDayType('평일')">평일</button>
+            <button class="seg-btn" id="btnWeekend" onclick="setDayType('주말')">주말</button>
             <button class="seg-btn" id="btnSunday" onclick="setDayType('일요일')">일요일</button>
           </div>
         </div>
@@ -929,8 +981,8 @@
     <!-- Teams & Break Totals -->
     <section class="card">
       <div class="section-label">
-        <span>조별 근무자 및 총 휴식시간</span>
-        <span id="summaryRightLabel">30분 단위 자동 합산</span>
+        <span><span class="trad-ornament">❖</span>조별 근무자 및 총 휴식시간</span>
+        <span>30분 단위 자동 합산</span>
       </div>
       <div class="teams-grid" id="teamsGrid">
         <div class="team-card team-a">
@@ -976,16 +1028,14 @@
 
     <!-- Timetable Card -->
     <section class="card">
-      <!-- Edit hint bar -->
       <div class="hint-bar" id="editHintBar">
-        <span>칸을 누르면 <strong>업무 ↔ 휴식</strong>이 전환됩니다</span>
-        <button class="mini-btn" onclick="resetAllToWork()">전체 업무로 초기화</button>
+        <span>칸을 누르면 <strong>근무 ↔ 휴식</strong>이 전환됩니다</span>
+        <button class="mini-btn" onclick="resetAllToWork()">전체 근무로 초기화</button>
       </div>
 
-      <!-- View legend bar -->
       <div class="view-legend hidden" id="viewLegendBar">
         <div class="legend-items">
-          <span class="legend-dot"><span class="dot-box dot-work"></span> 업무</span>
+          <span class="legend-dot"><span class="dot-box dot-work"></span> 근무</span>
           <span class="legend-dot"><span class="dot-box dot-break"></span> 휴식</span>
         </div>
         <span>수정하려면 아래 <strong>수정하기</strong>를 누르세요</span>
@@ -1088,10 +1138,10 @@
     function createEmptyState() {
       return {
         id: 'sch_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
-        shift: 'day',       // 'day' | 'night'
-        dayType: '평일',    // '평일' | '일요일'
+        shift: 'day',
+        dayType: '평일',
         note: '',
-        teamCount: 3,       // 2 | 3
+        teamCount: 3,
         members: { A: '', B: '', C: '' },
         breaks: {
           A: Array(22).fill(false),
@@ -1200,7 +1250,7 @@
       state.breaks.C.fill(false);
       renderStats();
       renderTableBody();
-      showToast('모든 시간을 업무로 초기화했어요');
+      showToast('모든 시간을 근무로 초기화했어요');
     }
 
     function enterEditMode() {
@@ -1265,15 +1315,23 @@
           const isBreak = state.breaks[t][idx];
           if (isEditing) {
             const cls = isBreak ? 'slot-btn break' : `slot-btn work team-${t.toLowerCase()}`;
-            const label = isBreak ? '☕ 휴식' : '업무';
+            const label = isBreak ? '☕ 휴식' : '근무';
             html += `<td><button class="${cls}" onclick="toggleSlot('${t}', ${idx})">${label}</button></td>`;
           } else {
             if (isBreak) {
               const prevBreak = idx > 0 && state.breaks[t][idx - 1];
-              const label = prevBreak ? '·' : '☕ 휴식';
-              html += `<td><div class="view-cell-inner view-cell-break">${label}</div></td>`;
+              if (prevBreak) {
+                // Merged into previous break cell via rowspan
+                return;
+              }
+              let span = 1;
+              while (idx + span < slots.length && state.breaks[t][idx + span]) {
+                span++;
+              }
+              const durLabel = span >= 2 ? ` (${formatMinutes(span * 30)})` : '';
+              html += `<td rowspan="${span}" class="view-td-break">☕ 휴식${durLabel}</td>`;
             } else {
-              html += `<td><div class="view-cell-inner view-cell-work">업무</div></td>`;
+              html += `<td class="view-td-work">근무</td>`;
             }
           }
         });
@@ -1285,6 +1343,7 @@
     function render() {
       const isNight = state.shift === 'night';
       document.body.classList.toggle('night', isNight);
+      document.body.classList.toggle('view-mode', !isEditing);
 
       document.getElementById('shiftEmoji').textContent = isNight ? '🌙' : '☀️';
       document.getElementById('modeBadge').textContent = isNight ? '야간' : '주간';
@@ -1314,6 +1373,7 @@
       document.getElementById('btnDay').classList.toggle('active', !isNight);
       document.getElementById('btnNight').classList.toggle('active', isNight);
       document.getElementById('btnWeekday').classList.toggle('active', state.dayType === '평일');
+      document.getElementById('btnWeekend').classList.toggle('active', state.dayType === '주말');
       document.getElementById('btnSunday').classList.toggle('active', state.dayType === '일요일');
       document.getElementById('btn2Teams').classList.toggle('active', state.teamCount === 2);
       document.getElementById('btn3Teams').classList.toggle('active', state.teamCount === 3);
@@ -1536,8 +1596,8 @@
       const teams = state.teamCount === 2 ? ['A', 'B'] : ['A', 'B', 'C'];
       const slots = generateSlots(state.shift);
       const width = 760;
-      const rowH = 32;
-      const topH = 148;
+      const rowH = 34;
+      const topH = 152;
       const height = topH + slots.length * rowH + 40;
 
       const canvas = document.createElement('canvas');
@@ -1546,16 +1606,16 @@
       const ctx = canvas.getContext('2d');
       ctx.scale(2, 2);
 
-      ctx.fillStyle = isNight ? '#080d18' : '#f3f6fb';
+      ctx.fillStyle = isNight ? '#f3f0ff' : '#f1f5fb';
       ctx.fillRect(0, 0, width, height);
 
       const grad = ctx.createLinearGradient(0, 0, width, 110);
       if (isNight) {
-        grad.addColorStop(0, '#1e1b4b');
-        grad.addColorStop(1, '#4338ca');
+        grad.addColorStop(0, '#6d28d9');
+        grad.addColorStop(1, '#a78bfa');
       } else {
         grad.addColorStop(0, '#1d4ed8');
-        grad.addColorStop(1, '#3b82f6');
+        grad.addColorStop(1, '#60a5fa');
       }
       ctx.fillStyle = grad;
       ctx.fillRect(20, 16, width - 40, 82);
@@ -1565,7 +1625,7 @@
       ctx.fillText(`${isNight ? '🌙' : '☀️'} TSV secret 근무표 — ${getScheduleTitle(state)}`, 38, 52);
 
       ctx.font = '600 13px sans-serif';
-      ctx.fillStyle = 'rgba(255,255,255,0.88)';
+      ctx.fillStyle = 'rgba(255,255,255,0.92)';
       const summaryText = teams.map(t => {
         const b = state.breaks[t].filter(Boolean).length * 30;
         const n = state.members[t] ? `(${state.members[t]})` : '';
@@ -1573,13 +1633,13 @@
       }).join('   |   ');
       ctx.fillText(summaryText, 38, 78);
 
-      const startY = 112;
+      const startY = 114;
       const timeColW = 120;
       const colW = (width - 40 - timeColW) / teams.length;
 
-      ctx.fillStyle = isNight ? '#1a2336' : '#e2e8f0';
+      ctx.fillStyle = isNight ? '#ede9fe' : '#e2e8f0';
       ctx.fillRect(20, startY, width - 40, 34);
-      ctx.fillStyle = isNight ? '#f1f5f9' : '#0f172a';
+      ctx.fillStyle = isNight ? '#1e1b4b' : '#0f172a';
       ctx.font = 'bold 13px sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText('시간', 20 + timeColW / 2, startY + 22);
@@ -1590,28 +1650,24 @@
 
       slots.forEach((slot, r) => {
         const y = startY + 34 + r * rowH;
-        ctx.fillStyle = isNight ? '#111827' : '#ffffff';
+        ctx.fillStyle = '#ffffff';
         ctx.fillRect(20, y, width - 40, rowH);
-        ctx.strokeStyle = isNight ? '#263248' : '#e2e8f0';
+        ctx.strokeStyle = isNight ? '#e4ddfb' : '#dfe7f3';
         ctx.strokeRect(20, y, width - 40, rowH);
 
-        ctx.fillStyle = isNight ? '#94a3b8' : '#475569';
+        ctx.fillStyle = isNight ? '#5b5480' : '#5b6b84';
         ctx.font = '600 12px sans-serif';
-        ctx.fillText(slot, 20 + timeColW / 2, y + 20);
+        ctx.fillText(slot, 20 + timeColW / 2, y + 21);
 
         teams.forEach((t, i) => {
           const x = 20 + timeColW + colW * i;
           const isBreak = state.breaks[t][r];
-          ctx.fillStyle = isBreak
-            ? (isNight ? '#064e3b' : '#d1fae5')
-            : (isNight ? '#151e30' : '#f8fafc');
-          ctx.fillRect(x + 1, y + 1, colW - 2, rowH - 2);
+          ctx.fillStyle = isBreak ? '#d1fae5' : (isNight ? '#f7f5ff' : '#f4f7fc');
+          ctx.fillRect(x + 2, y + 2, colW - 4, rowH - 4);
 
-          ctx.fillStyle = isBreak
-            ? (isNight ? '#6ee7b7' : '#065f46')
-            : (isNight ? '#94a3b8' : '#64748b');
+          ctx.fillStyle = isBreak ? '#065f46' : (isNight ? '#3b3363' : '#334155');
           ctx.font = isBreak ? 'bold 12px sans-serif' : '600 12px sans-serif';
-          ctx.fillText(isBreak ? '☕ 휴식' : '업무', x + colW / 2, y + 20);
+          ctx.fillText(isBreak ? '☕ 휴식' : '근무', x + colW / 2, y + 21);
         });
       });
 

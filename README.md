@@ -12,6 +12,7 @@
 | compileSdk / targetSdk | 34 / 34 |
 | minSdk | 24 (Android 7.0) |
 | AGP / Gradle / Java | 8.3.2 / 8.7 / 17 |
+| 버전 | versionCode 2 / versionName 1.1 |
 
 ## 웹 앱 기능 연결 상태
 
@@ -21,6 +22,8 @@
   - 공유 코드 복사 → 네이티브 클립보드
   - `localStorage` → SharedPreferences 백업 (WebView 저장소가 비워졌을 때 자동 복원)
   - 테마(주간/야간)에 맞춰 상태바·내비게이션바 색상 동기화
+    — 상태바는 헤더색(주간 `#1d4ed8`, 야간 `#6d28d9`)에 흰 아이콘,
+    내비게이션바는 배경색(주간 `#f1f5fb`, 야간 `#f3f0ff`)에 어두운 아이콘. 아이콘 밝기는 막대 색의 휘도로 자동 판단
   - `display:none` 파일 입력을 WebView가 열 수 있도록 보정 (JSON 가져오기)
 - 뒤로 가기: 열린 모달을 먼저 닫고, 스크롤을 맨 위로 올린 뒤에만 앱 종료
 

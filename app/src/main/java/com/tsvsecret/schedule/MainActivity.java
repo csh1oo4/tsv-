@@ -484,22 +484,44 @@ public class MainActivity extends Activity {
 
     // -------------------------------------------------------------- insets/UI
 
+    /**
+     * Paints the system bars for the web app theme.
+     *
+     * Both themes keep a saturated header (day: blue #1d4ed8, night: violet
+     * #6d28d9) on top and a light body under the navigation bar — the night
+     * theme is a bright lavender (#f3f0ff), not a dark one. So the icon colour
+     * is decided by the luminance of the bar we actually paint, not by the
+     * night flag: light bars get dark icons, saturated bars get white icons.
+     */
     private void applyChrome(String background, String header, boolean isNight) {
-        int bg = parseHexColor(background, isNight ? 0xFF090E1A : 0xFFF3F6FB);
-        int top = parseHexColor(header, isNight ? 0xFF111827 : 0xFF1D4ED8);
+        int bg = parseHexColor(background, isNight ? 0xFFF3F0FF : 0xFFF1F5FB);
+        int top = parseHexColor(header, isNight ? 0xFF6D28D9 : 0xFF1D4ED8);
         Window window = getWindow();
         window.setStatusBarColor(top);
         window.setNavigationBarColor(bg);
 
         View decor = window.getDecorView();
         int flags = decor.getSystemUiVisibility();
-        flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
-        if (isNight) {
-            flags &= ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+        if (isLightColor(top)) {
+            flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
         } else {
+            flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+        }
+        if (isLightColor(bg)) {
             flags |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+        } else {
+            flags &= ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
         }
         decor.setSystemUiVisibility(flags);
+    }
+
+    /** True when a bar of this colour is light enough to need dark (not white) icons. */
+    private static boolean isLightColor(int color) {
+        double r = Color.red(color) / 255.0;
+        double g = Color.green(color) / 255.0;
+        double b = Color.blue(color) / 255.0;
+        double luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        return luminance > 0.6;
     }
 
     private static int parseHexColor(String value, int fallback) {

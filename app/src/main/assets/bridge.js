@@ -201,7 +201,7 @@
     if (!B || !B.updateChrome) return;
     safe(function () {
       var bodyStyle = getComputedStyle(document.body);
-      var bg = toHex(bodyStyle.backgroundColor) || '#f3f6fb';
+      var bg = toHex(bodyStyle.backgroundColor) || '#f1f5fb';
       var rootStyle = getComputedStyle(document.documentElement);
       var gradient = String(rootStyle.getPropertyValue('--header-grad') || '');
       var found = gradient.match(/#[0-9a-fA-F]{6}/);
