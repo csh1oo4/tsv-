@@ -2429,19 +2429,20 @@ function App() {
       }
       const allowed = new Set(ids);
       const map = {};
-      let shown = 0;
+      const seenIds = new Set();
       list.forEach(ev => {
         if (!ev || !ev.ymd) return;
         if (allowed.size && !allowed.has(String(ev.calId))) return;
         (map[ev.ymd] = map[ev.ymd] || []).push(ev);
-        shown += 1;
+        // 연일 일정은 날짜마다 항목이 오므로 고유 일정으로 센다
+        seenIds.add(String(ev.calId || "") + "|" + String(ev.id || ev.title || ""));
       });
       setDeviceEvents(map);
       setDeviceCalState({
         available: true,
         granted: true,
         calendars: cals,
-        status: `일정 ${shown}건`
+        status: `일정 ${seenIds.size}건`
       });
     } catch (e) {
       setDeviceCalState(prev => ({
@@ -2636,6 +2637,7 @@ function App() {
     (items || []).forEach(it => {
       if (!it) return;
       let fid = it.folderId || "";
+      if (fid === "f_unfiled") fid = "";
       if (!fid && it.folderName && idByName[it.folderName]) fid = idByName[it.folderName];
       if (!fid) {
         unfiled.push(it);
@@ -2896,9 +2898,13 @@ function App() {
     // v1.6.x에서 같은 id로 올라간 기록도 함께 정리
     ws.collection("equipmentPosts").doc(id).delete().catch(() => {});
   };
+
+  // "미분류 설비 기록"은 서버에 없는 묶음 폴더라 수정 시 실제 폴더로 보낸다
+  const isPseudoFolderId = fid => !fid || fid === "f_unfiled";
   const openEquipEdit = (item, folderId) => {
     if (!item) return;
-    const targetFolderId = folderId || selectedFolderId || equipFolders[0] && equipFolders[0].id || "";
+    const realFolders = (equipFolders || []).filter(f => !isPseudoFolderId(f.id));
+    const targetFolderId = isPseudoFolderId(folderId) ? realFolders[0] && realFolders[0].id || (isPseudoFolderId(selectedFolderId) ? "" : selectedFolderId) : folderId;
     setEquipEditing({
       id: item.id,
       folderId: targetFolderId,
@@ -5292,7 +5298,7 @@ function App() {
       folderId: e.target.value
     })),
     className: "mt-1 w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-800"
-  }, equipFolders.map(f => /*#__PURE__*/React.createElement("option", {
+  }, equipFolders.filter(f => f.id !== "f_unfiled").map(f => /*#__PURE__*/React.createElement("option", {
     key: f.id,
     value: f.id
   }, f.name)))), /*#__PURE__*/React.createElement("textarea", {
@@ -5322,7 +5328,9 @@ function App() {
   })), /*#__PURE__*/React.createElement("button", {
     onClick: () => {
       if (!equipItemForm.title.trim()) return;
-      const targetFolderId = equipItemForm.folderId || equipEditing && equipEditing.folderId || selectedFolderId || equipFolders[0] && equipFolders[0].id;
+      const realFolders = (equipFolders || []).filter(f => f.id !== "f_unfiled");
+      const candidateFolderId = equipItemForm.folderId || equipEditing && equipEditing.folderId || selectedFolderId;
+      const targetFolderId = candidateFolderId && candidateFolderId !== "f_unfiled" ? candidateFolderId : realFolders[0] && realFolders[0].id || selectedFolderId;
       if (equipEditing) {
         const edited = {
           id: equipEditing.id,
