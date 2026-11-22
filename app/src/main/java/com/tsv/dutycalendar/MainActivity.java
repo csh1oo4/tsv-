@@ -40,15 +40,21 @@ import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 import android.widget.Toast;
 
+import androidx.core.content.FileProvider;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -63,7 +69,7 @@ import java.util.TimeZone;
  * Full-screen WebView shell for 「TSV 교대달력」.
  *
  * The web app lives in assets/index.html and is loaded from
- * file:///android_asset/index.html, untouched. Two small bridges add what a bare
+ * file:///android_asset/index.html, untouched. Four small bridges add what a bare
  * WebView cannot do by itself:
  *
  *   window.AndroidCalendar — the device calendar (permission, calendar list,
@@ -79,6 +85,10 @@ import java.util.TimeZone;
  *   and a high-priority full-screen notification in sync with them. The page
  *   only calls it when the bridge exists, so the same index.html also runs as
  *   a plain web app.
+ *
+ *   window.AndroidUpdater  — the in-app update: getAppVersion() and
+ *   downloadAndInstall(apkUrl, fileName), which fetches the newest GitHub
+ *   release APK into cache/updates/ and opens the system installer.
  *
  * Coming back from the Samsung/Google calendar app re-syncs the device calendar:
  * onResume() calls the page's own window.onAppResume().
@@ -179,6 +189,7 @@ public class MainActivity extends Activity {
         webView.addJavascriptInterface(new CalendarBridge(), "AndroidCalendar");
         webView.addJavascriptInterface(new Bridge(), "AndroidBridge");
         webView.addJavascriptInterface(new AlarmBridge(), "AndroidAlarm");
+        webView.addJavascriptInterface(new UpdaterBridge(), "AndroidUpdater");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -1277,6 +1288,310 @@ public class MainActivity extends Activity {
                 AlarmReceiver.apply(MainActivity.this, "[]");
             } catch (Exception e) {
                 Log.w(TAG, "AndroidAlarm.cancelAlarms failed", e);
+            }
+        }
+    }
+
+    // --------------------------------------------------------- in-app updater
+
+    /**
+     * JS-facing API: window.AndroidUpdater.*
+     *
+     * The page reads the newest duty-calendar-v* GitHub release and, when it is newer
+     * than getAppVersion(), offers "지금 업데이트". downloadAndInstall() then fetches the
+     * APK into cache/updates/ and hands it to the system package installer through the
+     * FileProvider declared in AndroidManifest.xml (authority ${applicationId}.fileprovider).
+     */
+    public class UpdaterBridge {
+
+        /** GitHub's release assets answer with a 302 to objects.githubusercontent.com. */
+        private static final int MAX_REDIRECTS = 6;
+        private static final int MIN_APK_BYTES = 10 * 1024;
+
+        private volatile boolean downloading = false;
+        private volatile String readyUrl = null;
+        private volatile File readyFile = null;
+
+        @JavascriptInterface
+        public String getAppVersion() {
+            try {
+                String version = getPackageManager()
+                        .getPackageInfo(getPackageName(), 0).versionName;
+                return version == null || version.trim().isEmpty() ? "1.5" : version;
+            } catch (Exception e) {
+                Log.w(TAG, "getAppVersion failed", e);
+                return "1.5";
+            }
+        }
+
+        @JavascriptInterface
+        public void downloadAndInstall(String apkUrl, String fileName) {
+            String url = apkUrl == null ? "" : apkUrl.trim();
+            if (url.isEmpty() || !(url.startsWith("https://") || url.startsWith("http://"))) {
+                postUpdateError("업데이트 주소가 올바르지 않습니다.");
+                return;
+            }
+            final String safeName = safeApkName(fileName);
+
+            // Second press right after the user allowed 'install unknown apps':
+            // the APK is already on disk, so go straight to the install screen.
+            File cached = readyFile;
+            if (cached != null && url.equals(readyUrl) && cached.exists()
+                    && cached.length() > MIN_APK_BYTES) {
+                postProgress(100, "다운로드 완료");
+                installApk(cached);
+                return;
+            }
+
+            if (downloading) {
+                return;
+            }
+            downloading = true;
+            new Thread(() -> downloadApk(url, safeName), "tsv-update-download").start();
+        }
+
+        // ---- download
+
+        private void downloadApk(String apkUrl, String fileName) {
+            File dir = new File(getCacheDir(), "updates");
+            if (!dir.exists() && !dir.mkdirs()) {
+                downloading = false;
+                postUpdateError("업데이트를 저장할 공간을 만들지 못했습니다.");
+                return;
+            }
+            File target = new File(dir, fileName);
+            File part = new File(dir, fileName + ".part");
+            deleteStaleFiles(dir, target, part);
+
+            HttpURLConnection conn = null;
+            InputStream in = null;
+            OutputStream out = null;
+            try {
+                postProgress(0, "다운로드 준비 중...");
+                conn = openFollowingRedirects(apkUrl);
+                int code = conn.getResponseCode();
+                if (code != HttpURLConnection.HTTP_OK) {
+                    throw new IOException("HTTP " + code);
+                }
+                long contentLength = -1;
+                try {
+                    contentLength = conn.getContentLengthLong();
+                } catch (Throwable ignored) {
+                    // Chunked responses do not carry a length.
+                }
+
+                in = conn.getInputStream();
+                out = new FileOutputStream(part);
+                byte[] buffer = new byte[16 * 1024];
+                long read = 0;
+                int lastPct = -1;
+                int lastTenthMb = -1;
+                int count;
+                while ((count = in.read(buffer)) != -1) {
+                    out.write(buffer, 0, count);
+                    read += count;
+                    if (contentLength > 0) {
+                        int pct = (int) Math.min(99, read * 100 / contentLength);
+                        if (pct >= lastPct + 5) {
+                            lastPct = pct;
+                            postProgress(pct, "다운로드 중... " + pct + "%");
+                        }
+                    } else {
+                        int tenthMb = (int) (read / (100 * 1024));
+                        if (tenthMb != lastTenthMb) {
+                            lastTenthMb = tenthMb;
+                            postProgress(0, "다운로드 중... "
+                                    + String.format(Locale.US, "%.1f", read / 1048576.0) + " MB");
+                        }
+                    }
+                }
+                out.flush();
+                out.close();
+                out = null;
+                in.close();
+                in = null;
+
+                if (part.length() < MIN_APK_BYTES || !looksLikeApk(part)) {
+                    part.delete();
+                    throw new IOException("내려받은 파일이 APK가 아닙니다.");
+                }
+                if (target.exists() && !target.delete()) {
+                    throw new IOException("이전 파일을 지우지 못했습니다.");
+                }
+                if (!part.renameTo(target)) {
+                    throw new IOException("파일을 마무리하지 못했습니다.");
+                }
+                readyUrl = apkUrl;
+                readyFile = target;
+                downloading = false;
+                postProgress(100, "다운로드 완료");
+                installApk(target);
+            } catch (Exception e) {
+                Log.w(TAG, "update download failed", e);
+                part.delete();
+                downloading = false;
+                String reason = e.getMessage() == null ? "" : e.getMessage();
+                if (reason.contains("APK")) {
+                    postUpdateError("내려받은 파일이 올바른 APK가 아닙니다. 잠시 후 다시 시도해 주세요.");
+                } else if (reason.startsWith("HTTP ")) {
+                    postUpdateError("업데이트 파일을 받지 못했습니다 (" + reason + ").");
+                } else {
+                    postUpdateError("다운로드에 실패했습니다. 네트워크를 확인해 주세요.");
+                }
+            } finally {
+                downloading = false;
+                closeQuietly(in);
+                closeQuietly(out);
+                if (conn != null) {
+                    conn.disconnect();
+                }
+            }
+        }
+
+        /**
+         * GitHub release downloads redirect github.com → objects.githubusercontent.com.
+         * HttpURLConnection does not follow a cross-protocol/cross-host redirect on its own,
+         * so every hop is taken by hand.
+         */
+        private HttpURLConnection openFollowingRedirects(String url) throws IOException {
+            String current = url;
+            for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
+                HttpURLConnection conn = (HttpURLConnection) new URL(current).openConnection();
+                conn.setInstanceFollowRedirects(false);
+                conn.setConnectTimeout(20000);
+                conn.setReadTimeout(60000);
+                conn.setRequestProperty("User-Agent", "TSV-DutyCalendar-Updater");
+                conn.setRequestProperty("Accept",
+                        "application/vnd.android.package-archive,application/octet-stream,*/*");
+                int code = conn.getResponseCode();
+                if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
+                    String location = conn.getHeaderField("Location");
+                    conn.disconnect();
+                    if (location == null || location.trim().isEmpty()) {
+                        throw new IOException("리다이렉트 주소가 없습니다.");
+                    }
+                    current = new URL(new URL(current), location.trim()).toString();
+                    continue;
+                }
+                if (code >= 400) {
+                    conn.disconnect();
+                    throw new IOException("HTTP " + code);
+                }
+                return conn;
+            }
+            throw new IOException("리다이렉트가 너무 많습니다.");
+        }
+
+        // ---- install
+
+        private void installApk(File apk) {
+            runOnUiThread(() -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                        && !getPackageManager().canRequestPackageInstalls()) {
+                    postUpdateError("'출처를 알 수 없는 앱 설치' 허용 후 다시 눌러주세요");
+                    try {
+                        Intent settings = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                Uri.parse("package:" + getPackageName()));
+                        settings.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(settings);
+                    } catch (Exception e) {
+                        Log.w(TAG, "unknown-sources settings failed", e);
+                    }
+                    return;
+                }
+                Uri uri;
+                try {
+                    uri = FileProvider.getUriForFile(MainActivity.this,
+                            getPackageName() + ".fileprovider", apk);
+                } catch (Exception e) {
+                    Log.w(TAG, "FileProvider uri failed", e);
+                    postUpdateError("설치 파일을 준비하지 못했습니다.");
+                    return;
+                }
+                Intent intent = new Intent(Intent.ACTION_VIEW);
+                intent.setDataAndType(uri, "application/vnd.android.package-archive");
+                intent.setClipData(ClipData.newRawUri("apk", uri));
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        | Intent.FLAG_ACTIVITY_NEW_TASK);
+                try {
+                    startActivity(intent);
+                } catch (Exception e) {
+                    Log.w(TAG, "install intent failed", e);
+                    postUpdateError("설치 화면을 열 수 없습니다. 파일 관리자에서 직접 설치해 주세요.");
+                }
+            });
+        }
+
+        // ---- helpers
+
+        private void postProgress(int pct, String message) {
+            final String js = "if(window.onUpdateProgress)window.onUpdateProgress("
+                    + pct + "," + JSONObject.quote(message == null ? "" : message) + ");";
+            runOnUiThread(() -> {
+                if (webView != null) {
+                    webView.evaluateJavascript(js, null);
+                }
+            });
+        }
+
+        private void postUpdateError(String message) {
+            final String js = "if(window.onUpdateError)window.onUpdateError("
+                    + JSONObject.quote(message == null ? "" : message) + ");";
+            runOnUiThread(() -> {
+                if (webView != null) {
+                    webView.evaluateJavascript(js, null);
+                }
+            });
+        }
+
+        /** Keeps only the APK name, so the release asset name cannot escape cache/updates/. */
+        private String safeApkName(String fileName) {
+            String name = fileName == null ? "" : fileName.trim();
+            int slash = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
+            if (slash >= 0) {
+                name = name.substring(slash + 1);
+            }
+            name = name.replaceAll("[^A-Za-z0-9._-]", "_");
+            if (name.isEmpty() || name.startsWith(".") || !name.toLowerCase(Locale.US).endsWith(".apk")) {
+                return "TSV-DutyCalendar-update.apk";
+            }
+            return name;
+        }
+
+        private boolean looksLikeApk(File file) {
+            FileInputStream check = null;
+            try {
+                check = new FileInputStream(file);
+                int first = check.read();
+                int second = check.read();
+                return first == 'P' && second == 'K';
+            } catch (Exception e) {
+                return false;
+            } finally {
+                closeQuietly(check);
+            }
+        }
+
+        private void deleteStaleFiles(File dir, File keep, File part) {
+            File[] files = dir.listFiles();
+            if (files == null) {
+                return;
+            }
+            for (File f : files) {
+                if (!f.equals(keep) && !f.equals(part)) {
+                    f.delete();
+                }
+            }
+        }
+
+        private void closeQuietly(java.io.Closeable closeable) {
+            if (closeable == null) {
+                return;
+            }
+            try {
+                closeable.close();
+            } catch (Exception ignored) {
+                // Nothing useful to do.
             }
         }
     }

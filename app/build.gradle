@@ -10,8 +10,8 @@ android {
         applicationId "com.tsv.dutycalendar"
         minSdk 24
         targetSdk 34
-        versionCode 7
-        versionName "1.4"
+        versionCode 8
+        versionName "1.5"
     }
 
     // Fixed debug key: keeps the signing certificate identical across every build so
@@ -48,5 +48,7 @@ android {
 }
 
 dependencies {
-    // Intentionally dependency-free: plain Android WebView + platform APIs only.
+    // androidx.core is here only for FileProvider, which hands the downloaded update
+    // APK to the system package installer (see UpdaterBridge in MainActivity).
+    implementation 'androidx.core:core:1.12.0'
 }
