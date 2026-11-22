@@ -52,9 +52,11 @@ public class AlarmReceiver extends BroadcastReceiver {
     public static final String EXTRA_SOUND = "sound";
     public static final String EXTRA_VIBRATE = "vibrate";
 
-    private static final String PREFS = "tsv_duty_alarms";
+    /** Shared alarm store; MainActivity also reads it for its permission prompts. */
+    public static final String PREFS = "tsv_duty_alarms";
     private static final String KEY_ALARMS = "alarm_list_json";
     private static final String KEY_IDS = "scheduled_ids_json";
+
 
     public static final String CHANNEL_ID = "tsv_duty_alarm";
 

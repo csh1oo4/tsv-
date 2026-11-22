@@ -69,7 +69,9 @@ re-arms still-future alarms on `BOOT_COMPLETED` and `MY_PACKAGE_REPLACED`.
 with the game off a single "알람 끄기" button dismisses it.
 - New permissions: `VIBRATE`, `WAKE_LOCK`, `USE_FULL_SCREEN_INTENT`,
 `SCHEDULE_EXACT_ALARM`, `RECEIVE_BOOT_COMPLETED`, `POST_NOTIFICATIONS` (requested at
-start on Android 13+).
+start on Android 13+). The first time an alarm is scheduled, the app offers the
+Android 12+ "알람 및 리마인더" and Android 14+ "전체 화면 알림" special-access
+switches once, since without them an alarm can ring late or only as a heads-up.
 
 ## v1.1
 

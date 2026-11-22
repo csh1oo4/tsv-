@@ -2,8 +2,10 @@ package com.tsv.dutycalendar;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.AlarmManager;
 import android.app.AlertDialog;
 import android.app.DownloadManager;
+import android.app.NotificationManager;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -22,6 +24,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.provider.CalendarContract;
 import android.provider.MediaStore;
+import android.provider.Settings;
 import android.util.Base64;
 import android.util.Log;
 import android.view.ViewGroup;
@@ -654,6 +657,87 @@ public class MainActivity extends Activity {
         return String.format(Locale.US, "#%06X", 0xFFFFFF & argb);
     }
 
+    /** True when the page handed over at least one occurrence (i.e. an alarm is on). */
+    private static boolean jsonHasAlarms(String jsonStr) {
+        try {
+            return new JSONArray(jsonStr == null ? "[]" : jsonStr).length() > 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Android 12+ keeps exact alarms, and Android 14+ full-screen intents, behind a
+     * special-access switch. Without them the alarm still exists but can ring late or
+     * only as a heads-up, so the first time an alarm is scheduled we point the user at
+     * the switch — once per install, never again after they decide.
+     */
+    private void maybeAskAlarmPermissions() {
+        SharedPreferences asked = getSharedPreferences(AlarmReceiver.PREFS, MODE_PRIVATE);
+
+        if (Build.VERSION.SDK_INT >= 31) {
+            AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+            boolean exact = false;
+            try {
+                exact = am != null && am.canScheduleExactAlarms();
+            } catch (Exception ignored) {
+                exact = false;
+            }
+            if (!exact && !asked.getBoolean("asked_exact_alarm", false)) {
+                asked.edit().putBoolean("asked_exact_alarm", true).apply();
+                new AlertDialog.Builder(this)
+                        .setTitle("알람을 정확한 시각에 울리려면")
+                        .setMessage("휴대폰 설정에서 '알람 및 리마인더'를 허용하면 "
+                                + "근무 알람이 예정된 시각에 정확히 울립니다.\n"
+                                + "허용하지 않으면 몇 분 늦게 울릴 수 있어요.")
+                        .setPositiveButton("설정 열기", (dialog, which) -> openSpecialAccess(
+                                "android.settings.REQUEST_SCHEDULE_EXACT_ALARM"))
+                        .setNegativeButton("나중에", null)
+                        .show();
+                return;
+            }
+        }
+
+        if (Build.VERSION.SDK_INT >= 34) {
+            NotificationManager nm =
+                    (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            boolean fullScreen = true;
+            try {
+                fullScreen = nm == null || nm.canUseFullScreenIntent();
+            } catch (Exception ignored) {
+                fullScreen = false;
+            }
+            if (!fullScreen && !asked.getBoolean("asked_fullscreen_intent", false)) {
+                asked.edit().putBoolean("asked_fullscreen_intent", true).apply();
+                new AlertDialog.Builder(this)
+                        .setTitle("잠금화면 알람 화면")
+                        .setMessage("'전체 화면 알림'을 허용하면 화면이 꺼져 있거나 잠겨 있어도 "
+                                + "알람 화면이 바로 뜨게 됩니다.")
+                        .setPositiveButton("설정 열기", (dialog, which) -> openSpecialAccess(
+                                "android.settings.MANAGE_APP_USE_FULL_SCREEN_INTENT"))
+                        .setNegativeButton("나중에", null)
+                        .show();
+            }
+        }
+    }
+
+    /** Opens a special-access screen for this package, falling back to app details. */
+    private void openSpecialAccess(String action) {
+        try {
+            Intent intent = new Intent(action);
+            intent.setData(Uri.parse("package:" + getPackageName()));
+            startActivity(intent);
+        } catch (Exception e) {
+            try {
+                Intent detail = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                detail.setData(Uri.parse("package:" + getPackageName()));
+                startActivity(detail);
+            } catch (Exception ignored) {
+                toast("설정 화면을 열지 못했어요");
+            }
+        }
+    }
+
     private void requestNotificationPermission() {
         if (Build.VERSION.SDK_INT < 33) {
             return;
@@ -1179,6 +1263,9 @@ public class MainActivity extends Activity {
             try {
                 AlarmReceiver.ensureChannel(MainActivity.this);
                 AlarmReceiver.apply(MainActivity.this, jsonStr);
+                if (jsonHasAlarms(jsonStr)) {
+                    runOnUiThread(() -> maybeAskAlarmPermissions());
+                }
             } catch (Exception e) {
                 Log.w(TAG, "AndroidAlarm.scheduleAlarms failed", e);
             }
