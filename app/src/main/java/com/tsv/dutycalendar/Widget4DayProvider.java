@@ -11,6 +11,9 @@ import android.widget.RemoteViews;
  */
 public class Widget4DayProvider extends AppWidgetProvider {
 
+    private static final int[] EVENT_IDS =
+            {R.id.w_4d_ev0, R.id.w_4d_ev1, R.id.w_4d_ev2, R.id.w_4d_ev3};
+
     @Override
     public void onUpdate(Context context, AppWidgetManager appWidgetManager, int[] appWidgetIds) {
         if (appWidgetIds == null || appWidgetIds.length == 0) {
@@ -35,6 +38,7 @@ public class Widget4DayProvider extends AppWidgetProvider {
             ShiftWidgetHelper.bindDate(views, WidgetIds.DAY4_DATE[i], day, i == 0);
             ShiftWidgetHelper.bindDow(views, WidgetIds.DAY4_DOW[i], day);
             ShiftWidgetHelper.bindBadge(views, WidgetIds.DAY4_BADGE[i], day.shift);
+            ShiftWidgetHelper.bindDayEvent(views, EVENT_IDS[i], snapshot, day);
         }
 
         views.setOnClickPendingIntent(R.id.w_root, ShiftWidgetHelper.openApp(context, 103));

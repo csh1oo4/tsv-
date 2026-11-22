@@ -95,10 +95,16 @@ public class WidgetMonthProvider extends AppWidgetProvider {
             int dayNumber = cell - lead + 1;
             int dateId = WidgetIds.MONTH_DATE[cell];
             int shiftId = WidgetIds.MONTH_SHIFT[cell];
+            int ev1Id = WidgetIds.MONTH_EV1[cell];
+            int ev2Id = WidgetIds.MONTH_EV2[cell];
 
             if (dayNumber < 1 || dayNumber > daysInMonth) {
                 views.setTextViewText(dateId, "");
+                views.setInt(dateId, "setBackgroundColor", android.graphics.Color.TRANSPARENT);
+                views.setInt(shiftId, "setBackgroundResource", R.drawable.widget_badge_none);
                 views.setTextViewText(shiftId, "");
+                ShiftWidgetHelper.hideEventLine(views, ev1Id);
+                ShiftWidgetHelper.hideEventLine(views, ev2Id);
                 continue;
             }
 
@@ -112,7 +118,10 @@ public class WidgetMonthProvider extends AppWidgetProvider {
             if (isToday) {
                 views.setInt(dateId, "setBackgroundResource", R.drawable.widget_today_bg);
             }
-            ShiftWidgetHelper.bindShiftText(views, shiftId, day.shift, isToday);
+            // 원형 배지: 20dp 칸 안에서 한 글자는 10.5sp, 두 글자(주특·연차·교육)는 8.5sp.
+            ShiftWidgetHelper.bindBadge(views, shiftId, day.shift, 10.5f, 8.5f);
+            // 근무 배지 아래 일정 2줄 (없으면 공휴일, 그것도 없으면 숨김).
+            ShiftWidgetHelper.bindMonthEvents(views, ev1Id, ev2Id, snapshot, day);
         }
 
         views.setOnClickPendingIntent(R.id.w_root, ShiftWidgetHelper.openApp(context, 105));

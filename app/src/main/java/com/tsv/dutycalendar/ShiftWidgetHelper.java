@@ -6,7 +6,10 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.Color;
 import android.util.Log;
+import android.util.TypedValue;
+import android.view.View;
 import android.widget.RemoteViews;
 
 import org.json.JSONArray;
@@ -23,7 +26,7 @@ import java.util.Locale;
  * The web app is the only place the shift table is edited, so every time it saves
  * it hands the widget-relevant slice of its state to
  * window.AndroidWidget.syncWidgetData(json) (see MainActivity.WidgetBridge). That
- * JSON — myTeamId, anchorDate, teams[], overrides{} and holidays{} — is kept in
+ * JSON — myTeamId, anchorDate, teams[], overrides{}, holidays{} and events{} — is kept in
  * SharedPreferences("tsv_widget_prefs", "widget_json"), and the widgets are drawn
  * from it. Before the app has ever run the same preferences are empty, so
  * DEFAULT_* below mirrors DEFAULT_DATA in assets/index.html: A/B/C조, the 12-day
@@ -64,7 +67,7 @@ final class ShiftWidgetHelper {
 
     static final int COLOR_SHIFT_JU = 0xFFB45309;
     static final int COLOR_SHIFT_YA = 0xFF1E293B;
-    static final int COLOR_SHIFT_HYU = 0xFFFDBA74;
+    static final int COLOR_SHIFT_HYU = 0xFFEA580C;
     static final int COLOR_SHIFT_EDU = 0xFF0284C7;
     static final int COLOR_SHIFT_OFF = 0xFF16A34A;
 
@@ -101,6 +104,8 @@ final class ShiftWidgetHelper {
         List<Team> teams = new ArrayList<>();
         JSONObject overrides = new JSONObject();
         JSONObject holidays = new JSONObject();
+        /** { "YYYY-MM-DD": [ {title, color, kind} ] } — 메모·일정·공휴일 줄. */
+        JSONObject events = new JSONObject();
 
         Team team(String id) {
             if (id == null) {
@@ -133,6 +138,19 @@ final class ShiftWidgetHelper {
 
         boolean isSaturday() {
             return dow == Calendar.SATURDAY;
+        }
+    }
+
+    /** One 일정/메모 line the page hands over for a date ("events" in widget_json). */
+    static final class Event {
+        final String title;
+        final String color;
+        final String kind;
+
+        Event(String title, String color, String kind) {
+            this.title = title;
+            this.color = color;
+            this.kind = kind;
         }
     }
 
@@ -209,6 +227,10 @@ final class ShiftWidgetHelper {
             JSONObject holidays = json.optJSONObject("holidays");
             if (holidays != null) {
                 snapshot.holidays = holidays;
+            }
+            JSONObject events = json.optJSONObject("events");
+            if (events != null) {
+                snapshot.events = events;
             }
         } catch (Exception e) {
             Log.w(TAG, "widget json broken, using defaults", e);
@@ -347,6 +369,59 @@ final class ShiftWidgetHelper {
         return days;
     }
 
+    /** 일정·메모 목록 for one date, empty when the page synced nothing for it. */
+    static List<Event> events(Snapshot snapshot, String ymd) {
+        List<Event> list = new ArrayList<>();
+        if (snapshot == null || snapshot.events == null || ymd == null) {
+            return list;
+        }
+        JSONArray array;
+        try {
+            array = snapshot.events.optJSONArray(ymd);
+        } catch (Exception e) {
+            return list;
+        }
+        if (array == null) {
+            return list;
+        }
+        for (int i = 0; i < array.length(); i++) {
+            JSONObject item = array.optJSONObject(i);
+            if (item == null) {
+                continue;
+            }
+            String title = item.optString("title", "").trim();
+            if (title.isEmpty()) {
+                continue;
+            }
+            list.add(new Event(title, item.optString("color", ""), item.optString("kind", "")));
+        }
+        return list;
+    }
+
+    static int parseColor(String value, int fallback) {
+        if (value == null || value.trim().isEmpty()) {
+            return fallback;
+        }
+        try {
+            return Color.parseColor(value.trim());
+        } catch (Exception e) {
+            return fallback;
+        }
+    }
+
+    /**
+     * 일정 색은 사용자가 고른다 (연한 파스텔도 있다). 흰 카드 위 작은 글씨라
+     * 너무 밝은 색은 진한 슬레이트로 내려 읽히게 한다.
+     */
+    static int eventTextColor(String value) {
+        int color = parseColor(value, 0xFF475569);
+        int r = (color >> 16) & 0xFF;
+        int g = (color >> 8) & 0xFF;
+        int b = color & 0xFF;
+        double luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255.0;
+        return luminance > 0.62 ? 0xFF475569 : color;
+    }
+
     /* ==================================================== drawing */
 
     static int dateColor(Day day) {
@@ -380,6 +455,16 @@ final class ShiftWidgetHelper {
      * 휴 (and anything unknown) no circle at all, just light orange text.
      */
     static void bindBadge(RemoteViews views, int id, Shift shift) {
+        bindBadge(views, id, shift, 0f, 0f);
+    }
+
+    /**
+     * Same badge, with optional text sizes for the small fixed circles of the month
+     * widget: one-character labels (주/야/휴) get singleSp, two-character ones
+     * (주특/연차/반차/교육) get doubleSp so they still fit inside the circle.
+     * Passing 0 leaves the size written in the layout.
+     */
+    static void bindBadge(RemoteViews views, int id, Shift shift, float singleSp, float doubleSp) {
         String label = shift == null ? "" : shift.sub;
         String type;
         if (label != null && !label.isEmpty()) {
@@ -420,6 +505,71 @@ final class ShiftWidgetHelper {
         views.setInt(id, "setBackgroundResource", background);
         views.setTextColor(id, text);
         views.setTextViewText(id, label);
+        if (singleSp > 0f) {
+            float size = label.length() >= 2 ? (doubleSp > 0f ? doubleSp : singleSp) : singleSp;
+            views.setTextViewTextSize(id, TypedValue.COMPLEX_UNIT_SP, size);
+        }
+    }
+
+    /** One 일정 line under a date; hidden (GONE) when there is nothing to show. */
+    static void bindEventLine(RemoteViews views, int id, String text, int color) {
+        if (text == null || text.trim().isEmpty()) {
+            hideEventLine(views, id);
+            return;
+        }
+        views.setViewVisibility(id, View.VISIBLE);
+        views.setTextColor(id, color);
+        views.setTextViewText(id, text.trim());
+    }
+
+    static void hideEventLine(RemoteViews views, int id) {
+        views.setViewVisibility(id, View.GONE);
+        views.setTextViewText(id, "");
+    }
+
+    /**
+     * 한달 위젯 한 칸의 두 줄: 1줄 = 첫 일정 (없으면 공휴일 이름), 2줄 = 두 번째
+     * 일정, 3건 이상이면 남은 건수 (+N건). 아무것도 없으면 둘 다 GONE.
+     */
+    static void bindMonthEvents(RemoteViews views, int ev1Id, int ev2Id,
+                                Snapshot snapshot, Day day) {
+        List<Event> list = events(snapshot, day.ymd);
+        if (!list.isEmpty()) {
+            Event first = list.get(0);
+            bindEventLine(views, ev1Id, first.title, eventTextColor(first.color));
+            if (list.size() == 2) {
+                Event second = list.get(1);
+                bindEventLine(views, ev2Id, second.title, eventTextColor(second.color));
+            } else if (list.size() > 2) {
+                bindEventLine(views, ev2Id, "+" + (list.size() - 1) + "건", COLOR_SUB);
+            } else {
+                hideEventLine(views, ev2Id);
+            }
+            return;
+        }
+        hideEventLine(views, ev2Id);
+        if (day.holiday && day.holidayName != null && !day.holidayName.isEmpty()) {
+            bindEventLine(views, ev1Id, day.holidayName, COLOR_HOLIDAY);
+        } else {
+            hideEventLine(views, ev1Id);
+        }
+    }
+
+    /** Compact widgets: first 일정 of the day ("+N" when more), else the holiday name. */
+    static void bindDayEvent(RemoteViews views, int id, Snapshot snapshot, Day day) {
+        List<Event> list = events(snapshot, day.ymd);
+        if (!list.isEmpty()) {
+            Event first = list.get(0);
+            String text = list.size() > 1
+                    ? first.title + " +" + (list.size() - 1) : first.title;
+            bindEventLine(views, id, text, eventTextColor(first.color));
+            return;
+        }
+        if (day.holiday && day.holidayName != null && !day.holidayName.isEmpty()) {
+            bindEventLine(views, id, day.holidayName, COLOR_HOLIDAY);
+            return;
+        }
+        hideEventLine(views, id);
     }
 
     /** Compact 월간 근무 mark: no circle, just coloured bold text. */

@@ -14,6 +14,7 @@ public class Widget2DayProvider extends AppWidgetProvider {
     private static final int[] DATE_IDS = {R.id.w_2d_date0, R.id.w_2d_date1};
     private static final int[] DOW_IDS = {R.id.w_2d_dow0, R.id.w_2d_dow1};
     private static final int[] BADGE_IDS = {R.id.w_2d_badge0, R.id.w_2d_badge1};
+    private static final int[] EVENT_IDS = {R.id.w_2d_ev0, R.id.w_2d_ev1};
 
     @Override
     public void onUpdate(Context context, AppWidgetManager appWidgetManager, int[] appWidgetIds) {
@@ -38,6 +39,7 @@ public class Widget2DayProvider extends AppWidgetProvider {
             ShiftWidgetHelper.bindDate(views, DATE_IDS[i], day, i == 0);
             ShiftWidgetHelper.bindDow(views, DOW_IDS[i], day);
             ShiftWidgetHelper.bindBadge(views, BADGE_IDS[i], day.shift);
+            ShiftWidgetHelper.bindDayEvent(views, EVENT_IDS[i], snapshot, day);
         }
 
         views.setOnClickPendingIntent(R.id.w_root, ShiftWidgetHelper.openApp(context, 102));

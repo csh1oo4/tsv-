@@ -1121,6 +1121,20 @@
   function syncWidgetToNative() {
     if (!window.AndroidWidget || typeof window.AndroidWidget.syncWidgetData !== 'function') return;
     try {
+      const eventsByDate = {};
+      const base = new Date(viewYear, viewMonth - 1, 1);
+      for (let d = -35; d <= 75; d++) {
+        const dt = new Date(base.getFullYear(), base.getMonth(), 1 + d);
+        const ymd = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+        const list = getAllEventsForDate(ymd);
+        if (list && list.length) {
+          eventsByDate[ymd] = list.slice(0, 4).map(ev => ({
+            title: String(ev.title || '').slice(0, 24),
+            color: ev.color || '#2563eb',
+            kind: ev.kind || 'memo'
+          }));
+        }
+      }
       const payload = {
         myTeamId: state.myTeamId,
         anchorDate: state.anchorDate,
@@ -1132,7 +1146,8 @@
           color: t.color || '#3182f6'
         })),
         overrides: state.overrides || {},
-        holidays: typeof KR_HOLIDAYS !== 'undefined' ? KR_HOLIDAYS : {}
+        holidays: typeof KR_HOLIDAYS !== 'undefined' ? KR_HOLIDAYS : {},
+        events: eventsByDate
       };
       window.AndroidWidget.syncWidgetData(JSON.stringify(payload));
     } catch (e) {
@@ -1373,6 +1388,7 @@
       renderDrawerCalStatus(`연동됨 · 캘린더 ${deviceCalendars.length}개 · 일정 ${evList.length}건`);
       renderDrawerCalList();
       renderMain();
+      syncWidgetToNative();
     } catch (e) {
       renderDrawerCalStatus('캘린더 불러오기 오류: ' + e.message);
     }
@@ -2599,7 +2615,7 @@
   /* =========================================================
      5-1. 인앱 자동 업데이트 (GitHub Releases 연동)
      ========================================================= */
-  const APP_FALLBACK_VERSION = '1.6';
+  const APP_FALLBACK_VERSION = '1.6.1';
   const UPDATE_RELEASES_API = 'https://api.github.com/repos/csh1oo4/tsv-/releases?per_page=10';
   const appUpdateState = {
     checking: false,

@@ -32,6 +32,7 @@ public class Widget1DayProvider extends AppWidgetProvider {
         ShiftWidgetHelper.bindDate(views, R.id.w_day_date, today, true);
         ShiftWidgetHelper.bindDow(views, R.id.w_day_dow, today);
         ShiftWidgetHelper.bindBadge(views, R.id.w_day_badge, today.shift);
+        ShiftWidgetHelper.bindDayEvent(views, R.id.w_day_ev, snapshot, today);
 
         views.setOnClickPendingIntent(R.id.w_root, ShiftWidgetHelper.openApp(context, 101));
         return views;

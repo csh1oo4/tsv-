@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 한달 위젯 (4×4): 월 이동 화살표 + 요일 줄 + 6주×7일 그리드 -->
+<!-- 한달 위젯 (4×4): 월 이동 화살표 + 요일 줄 + 6주×7일 그리드
+     각 칸 = 날짜 / 근무 배지(20dp 원) / 일정·공휴일 2줄 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/w_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/widget_card"
     android:orientation="vertical"
-    android:padding="6dp">
+    android:padding="5dp">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -17,7 +18,7 @@
         <TextView
             android:id="@+id/w_m_prev"
             android:layout_width="28dp"
-            android:layout_height="24dp"
+            android:layout_height="22dp"
             android:gravity="center"
             android:includeFontPadding="false"
             android:maxLines="1"
@@ -41,7 +42,7 @@
         <TextView
             android:id="@+id/w_m_next"
             android:layout_width="28dp"
-            android:layout_height="24dp"
+            android:layout_height="22dp"
             android:gravity="center"
             android:includeFontPadding="false"
             android:maxLines="1"
@@ -54,9 +55,8 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
+        android:layout_marginTop="1dp"
         android:orientation="horizontal">
-
             <TextView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
@@ -156,22 +156,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c0_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c0_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c0_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -187,22 +217,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c1_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c1_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c1_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -218,22 +278,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c2_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c2_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c2_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -249,22 +339,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c3_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c3_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c3_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -280,22 +400,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c4_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c4_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c4_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -311,22 +461,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c5_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c5_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c5_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -342,23 +522,54 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c6_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c6_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c6_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
+
         </LinearLayout>
 
         <LinearLayout
@@ -381,22 +592,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c7_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c7_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c7_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -412,22 +653,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c8_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c8_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c8_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -443,22 +714,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c9_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c9_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c9_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -474,22 +775,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c10_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c10_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c10_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -505,22 +836,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c11_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c11_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c11_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -536,22 +897,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c12_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c12_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c12_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -567,23 +958,54 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c13_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c13_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c13_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
+
         </LinearLayout>
 
         <LinearLayout
@@ -606,22 +1028,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c14_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c14_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c14_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -637,22 +1089,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c15_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c15_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c15_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -668,22 +1150,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c16_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c16_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c16_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -699,22 +1211,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c17_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c17_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c17_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -730,22 +1272,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c18_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c18_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c18_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -761,22 +1333,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c19_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c19_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c19_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -792,23 +1394,54 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c20_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c20_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c20_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
+
         </LinearLayout>
 
         <LinearLayout
@@ -831,22 +1464,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c21_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c21_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c21_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -862,22 +1525,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c22_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c22_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c22_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -893,22 +1586,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c23_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c23_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c23_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -924,22 +1647,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c24_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c24_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c24_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -955,22 +1708,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c25_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c25_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c25_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -986,22 +1769,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c26_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c26_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c26_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -1017,23 +1830,54 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c27_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c27_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c27_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
+
         </LinearLayout>
 
         <LinearLayout
@@ -1056,22 +1900,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c28_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c28_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c28_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -1087,22 +1961,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c29_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c29_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c29_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -1118,22 +2022,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c30_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c30_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c30_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -1149,22 +2083,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c31_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c31_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c31_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -1180,22 +2144,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c32_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c32_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c32_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -1211,22 +2205,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c33_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c33_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c33_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -1242,23 +2266,54 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c34_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c34_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c34_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
+
         </LinearLayout>
 
         <LinearLayout
@@ -1281,22 +2336,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c35_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c35_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c35_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -1312,22 +2397,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c36_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c36_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c36_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -1343,22 +2458,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c37_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c37_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c37_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -1374,22 +2519,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c38_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c38_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c38_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -1405,22 +2580,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c39_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c39_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c39_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -1436,22 +2641,52 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c40_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c40_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c40_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -1467,22 +2702,53 @@
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
                         android:maxLines="1"
-                        android:paddingStart="2dp"
-                        android:paddingTop="0dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="0dp"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
                         android:textColor="#0F172A"
-                        android:textSize="10sp" />
+                        android:textSize="10.5sp" />
 
                     <TextView
                         android:id="@+id/w_m_c41_shift"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginTop="1dp"
+                        android:background="@drawable/widget_badge_none"
+                        android:gravity="center"
                         android:includeFontPadding="false"
                         android:maxLines="1"
                         android:textColor="#FDBA74"
-                        android:textSize="8sp"
+                        android:textSize="10.5sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/w_m_c41_ev1"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
+                    <TextView
+                        android:id="@+id/w_m_c41_ev2"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="0dp"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:paddingStart="1dp"
+                        android:paddingEnd="1dp"
+                        android:textColor="#64748B"
+                        android:textSize="8.5sp"
+                        android:visibility="gone" />
                 </LinearLayout>
+
         </LinearLayout>
 </LinearLayout>

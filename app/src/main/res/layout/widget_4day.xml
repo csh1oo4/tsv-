@@ -53,6 +53,22 @@
                     android:textColor="#FFFFFF"
                     android:textSize="12sp"
                     android:textStyle="bold" />
+
+                <!-- 해당 날짜 첫 일정 (없으면 공휴일) -->
+                <TextView
+                    android:id="@+id/w_4d_ev0"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="1dp"
+                    android:ellipsize="end"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:paddingStart="1dp"
+                    android:paddingEnd="1dp"
+                    android:textColor="#475569"
+                    android:textSize="8.5sp"
+                    android:visibility="gone" />
             </LinearLayout>
 
             <TextView
@@ -100,6 +116,22 @@
                     android:textColor="#FFFFFF"
                     android:textSize="12sp"
                     android:textStyle="bold" />
+
+                <!-- 해당 날짜 첫 일정 (없으면 공휴일) -->
+                <TextView
+                    android:id="@+id/w_4d_ev1"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="1dp"
+                    android:ellipsize="end"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:paddingStart="1dp"
+                    android:paddingEnd="1dp"
+                    android:textColor="#475569"
+                    android:textSize="8.5sp"
+                    android:visibility="gone" />
             </LinearLayout>
     </LinearLayout>
 
@@ -157,6 +189,22 @@
                     android:textColor="#FFFFFF"
                     android:textSize="12sp"
                     android:textStyle="bold" />
+
+                <!-- 해당 날짜 첫 일정 (없으면 공휴일) -->
+                <TextView
+                    android:id="@+id/w_4d_ev2"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="1dp"
+                    android:ellipsize="end"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:paddingStart="1dp"
+                    android:paddingEnd="1dp"
+                    android:textColor="#475569"
+                    android:textSize="8.5sp"
+                    android:visibility="gone" />
             </LinearLayout>
 
             <TextView
@@ -204,6 +252,22 @@
                     android:textColor="#FFFFFF"
                     android:textSize="12sp"
                     android:textStyle="bold" />
+
+                <!-- 해당 날짜 첫 일정 (없으면 공휴일) -->
+                <TextView
+                    android:id="@+id/w_4d_ev3"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="1dp"
+                    android:ellipsize="end"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:paddingStart="1dp"
+                    android:paddingEnd="1dp"
+                    android:textColor="#475569"
+                    android:textSize="8.5sp"
+                    android:visibility="gone" />
             </LinearLayout>
     </LinearLayout>
 </LinearLayout>

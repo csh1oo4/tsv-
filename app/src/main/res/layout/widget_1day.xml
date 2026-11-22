@@ -41,4 +41,20 @@
         android:textColor="#FFFFFF"
         android:textSize="17sp"
         android:textStyle="bold" />
+
+    <!-- 오늘 첫 일정 (없으면 공휴일 이름); 비어 있으면 GONE -->
+    <TextView
+        android:id="@+id/w_day_ev"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="1dp"
+        android:ellipsize="end"
+        android:gravity="center"
+        android:includeFontPadding="false"
+        android:maxLines="1"
+        android:paddingStart="1dp"
+        android:paddingEnd="1dp"
+        android:textColor="#475569"
+        android:textSize="9sp"
+        android:visibility="gone" />
 </LinearLayout>
