@@ -173,16 +173,32 @@
   safe(function () {
     var inputs = document.querySelectorAll('input[type="file"]');
     for (var i = 0; i < inputs.length; i++) {
-      var input = inputs[i];
-      if (input.style.display === 'none') {
-        input.style.display = 'block';
-        input.style.position = 'absolute';
-        input.style.width = '1px';
-        input.style.height = '1px';
-        input.style.opacity = '0';
-        input.style.overflow = 'hidden';
-        input.style.left = '-9999px';
-      }
+      hideOffscreen(inputs[i]);
     }
+  });
+
+  function hideOffscreen(input) {
+    if (!input || !input.style || input.style.display !== 'none') return;
+    input.style.display = 'block';
+    input.style.position = 'absolute';
+    input.style.width = '1px';
+    input.style.height = '1px';
+    input.style.opacity = '0';
+    input.style.overflow = 'hidden';
+    input.style.left = '-9999px';
+  }
+
+  // The photo picker (설비 사진 첨부, accept="image/*") is built inside a sheet, so
+  // its input is created after this script runs. Patch click() itself to un-hide
+  // any file input at the moment it is opened.
+  safe(function () {
+    if (!window.HTMLInputElement) return;
+    var origInputClick = HTMLInputElement.prototype.click;
+    HTMLInputElement.prototype.click = function () {
+      safe(function () {
+        if (this && this.type === 'file') hideOffscreen(this);
+      }.bind(this));
+      return origInputClick.apply(this, arguments);
+    };
   });
 })();

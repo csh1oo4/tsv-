@@ -33,9 +33,26 @@ APK on every push. Locally the same thing is `gradle assembleDebug` with JDK 17
 and the Android SDK installed.
 
 - applicationId: `com.tsv.dutycalendar` (installs beside `TSV 근무표`)
-- versionCode 1 / versionName 1.0
+- versionCode 2 / versionName 1.1
 - Signing: fixed PKCS12 key `app/tsv-duty-fixed.p12` wired into
   `signingConfigs.debug`, so every rebuild installs over the previous one.
+
+## v1.1
+
+- **자동 재동기화** — `onResume()` fires `window.onAppResume()` in the page, so
+after editing an event in the Samsung/Google calendar app the table re-reads the
+device calendar as soon as the user comes back (no sync tap needed).
+- **이미지 카톡 공유** — `AndroidBridge.shareImageDataUrl(dataUrl, fileName)`
+decodes the canvas PNG and writes it to the gallery
+(`Pictures/TSV교대달력` via `MediaStore.Images.Media` on Android 10+, a scanned
+file under `Pictures/TSV교대달력` on Android 9 and below), then opens the system
+share sheet (`ACTION_SEND`, `image/png`, `FLAG_GRANT_READ_URI_PERMISSION`) so one
+tap picks KakaoTalk.
+- **사진 선택기** — `onShowFileChooser` now gives the intent a concrete type
+(`image/*` for `<input type="file" accept="image/*">`), so the 설비 사진 첨부
+button opens the gallery/photo picker instead of an "all files" browser;
+`bridge.js` un-hides file inputs (including ones built inside a sheet) at click
+time so the WebView actually opens the picker.
 
 ## Icons
 

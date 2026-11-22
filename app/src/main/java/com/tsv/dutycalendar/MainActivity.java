@@ -15,6 +15,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
+import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -66,8 +67,12 @@ import java.util.TimeZone;
  *   events of a range, event insert), used by the page's own sync code.
  *
  *   window.AndroidBridge   — file save (JSON backup export), clipboard, the
- *   file chooser for JSON import, and a SharedPreferences mirror of the page's
+ *   file chooser for the JSON import / photo picker, one-tap image sharing
+ *   into KakaoTalk and friends, and a SharedPreferences mirror of the page's
  *   localStorage. assets/bridge.js wires the page's normal web APIs to it.
+ *
+ * Coming back from the Samsung/Google calendar app re-syncs the device calendar:
+ * onResume() calls the page's own window.onAppResume().
  */
 public class MainActivity extends Activity {
 
@@ -80,6 +85,9 @@ public class MainActivity extends Activity {
     private static final int REQ_CALENDAR_PERMISSION = 2001;
     private static final int REQ_FILE_CHOOSER = 1001;
     private static final int REQ_WRITE_STORAGE = 1002;
+    private static final int REQ_SHARE_STORAGE = 1003;
+
+    private static final String PICTURE_ALBUM = "TSV교대달력";
 
     /** Returns '1' when the back press was consumed (sheet/drawer closed, scrolled up). */
     private static final String BACK_JS =
@@ -98,9 +106,16 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> filePathCallback;
     private boolean storageCheckDone = false;
 
+    /** True once the asset page has finished loading, so the resume hook is safe to fire. */
+    private boolean pageReady = false;
+
     private String pendingName;
     private String pendingMime;
     private byte[] pendingBytes;
+
+    private String pendingShareName;
+    private byte[] pendingShareBytes;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -161,8 +176,15 @@ public class MainActivity extends Activity {
             }
 
             @Override
+            public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                super.onPageStarted(view, url, favicon);
+                pageReady = false;
+            }
+
+            @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
+                pageReady = true;
                 if (!bridgeJs.isEmpty()) {
                     view.evaluateJavascript(bridgeJs, null);
                 }
@@ -208,6 +230,7 @@ public class MainActivity extends Activity {
                 intent.setType("*/*");
 
                 String[] accept = params != null ? params.getAcceptTypes() : null;
+                String title = "파일 선택";
                 if (accept != null) {
                     List<String> mimes = new ArrayList<>();
                     for (String entry : accept) {
@@ -230,11 +253,30 @@ public class MainActivity extends Activity {
                     }
                     if (!mimes.isEmpty()) {
                         intent.putExtra(Intent.EXTRA_MIME_TYPES, mimes.toArray(new String[0]));
+
+                        // <input type="file" accept="image/*"> must open the gallery / photo
+                        // picker, not an "all files" browser: give the intent a concrete type
+                        // instead of the */* placeholder.
+                        boolean onlyImages = true;
+                        for (String mime : mimes) {
+                            if (!mime.toLowerCase(Locale.US).startsWith("image/")) {
+                                onlyImages = false;
+                                break;
+                            }
+                        }
+                        if (mimes.size() == 1) {
+                            intent.setType(mimes.get(0));
+                        } else if (onlyImages) {
+                            intent.setType("image/*");
+                        }
+                        if (onlyImages) {
+                            title = "사진 선택";
+                        }
                     }
                 }
 
                 try {
-                    startActivityForResult(Intent.createChooser(intent, "백업 파일 선택"), REQ_FILE_CHOOSER);
+                    startActivityForResult(Intent.createChooser(intent, title), REQ_FILE_CHOOSER);
                 } catch (ActivityNotFoundException e) {
                     filePathCallback = null;
                     toast("파일을 선택할 앱을 찾지 못했어요");
@@ -632,6 +674,20 @@ public class MainActivity extends Activity {
             pendingName = null;
             pendingMime = null;
             pendingBytes = null;
+            return;
+        }
+        if (requestCode == REQ_SHARE_STORAGE) {
+            boolean granted = grantResults.length > 0
+                    && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+            String name = pendingShareName;
+            byte[] bytes = pendingShareBytes;
+            pendingShareName = null;
+            pendingShareBytes = null;
+            if (granted && bytes != null) {
+                shareImageLegacy(name, "image/png", bytes);
+            } else {
+                toast("저장 권한이 없어 이미지를 공유하지 못했어요");
+            }
         }
     }
 
@@ -800,6 +856,181 @@ public class MainActivity extends Activity {
         toast("다운로드 폴더에 저장했어요\n" + name);
     }
 
+    // ---------------------------------------------------------- image share
+
+    /**
+     * Saves a PNG data URL into the phone's photo gallery (Pictures/TSV교대달력) and
+     * opens the system share sheet so it goes straight to KakaoTalk, Messages, etc.
+     * Called from the page as window.AndroidBridge.shareImageDataUrl(dataUrl, fileName).
+     */
+    private void shareImageDataUrlInternal(String dataUrl, String fileName) {
+        if (dataUrl == null || !dataUrl.startsWith("data:")) {
+            toast("공유할 이미지가 없어요");
+            return;
+        }
+        int comma = dataUrl.indexOf(',');
+        if (comma < 0) {
+            toast("공유할 이미지가 없어요");
+            return;
+        }
+        String meta = dataUrl.substring(5, comma);
+        String payload = dataUrl.substring(comma + 1);
+        String mime = meta.split(";")[0].trim();
+        if (mime.isEmpty()) {
+            mime = "image/png";
+        }
+
+        byte[] bytes;
+        try {
+            bytes = meta.contains("base64")
+                    ? Base64.decode(payload, Base64.DEFAULT)
+                    : Uri.decode(payload).getBytes(StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            Log.w(TAG, "Share image decode failed", e);
+            toast("이미지를 읽지 못했어요");
+            return;
+        }
+        if (bytes.length == 0) {
+            toast("공유할 이미지가 없어요");
+            return;
+        }
+
+        String name = sanitizeImageFileName(fileName);
+        if (Build.VERSION.SDK_INT >= 29) {
+            Uri uri = saveImageWithMediaStore(name, mime, bytes);
+            if (uri == null) {
+                toast("이미지를 저장하지 못해 공유할 수 없어요");
+                return;
+            }
+            launchImageShare(uri, mime);
+            return;
+        }
+
+        if (checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                != PackageManager.PERMISSION_GRANTED) {
+            pendingShareName = name;
+            pendingShareBytes = bytes;
+            requestPermissions(new String[]{android.Manifest.permission.WRITE_EXTERNAL_STORAGE},
+                    REQ_SHARE_STORAGE);
+            return;
+        }
+        shareImageLegacy(name, mime, bytes);
+    }
+
+    /** Android 10+: insert straight into the gallery with no storage permission. */
+    private Uri saveImageWithMediaStore(String name, String mime, byte[] bytes) {
+        ContentValues values = new ContentValues();
+        values.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
+        values.put(MediaStore.MediaColumns.MIME_TYPE, mime);
+        values.put(MediaStore.MediaColumns.RELATIVE_PATH,
+                Environment.DIRECTORY_PICTURES + "/" + PICTURE_ALBUM);
+        values.put(MediaStore.MediaColumns.IS_PENDING, 1);
+
+        Uri collection = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
+        Uri item = null;
+        OutputStream out = null;
+        try {
+            item = getContentResolver().insert(collection, values);
+            if (item == null) {
+                throw new IllegalStateException("MediaStore insert returned null");
+            }
+            out = getContentResolver().openOutputStream(item);
+            if (out == null) {
+                throw new IllegalStateException("MediaStore stream unavailable");
+            }
+            out.write(bytes);
+            out.flush();
+            out.close();
+            out = null;
+
+            ContentValues ready = new ContentValues();
+            ready.put(MediaStore.MediaColumns.IS_PENDING, 0);
+            getContentResolver().update(item, ready, null, null);
+            return item;
+        } catch (Exception e) {
+            Log.w(TAG, "MediaStore image save failed", e);
+            if (item != null) {
+                try {
+                    getContentResolver().delete(item, null, null);
+                } catch (Exception ignored) {
+                    // nothing else to do
+                }
+            }
+            return null;
+        } finally {
+            if (out != null) {
+                try {
+                    out.close();
+                } catch (Exception ignored) {
+                    // nothing else to do
+                }
+            }
+        }
+    }
+
+    /** Android 9 and below: write the file into Pictures/TSV교대달력 and let the scanner index it. */
+    private void shareImageLegacy(String name, String mime, byte[] bytes) {
+        File dir = new File(
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
+                PICTURE_ALBUM);
+        if (!dir.exists() && !dir.mkdirs()) {
+            Log.w(TAG, "Could not create " + dir);
+            toast("이미지를 저장하지 못했어요");
+            return;
+        }
+        File target = new File(dir, name);
+        try (FileOutputStream fos = new FileOutputStream(target)) {
+            fos.write(bytes);
+        } catch (Exception e) {
+            Log.w(TAG, "Legacy image save failed", e);
+            toast("이미지를 저장하지 못했어요");
+            return;
+        }
+        final String imageMime = (mime == null || mime.isEmpty()) ? "image/png" : mime;
+        MediaScannerConnection.scanFile(this, new String[]{target.getAbsolutePath()},
+                new String[]{imageMime}, (path, uri) -> runOnUiThread(() -> {
+                    if (uri != null) {
+                        launchImageShare(uri, imageMime);
+                    } else {
+                        toast("이미지를 공유하지 못했어요");
+                    }
+                }));
+    }
+
+    /** System share sheet (KakaoTalk, Messages, Drive ...) for the saved gallery image. */
+    private void launchImageShare(Uri uri, String mime) {
+        if (uri == null) {
+            toast("이미지를 공유하지 못했어요");
+            return;
+        }
+        String type = (mime == null || mime.isEmpty()) ? "image/png" : mime;
+        try {
+            Intent send = new Intent(Intent.ACTION_SEND);
+            send.setType(type);
+            send.putExtra(Intent.EXTRA_STREAM, uri);
+            send.setClipData(ClipData.newUri(getContentResolver(), "TSV 근무표", uri));
+            send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+
+            Intent chooser = Intent.createChooser(send, "근무표 이미지 공유");
+            chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(chooser);
+        } catch (ActivityNotFoundException e) {
+            toast("이미지를 공유할 앱을 찾지 못했어요");
+        } catch (Exception e) {
+            Log.w(TAG, "Image share failed", e);
+            toast("이미지를 공유하지 못했어요");
+        }
+    }
+
+    /** Gallery-friendly file name that always ends in .png. */
+    private static String sanitizeImageFileName(String raw) {
+        String name = sanitizeFileName(raw, "image/png");
+        if (!name.toLowerCase(Locale.US).endsWith(".png")) {
+            name = name + ".png";
+        }
+        return name;
+    }
+
     private static String sanitizeFileName(String raw, String mime) {
         String name = raw == null ? "" : raw.trim();
         if (name.isEmpty()) {
@@ -846,6 +1077,12 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void saveDataUrl(String dataUrl, String fileName) {
             runOnUiThread(() -> saveDataUrlInternal(dataUrl, fileName));
+        }
+
+        /** One-tap "이미지 카톡 공유": save PNG to the gallery, then open the share sheet. */
+        @JavascriptInterface
+        public void shareImageDataUrl(String dataUrl, String fileName) {
+            runOnUiThread(() -> shareImageDataUrlInternal(dataUrl, fileName));
         }
         @JavascriptInterface
         public void setItem(String key, String value) {
@@ -952,6 +1189,12 @@ public class MainActivity extends Activity {
         super.onResume();
         if (webView != null) {
             webView.onResume();
+            // Coming back from the Samsung/Google calendar app: let the page re-read
+            // the device calendar at once instead of waiting for a manual sync tap.
+            if (pageReady) {
+                webView.evaluateJavascript(
+                        "if (window.onAppResume) window.onAppResume();", null);
+            }
         }
     }
 
