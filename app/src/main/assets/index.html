@@ -509,68 +509,59 @@
   }
   .toast.show { opacity: 1; }
 
-  /* iPhone Duo 3D Half-Page Folding Transition */
-  .main { perspective: 1800px; position: relative; }
+  /* iPhone Duo 3D Half-Page Folding Transition (WebView-safe overflow:hidden halves) */
+  .main { position: relative; }
   .fold-stage {
-    position: absolute; inset: 0; z-index: 25; pointer-events: none;
-    perspective: 1800px; overflow: hidden; background: var(--bg);
+    position: fixed; z-index: 45; pointer-events: none;
+    perspective: 1600px; -webkit-perspective: 1600px;
+    overflow: hidden; background: var(--bg);
   }
-  .fold-half {
-    position: absolute; inset: 0; overflow: hidden; background: var(--bg);
-    backface-visibility: hidden; -webkit-backface-visibility: hidden;
+  .fold-pane {
+    position: absolute; top: 0; bottom: 0; width: 50%;
+    overflow: hidden; background: var(--bg);
   }
-  .fold-half.left { clip-path: inset(0 50% 0 0); }
-  .fold-half.right { clip-path: inset(0 0 0 50%); }
-  .fold-half .fold-dim {
+  .fold-pane.left { left: 0; }
+  .fold-pane.right { left: 50%; }
+  .fold-inner {
+    position: absolute; top: 0; bottom: 0; width: 200%;
+    padding: 8px 8px 14px; background: var(--bg);
+  }
+  .fold-pane.left .fold-inner { left: 0; }
+  .fold-pane.right .fold-inner { left: -100%; }
+  .fold-shade {
     position: absolute; inset: 0; pointer-events: none;
-    background: rgba(15, 23, 42, 0); transition: background 0.44s ease;
+    background: rgba(15, 23, 42, 0); transition: background 0.48s ease;
+  }
+  .fold-stage.run .fold-pane.dim-target .fold-shade {
+    background: rgba(15, 23, 42, 0.14);
   }
   .fold-leaf {
-    position: absolute; inset: 0;
+    position: absolute; top: 0; bottom: 0; width: 50%;
     transform-style: preserve-3d; -webkit-transform-style: preserve-3d;
-    will-change: transform;
+    will-change: transform; transition: transform 0.48s cubic-bezier(0.26, 0.82, 0.25, 1);
   }
-  .fold-leaf.next {
-    transform-origin: 50% center;
-    animation: duoFoldNext 0.46s cubic-bezier(0.26, 0.82, 0.25, 1) forwards;
-  }
-  .fold-leaf.prev {
-    transform-origin: 50% center;
-    animation: duoFoldPrev 0.46s cubic-bezier(0.26, 0.82, 0.25, 1) forwards;
-  }
+  .fold-leaf.next { left: 50%; transform-origin: left center; transform: rotateY(0deg); }
+  .fold-stage.run .fold-leaf.next { transform: rotateY(-180deg); }
+  .fold-leaf.prev { left: 0; transform-origin: right center; transform: rotateY(0deg); }
+  .fold-stage.run .fold-leaf.prev { transform: rotateY(180deg); }
+
   .fold-face {
     position: absolute; inset: 0; overflow: hidden; background: var(--bg);
     backface-visibility: hidden; -webkit-backface-visibility: hidden;
   }
-  .fold-face.front-right { clip-path: inset(0 0 0 50%); }
-  .fold-face.back-left {
-    clip-path: inset(0 50% 0 0);
-    transform: rotateY(180deg);
-  }
-  .fold-face.front-left { clip-path: inset(0 50% 0 0); }
-  .fold-face.back-right {
-    clip-path: inset(0 0 0 50%);
-    transform: rotateY(-180deg);
-  }
+  .fold-face.front .fold-inner { left: -100%; }
+  .fold-leaf.prev .fold-face.front .fold-inner { left: 0; }
+  .fold-face.back { transform: rotateY(180deg); }
+  .fold-leaf.next .fold-face.back .fold-inner { left: 0; }
+  .fold-leaf.prev .fold-face.back .fold-inner { left: -100%; }
+
   .fold-crease-shadow {
-    position: absolute; top: 0; bottom: 0; left: 50%; width: 28px;
-    transform: translateX(-50%); pointer-events: none; z-index: 4;
-    background: linear-gradient(90deg, rgba(15,23,42,0) 0%, rgba(15,23,42,0.18) 50%, rgba(15,23,42,0) 100%);
-    opacity: 0; animation: duoCreaseShadow 0.46s ease forwards;
+    position: absolute; top: 0; bottom: 0; left: 50%; width: 26px;
+    transform: translateX(-50%); pointer-events: none; z-index: 6;
+    background: linear-gradient(90deg, rgba(15,23,42,0) 0%, rgba(15,23,42,0.22) 50%, rgba(15,23,42,0) 100%);
+    opacity: 0; transition: opacity 0.24s ease;
   }
-  @keyframes duoFoldNext {
-    0% { transform: rotateY(0deg); }
-    100% { transform: rotateY(-180deg); }
-  }
-  @keyframes duoFoldPrev {
-    0% { transform: rotateY(0deg); }
-    100% { transform: rotateY(180deg); }
-  }
-  @keyframes duoCreaseShadow {
-    0% { opacity: 0; }
-    45% { opacity: 1; }
-    100% { opacity: 0; }
-  }
+  .fold-stage.run .fold-crease-shadow { opacity: 1; }
 
   /* Folders / Board / Alarm */
   .folder-grid {
@@ -1475,31 +1466,41 @@
       const nextHtml = main.innerHTML;
       foldAnimDir = '';
       foldPrevHtml = '';
+      document.querySelectorAll('.fold-stage').forEach(el => el.remove());
+      const rect = main.getBoundingClientRect();
       const stage = document.createElement('div');
       stage.className = 'fold-stage';
+      stage.style.top = rect.top + 'px';
+      stage.style.left = rect.left + 'px';
+      stage.style.width = rect.width + 'px';
+      stage.style.height = rect.height + 'px';
+
       if (dir === 'next') {
         stage.innerHTML = `
-          <div class="fold-half left">${prevHtml}<div class="fold-dim"></div></div>
-          <div class="fold-half right">${nextHtml}</div>
+          <div class="fold-pane left dim-target"><div class="fold-inner">${prevHtml}</div><div class="fold-shade"></div></div>
+          <div class="fold-pane right"><div class="fold-inner">${nextHtml}</div></div>
           <div class="fold-leaf next">
-            <div class="fold-face front-right">${prevHtml}</div>
-            <div class="fold-face back-left">${nextHtml}</div>
+            <div class="fold-face front"><div class="fold-inner">${prevHtml}</div></div>
+            <div class="fold-face back"><div class="fold-inner">${nextHtml}</div></div>
           </div>
           <div class="fold-crease-shadow"></div>
         `;
       } else {
         stage.innerHTML = `
-          <div class="fold-half right">${prevHtml}<div class="fold-dim"></div></div>
-          <div class="fold-half left">${nextHtml}</div>
+          <div class="fold-pane left"><div class="fold-inner">${nextHtml}</div></div>
+          <div class="fold-pane right dim-target"><div class="fold-inner">${prevHtml}</div><div class="fold-shade"></div></div>
           <div class="fold-leaf prev">
-            <div class="fold-face front-left">${prevHtml}</div>
-            <div class="fold-face back-right">${nextHtml}</div>
+            <div class="fold-face front"><div class="fold-inner">${prevHtml}</div></div>
+            <div class="fold-face back"><div class="fold-inner">${nextHtml}</div></div>
           </div>
           <div class="fold-crease-shadow"></div>
         `;
       }
-      main.appendChild(stage);
-      setTimeout(() => { if (stage.parentNode) stage.remove(); }, 470);
+      document.body.appendChild(stage);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => { stage.classList.add('run'); });
+      });
+      setTimeout(() => { if (stage.parentNode) stage.remove(); }, 500);
     } else {
       foldAnimDir = '';
       foldPrevHtml = '';
