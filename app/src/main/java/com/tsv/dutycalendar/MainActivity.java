@@ -507,21 +507,63 @@ public class MainActivity extends Activity {
                     boolean allDay = !cursor.isNull(6) && cursor.getInt(6) == 1;
                     long begin = cursor.getLong(4);
                     long end = cursor.isNull(5) ? begin : cursor.getLong(5);
+                    // 종일 일정은 UTC 자정~다음날 00:00으로 저장되므로 1ms를 빼야
+                    // 실제 마지막 날까지만 남는다 (22~27일 일정이 28일로 새지 않게).
+                    long lastMs = end > begin ? end - 1 : begin;
 
-                    JSONObject item = new JSONObject();
-                    item.put("id", cursor.isNull(0) ? "" : String.valueOf(cursor.getLong(0)));
-                    item.put("calId", cursor.isNull(1) ? "" : String.valueOf(cursor.getLong(1)));
-                    item.put("calName", cursor.isNull(2) ? "" : cursor.getString(2));
-                    item.put("title", cursor.isNull(3) ? "" : cursor.getString(3));
-                    item.put("ymd", allDay
-                            ? ymdUtc.format(new Date(begin))
-                            : ymdLocal.format(new Date(begin)));
-                    item.put("allDay", allDay);
-                    item.put("startTime", allDay ? "" : hmLocal.format(new Date(begin)));
-                    item.put("endTime", allDay ? "" : hmLocal.format(new Date(end)));
+                    String evId = cursor.isNull(0) ? "" : String.valueOf(cursor.getLong(0));
+                    String calId = cursor.isNull(1) ? "" : String.valueOf(cursor.getLong(1));
+                    String calName = cursor.isNull(2) ? "" : cursor.getString(2);
+                    String title = cursor.isNull(3) ? "" : cursor.getString(3);
                     String color = cursor.isNull(7) ? null : toHexColor(cursor.getInt(7));
-                    item.put("color", color == null ? "#0d9488" : color);
-                    out.put(item);
+
+                    String startYmd = allDay ? ymdUtc.format(new Date(begin)) : ymdLocal.format(new Date(begin));
+                    String endYmd = allDay ? ymdUtc.format(new Date(lastMs)) : ymdLocal.format(new Date(lastMs));
+
+                    // 여러 날에 걸친 일정은 시작일~종료일을 하루 단위로 순회해
+                    // 걸치는 모든 날짜(ymd)에 같은 일정을 넣는다.
+                    java.util.List<String> days = new java.util.ArrayList<>();
+                    try {
+                        Calendar walker = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
+                        walker.setTime(ymdUtc.parse(startYmd));
+                        Calendar lastDay = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
+                        lastDay.setTime(ymdUtc.parse(endYmd));
+                        int guard = 0;
+                        while (!walker.after(lastDay) && guard < 400) {
+                            days.add(ymdUtc.format(walker.getTime()));
+                            walker.add(Calendar.DAY_OF_MONTH, 1);
+                            guard++;
+                        }
+                    } catch (Exception parseError) {
+                        days.clear();
+                        days.add(startYmd);
+                    }
+                    if (days.isEmpty()) {
+                        days.add(startYmd);
+                    }
+
+                    String firstStart = allDay ? "" : hmLocal.format(new Date(begin));
+                    String lastEnd = allDay ? "" : hmLocal.format(new Date(end));
+
+                    for (int dayIdx = 0; dayIdx < days.size(); dayIdx++) {
+                        boolean isFirstDay = dayIdx == 0;
+                        boolean isLastDay = dayIdx == days.size() - 1;
+                        JSONObject item = new JSONObject();
+                        item.put("id", evId);
+                        item.put("calId", calId);
+                        item.put("calName", calName);
+                        item.put("title", title);
+                        item.put("ymd", days.get(dayIdx));
+                        item.put("allDay", allDay);
+                        item.put("startYmd", startYmd);
+                        item.put("endYmd", endYmd);
+                        item.put("dayIndex", dayIdx + 1);
+                        item.put("dayCount", days.size());
+                        item.put("startTime", allDay || !isFirstDay ? "" : firstStart);
+                        item.put("endTime", allDay || !isLastDay ? "" : lastEnd);
+                        item.put("color", color == null ? "#0d9488" : color);
+                        out.put(item);
+                    }
                 }
             } catch (Exception e) {
                 Log.w(TAG, "getEvents failed", e);
@@ -1361,10 +1403,10 @@ public class MainActivity extends Activity {
             try {
                 String version = getPackageManager()
                         .getPackageInfo(getPackageName(), 0).versionName;
-                return version == null || version.trim().isEmpty() ? "2.0" : version;
+                return version == null || version.trim().isEmpty() ? "2.1" : version;
             } catch (Exception e) {
                 Log.w(TAG, "getAppVersion failed", e);
-                return "2.0";
+                return "2.1";
             }
         }
 

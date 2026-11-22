@@ -109,7 +109,31 @@ time** (no `text/babel`, no Babel at runtime), so the app still starts with no n
 - **데이터 이관** — on first launch the page converts v1.6.x `tsv_duty_calendar_v1`
   (`teams[].anchorIndex` → `groups[].offset`, `overrides` → `{teamId}_{ymd}` + sub shifts,
   memo array → per-date map, `alarms[].hour/minute` → `time: "HH:MM"`) exactly once.
-- versionCode 11 / versionName 2.0, same fixed signing key.
+- versionCode 12 / versionName 2.1, same fixed signing key.
+
+## v2.1 — 연일 일정 · 조별 근무 색 · 설비 수정/삭제 · 효과음
+
+- **연일(다일) 일정** — `AndroidCalendar.getEvents()` now emits one entry per covered
+  day (`ymd`) instead of only the start day, with `startYmd`/`endYmd`/`dayIndex`/
+  `dayCount`. All-day events subtract 1ms from `END` in UTC before taking the last day,
+  so a 22~27일 종일 일정 no longer bleeds into the 28일; timed events walk local dates
+  from `begin` to `end - 1ms` (23일 18:00 ~ 25일 10:00 → 23·24·25일). The day sheet
+  labels each day (`18:00~계속 (1/3일)`, `계속 (2/3일)`, `~10:00 (3/3일)`) and the
+  widget event list gets the event on every day too.
+- **다른 조 근무 배지 색** — with A/C조 같이 보기 the badge keeps the real shift color:
+  주 = orange (`#f97316` → `#ea580c`), 야 = black (`#1e293b` → `#0f172a`), 휴 = red
+  (`#ef4444` → `#dc2626`), white bold text (gradient + solid fallback).
+- **설비 기록 수정·삭제** — every 설비 공유 card (folder list and search results) has
+  수정 / 삭제. 수정 opens the same sheet in edit mode with 제목·설비 폴더(select)·본문·
+  사진(유지/교체/삭제) and writes `equipPosts/{id}` with `{ merge: true }` so
+  `createdAt` (list order) stays; the local folder state moves with it. 삭제 asks for
+  confirmation first, then removes it from local state and deletes
+  `equipPosts/{id}` (and the legacy `equipmentPosts/{id}`).
+- **앱 효과음** — Web Audio API only, no audio files: `톡톡` (date cells, tabs, buttons),
+  `슉슉` (calendar month change by swipe or `<` `>`), `띠링` (memo·shift·settings·board·
+  equip·alarm saved). 설정 탭 has a 🔊 앱 효과음 ON/OFF switch (default ON) stored in
+  `localStorage` (`todaywork_v33_sound`) plus 톡톡/슉슉/띠링 preview buttons.
+- versionCode 12 / versionName 2.1, same fixed signing key.
 
 ## Build
 
@@ -118,7 +142,7 @@ APK on every push. Locally the same thing is `gradle assembleDebug` with JDK 17
 and the Android SDK installed.
 
 - applicationId: `com.tsv.dutycalendar` (installs beside `TSV 근무표`)
-- versionCode 11 / versionName 2.0
+- versionCode 12 / versionName 2.1
 - Signing: fixed PKCS12 key `app/tsv-duty-fixed.p12` wired into
   `signingConfigs.debug`, so every rebuild installs over the previous one.
 
