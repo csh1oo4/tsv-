@@ -19,6 +19,13 @@ JavaScript bridge as `window.AndroidCalendar` and the page calls it directly:
 All-day rows are formatted in UTC (`yyyy-MM-dd`) so the date does not slide a day
 in KST or other positive-offset zones.
 
+A second bridge, `window.AndroidBridge`, plus the script `app/src/main/assets/bridge.js`
+(injected after load — `index.html` itself is never edited) keeps the app's own web
+features working: the JSON backup export saves to the phone's Downloads folder, the
+"텍스트 복사" button uses the native clipboard, the JSON import picker opens, and
+`localStorage` is mirrored into SharedPreferences so the shift table survives even if
+the WebView storage for the `file://` origin is cleared.
+
 ## Build
 
 The GitHub Actions workflow (`.github/workflows/build-apk.yml`) builds a debug

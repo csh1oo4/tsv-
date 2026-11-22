@@ -3,20 +3,31 @@ package com.tsv.dutycalendar;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.DownloadManager;
+import android.content.ActivityNotFoundException;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.ContentResolver;
 import android.content.ContentUris;
 import android.content.ContentValues;
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.provider.CalendarContract;
+import android.provider.MediaStore;
+import android.util.Base64;
 import android.util.Log;
 import android.view.ViewGroup;
 import android.webkit.ConsoleMessage;
 import android.webkit.JavascriptInterface;
 import android.webkit.JsResult;
+import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -28,27 +39,47 @@ import android.widget.Toast;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.TimeZone;
 
 /**
  * Full-screen WebView shell for 「TSV 교대달력」.
  *
  * The web app lives in assets/index.html and is loaded from
- * file:///android_asset/index.html. Everything the calendar needs (shift table,
- * memos, settings) stays in the page's localStorage; the device calendar is
- * reached through the small AndroidCalendar bridge below, which exposes the
- * permission state, the calendar list, the events of a range, and event insert.
+ * file:///android_asset/index.html, untouched. Two small bridges add what a bare
+ * WebView cannot do by itself:
+ *
+ *   window.AndroidCalendar — the device calendar (permission, calendar list,
+ *   events of a range, event insert), used by the page's own sync code.
+ *
+ *   window.AndroidBridge   — file save (JSON backup export), clipboard, the
+ *   file chooser for JSON import, and a SharedPreferences mirror of the page's
+ *   localStorage. assets/bridge.js wires the page's normal web APIs to it.
  */
 public class MainActivity extends Activity {
 
     private static final String TAG = "TsvDutyCalendar";
     private static final String START_URL = "file:///android_asset/index.html";
 
+    private static final String PREFS_NAME = "tsv_duty_web_storage";
+    private static final String MAIN_STORAGE_KEY = "tsv_duty_calendar_v1";
+
     private static final int REQ_CALENDAR_PERMISSION = 2001;
+    private static final int REQ_FILE_CHOOSER = 1001;
+    private static final int REQ_WRITE_STORAGE = 1002;
 
     /** Returns '1' when the back press was consumed (sheet/drawer closed, scrolled up). */
     private static final String BACK_JS =
@@ -63,10 +94,19 @@ public class MainActivity extends Activity {
                     + "return '0';}catch(e){return '0';}})()";
 
     private WebView webView;
+    private String bridgeJs = "";
+    private ValueCallback<Uri[]> filePathCallback;
+    private boolean storageCheckDone = false;
+
+    private String pendingName;
+    private String pendingMime;
+    private byte[] pendingBytes;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        bridgeJs = readAsset("bridge.js");
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(getColor(R.color.app_background));
@@ -106,6 +146,7 @@ public class MainActivity extends Activity {
         }
 
         webView.addJavascriptInterface(new CalendarBridge(), "AndroidCalendar");
+        webView.addJavascriptInterface(new Bridge(), "AndroidBridge");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -117,6 +158,18 @@ public class MainActivity extends Activity {
             @SuppressWarnings("deprecation")
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
                 return handleUrl(url != null ? Uri.parse(url) : null);
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                if (!bridgeJs.isEmpty()) {
+                    view.evaluateJavascript(bridgeJs, null);
+                }
+                if (!storageCheckDone) {
+                    storageCheckDone = true;
+                    restoreStorageIfNeeded();
+                }
             }
         });
 
@@ -143,11 +196,84 @@ public class MainActivity extends Activity {
             }
 
             @Override
+            public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback,
+                                             FileChooserParams params) {
+                if (filePathCallback != null) {
+                    filePathCallback.onReceiveValue(null);
+                }
+                filePathCallback = callback;
+
+                Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                intent.setType("*/*");
+
+                String[] accept = params != null ? params.getAcceptTypes() : null;
+                if (accept != null) {
+                    List<String> mimes = new ArrayList<>();
+                    for (String entry : accept) {
+                        if (entry == null) {
+                            continue;
+                        }
+                        String cleaned = entry.split(";")[0].trim();
+                        if (cleaned.contains("/") && !cleaned.startsWith(".")) {
+                            mimes.add(cleaned);
+                        }
+                    }
+                    if (mimes.isEmpty()) {
+                        // ".json" style accept types still mean JSON files.
+                        for (String entry : accept) {
+                            if (entry != null && entry.trim().toLowerCase(Locale.US).contains("json")) {
+                                mimes.add("application/json");
+                                mimes.add("text/plain");
+                            }
+                        }
+                    }
+                    if (!mimes.isEmpty()) {
+                        intent.putExtra(Intent.EXTRA_MIME_TYPES, mimes.toArray(new String[0]));
+                    }
+                }
+
+                try {
+                    startActivityForResult(Intent.createChooser(intent, "백업 파일 선택"), REQ_FILE_CHOOSER);
+                } catch (ActivityNotFoundException e) {
+                    filePathCallback = null;
+                    toast("파일을 선택할 앱을 찾지 못했어요");
+                    return false;
+                }
+                return true;
+            }
+
+            @Override
             public boolean onConsoleMessage(ConsoleMessage message) {
                 if (message != null) {
                     Log.d(TAG, message.message() + " @" + message.lineNumber());
                 }
                 return true;
+            }
+        });
+
+        webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {
+            if (url == null || url.startsWith("data:") || url.startsWith("blob:")) {
+                return;
+            }
+            try {
+                DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
+                if (mimeType != null) {
+                    request.setMimeType(mimeType);
+                }
+                if (userAgent != null) {
+                    request.addRequestHeader("User-Agent", userAgent);
+                }
+                request.setNotificationVisibility(
+                        DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS,
+                        "TSV-교대달력-" + System.currentTimeMillis());
+                DownloadManager manager = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+                if (manager != null) {
+                    manager.enqueue(request);
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Download failed", e);
             }
         });
     }
@@ -234,10 +360,7 @@ public class MainActivity extends Activity {
                     long id = cursor.getLong(0);
                     String name = cursor.isNull(1) ? "" : cursor.getString(1);
                     String account = cursor.isNull(2) ? "" : cursor.getString(2);
-                    String color = null;
-                    if (!cursor.isNull(3)) {
-                        color = toHexColor(cursor.getInt(3));
-                    }
+                    String color = cursor.isNull(3) ? null : toHexColor(cursor.getInt(3));
                     item.put("id", String.valueOf(id));
                     item.put("name", name);
                     item.put("accountName", account);
@@ -281,6 +404,8 @@ public class MainActivity extends Activity {
                     CalendarContract.Instances.DISPLAY_COLOR
             };
 
+            // All-day rows are stored at UTC midnight, so they must be read in UTC
+            // or the date slides a day in KST and other positive-offset zones.
             SimpleDateFormat ymdUtc = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
             ymdUtc.setTimeZone(TimeZone.getTimeZone("UTC"));
             SimpleDateFormat ymdLocal = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
@@ -305,18 +430,13 @@ public class MainActivity extends Activity {
                     item.put("calId", cursor.isNull(1) ? "" : String.valueOf(cursor.getLong(1)));
                     item.put("calName", cursor.isNull(2) ? "" : cursor.getString(2));
                     item.put("title", cursor.isNull(3) ? "" : cursor.getString(3));
-                    // All-day rows are stored at UTC midnight, so read them in UTC
-                    // or the date slides a day backwards in negative-offset zones.
                     item.put("ymd", allDay
                             ? ymdUtc.format(new Date(begin))
                             : ymdLocal.format(new Date(begin)));
                     item.put("allDay", allDay);
                     item.put("startTime", allDay ? "" : hmLocal.format(new Date(begin)));
                     item.put("endTime", allDay ? "" : hmLocal.format(new Date(end)));
-                    String color = null;
-                    if (!cursor.isNull(7)) {
-                        color = toHexColor(cursor.getInt(7));
-                    }
+                    String color = cursor.isNull(7) ? null : toHexColor(cursor.getInt(7));
                     item.put("color", color == null ? "#0d9488" : color);
                     out.put(item);
                 }
@@ -343,7 +463,6 @@ public class MainActivity extends Activity {
                 if (calendarId < 0) {
                     return false;
                 }
-
                 Date[] range = buildEventRange(ymd.trim(), allDay, startTime, endTime);
                 if (range == null) {
                     return false;
@@ -367,53 +486,53 @@ public class MainActivity extends Activity {
                 return false;
             }
         }
+    }
 
-        /** First visible calendar the app is allowed to write into, or -1. */
-        private long findWritableCalendarId() {
-            String[] projection = {CalendarContract.Calendars._ID};
-            String selection = CalendarContract.Calendars.VISIBLE + "=1 AND "
-                    + CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL + ">="
-                    + CalendarContract.Calendars.CAL_ACCESS_CONTRIBUTOR;
-            Cursor cursor = null;
-            try {
-                cursor = getContentResolver().query(
-                        CalendarContract.Calendars.CONTENT_URI,
-                        projection,
-                        selection,
-                        null,
-                        CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL + " DESC, "
-                                + CalendarContract.Calendars._ID + " ASC");
-                if (cursor != null && cursor.moveToFirst()) {
-                    return cursor.getLong(0);
-                }
-            } catch (Exception e) {
-                Log.w(TAG, "findWritableCalendarId failed", e);
-            } finally {
-                if (cursor != null) {
-                    cursor.close();
-                }
+    /** First visible calendar the app may write into, or -1. */
+    private long findWritableCalendarId() {
+        String[] projection = {CalendarContract.Calendars._ID};
+        Cursor cursor = null;
+        try {
+            cursor = getContentResolver().query(
+                    CalendarContract.Calendars.CONTENT_URI,
+                    projection,
+                    CalendarContract.Calendars.VISIBLE + "=1 AND "
+                            + CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL + ">="
+                            + CalendarContract.Calendars.CAL_ACCESS_CONTRIBUTOR,
+                    null,
+                    CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL + " DESC, "
+                            + CalendarContract.Calendars._ID + " ASC");
+            if (cursor != null && cursor.moveToFirst()) {
+                return cursor.getLong(0);
             }
-            // Fall back to any writable calendar even if it is hidden from the UI.
-            try {
-                cursor = getContentResolver().query(
-                        CalendarContract.Calendars.CONTENT_URI,
-                        projection,
-                        CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL + ">="
-                                + CalendarContract.Calendars.CAL_ACCESS_CONTRIBUTOR,
-                        null,
-                        CalendarContract.Calendars._ID + " ASC");
-                if (cursor != null && cursor.moveToFirst()) {
-                    return cursor.getLong(0);
-                }
-            } catch (Exception e) {
-                Log.w(TAG, "findWritableCalendarId fallback failed", e);
-            } finally {
-                if (cursor != null) {
-                    cursor.close();
-                }
+        } catch (Exception e) {
+            Log.w(TAG, "findWritableCalendarId failed", e);
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+                cursor = null;
             }
-            return -1;
         }
+        // Fall back to any writable calendar even if it is hidden from the UI.
+        try {
+            cursor = getContentResolver().query(
+                    CalendarContract.Calendars.CONTENT_URI,
+                    projection,
+                    CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL + ">="
+                            + CalendarContract.Calendars.CAL_ACCESS_CONTRIBUTOR,
+                    null,
+                    CalendarContract.Calendars._ID + " ASC");
+            if (cursor != null && cursor.moveToFirst()) {
+                return cursor.getLong(0);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "findWritableCalendarId fallback failed", e);
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+        return -1;
     }
 
     /** Turns the page's ymd/times into a [start, end] pair the calendar accepts. */
@@ -498,13 +617,307 @@ public class MainActivity extends Activity {
     public void onRequestPermissionsResult(int requestCode, String[] permissions,
                                            int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode != REQ_CALENDAR_PERMISSION) {
+        if (requestCode == REQ_CALENDAR_PERMISSION) {
+            deliverPermissionResult(hasCalendarPermission());
             return;
         }
-        deliverPermissionResult(hasCalendarPermission());
+        if (requestCode == REQ_WRITE_STORAGE) {
+            boolean granted = grantResults.length > 0
+                    && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+            if (granted && pendingBytes != null) {
+                writeToLegacyDownloads(pendingName, pendingMime, pendingBytes);
+            } else {
+                toast("저장 권한이 없어 파일을 저장하지 못했어요");
+            }
+            pendingName = null;
+            pendingMime = null;
+            pendingBytes = null;
+        }
+    }
+
+    // ---------------------------------------------------------------- storage
+
+    private SharedPreferences prefs() {
+        return getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+    }
+
+    /**
+     * Some devices are strict about localStorage for the file:// origin. The
+     * page mirrors every write into SharedPreferences, and here we push the
+     * snapshot back if the page starts with no saved shift table.
+     */
+    private void restoreStorageIfNeeded() {
+        final Map<String, ?> snapshot = prefs().getAll();
+        if (snapshot.isEmpty()) {
+            return;
+        }
+        String js = "(function(){try{return localStorage.getItem("
+                + JSONObject.quote(MAIN_STORAGE_KEY) + ")?'has':'missing';}catch(e){return 'error';}})()";
+        webView.evaluateJavascript(js, value -> {
+            if (value != null && value.contains("missing")) {
+                restoreSnapshot(snapshot);
+            }
+        });
+    }
+
+    private void restoreSnapshot(Map<String, ?> snapshot) {
+        StringBuilder js = new StringBuilder("(function(){try{");
+        for (Map.Entry<String, ?> entry : snapshot.entrySet()) {
+            Object value = entry.getValue();
+            if (value instanceof String) {
+                js.append("localStorage.setItem(")
+                        .append(JSONObject.quote(entry.getKey()))
+                        .append(",")
+                        .append(JSONObject.quote((String) value))
+                        .append(");");
+            }
+        }
+        js.append("return 'ok';}catch(e){return 'fail';}})()");
+        webView.evaluateJavascript(js.toString(), value -> runOnUiThread(() -> {
+            if (value != null && value.contains("ok")) {
+                webView.reload();
+            }
+        }));
+    }
+
+    // --------------------------------------------------------------- download
+
+    private void saveDataUrlInternal(String dataUrl, String fileName) {
+        if (dataUrl == null) {
+            toast("저장할 내용이 없어요");
+            return;
+        }
+        if (!dataUrl.startsWith("data:")) {
+            toast("이 형식은 바로 저장할 수 없어요");
+            return;
+        }
+        int comma = dataUrl.indexOf(',');
+        if (comma < 0) {
+            toast("저장할 수 없는 데이터예요");
+            return;
+        }
+        String meta = dataUrl.substring(5, comma);
+        String payload = dataUrl.substring(comma + 1);
+        String mime = meta.split(";")[0].trim();
+        if (mime.isEmpty()) {
+            mime = "application/octet-stream";
+        }
+
+        byte[] bytes;
+        try {
+            if (meta.contains("base64")) {
+                bytes = Base64.decode(payload, Base64.DEFAULT);
+            } else {
+                bytes = Uri.decode(payload).getBytes(StandardCharsets.UTF_8);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Base64 decode failed", e);
+            toast("파일을 읽지 못했어요");
+            return;
+        }
+
+        String name = sanitizeFileName(fileName, mime);
+        if (Build.VERSION.SDK_INT >= 29) {
+            writeWithMediaStore(name, mime, bytes);
+        } else if (checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                != PackageManager.PERMISSION_GRANTED) {
+            pendingName = name;
+            pendingMime = mime;
+            pendingBytes = bytes;
+            requestPermissions(new String[]{android.Manifest.permission.WRITE_EXTERNAL_STORAGE},
+                    REQ_WRITE_STORAGE);
+        } else {
+            writeToLegacyDownloads(name, mime, bytes);
+        }
+    }
+
+    private void writeWithMediaStore(String name, String mime, byte[] bytes) {
+        ContentValues values = new ContentValues();
+        values.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
+        values.put(MediaStore.MediaColumns.MIME_TYPE, mime);
+        values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+        values.put(MediaStore.MediaColumns.IS_PENDING, 1);
+
+        Uri collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
+        Uri item = null;
+        OutputStream out = null;
+        try {
+            item = getContentResolver().insert(collection, values);
+            if (item == null) {
+                throw new IllegalStateException("MediaStore insert returned null");
+            }
+            out = getContentResolver().openOutputStream(item);
+            if (out == null) {
+                throw new IllegalStateException("MediaStore stream unavailable");
+            }
+            out.write(bytes);
+            out.flush();
+            out.close();
+            out = null;
+
+            ContentValues ready = new ContentValues();
+            ready.put(MediaStore.MediaColumns.IS_PENDING, 0);
+            getContentResolver().update(item, ready, null, null);
+            toast("다운로드 폴더에 저장했어요\n" + name);
+        } catch (Exception e) {
+            Log.w(TAG, "MediaStore save failed", e);
+            if (item != null) {
+                try {
+                    getContentResolver().delete(item, null, null);
+                } catch (Exception ignored) {
+                    // nothing else to do
+                }
+            }
+            toast("파일을 저장하지 못했어요");
+        } finally {
+            if (out != null) {
+                try {
+                    out.close();
+                } catch (Exception ignored) {
+                    // nothing else to do
+                }
+            }
+        }
+    }
+
+    private void writeToLegacyDownloads(String name, String mime, byte[] bytes) {
+        File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+        if (dir == null) {
+            toast("저장 위치를 찾지 못했어요");
+            return;
+        }
+        if (!dir.exists() && !dir.mkdirs()) {
+            Log.w(TAG, "Could not create " + dir);
+        }
+        File target = new File(dir, name);
+        try (FileOutputStream fos = new FileOutputStream(target)) {
+            fos.write(bytes);
+        } catch (Exception e) {
+            Log.w(TAG, "Legacy save failed", e);
+            toast("파일을 저장하지 못했어요");
+            return;
+        }
+        toast("다운로드 폴더에 저장했어요\n" + name);
+    }
+
+    private static String sanitizeFileName(String raw, String mime) {
+        String name = raw == null ? "" : raw.trim();
+        if (name.isEmpty()) {
+            name = "TSV-교대달력-" + System.currentTimeMillis();
+        }
+        name = name.replaceAll("[\\\\/:*?\"<>|\r\n\t]", "_");
+        int dot = name.lastIndexOf('.');
+        if (name.length() > 120) {
+            if (dot > 0) {
+                name = name.substring(0, 100) + name.substring(dot);
+            } else {
+                name = name.substring(0, 100);
+            }
+        }
+        if (name.lastIndexOf('.') <= 0) {
+            if ("application/json".equals(mime)) {
+                name += ".json";
+            } else if ("image/png".equals(mime)) {
+                name += ".png";
+            }
+        }
+        return name;
+    }
+
+    private String readAsset(String name) {
+        StringBuilder sb = new StringBuilder();
+        try (InputStream in = getAssets().open(name);
+             BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line).append('\n');
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Could not read asset " + name, e);
+        }
+        return sb.toString();
+    }
+
+    // ---------------------------------------------------------- JS bridge API
+
+    /** JS-facing API: window.AndroidBridge.* */
+    public class Bridge {
+
+        @JavascriptInterface
+        public void saveDataUrl(String dataUrl, String fileName) {
+            runOnUiThread(() -> saveDataUrlInternal(dataUrl, fileName));
+        }
+        @JavascriptInterface
+        public void setItem(String key, String value) {
+            if (key == null) {
+                return;
+            }
+            prefs().edit().putString(key, value).apply();
+        }
+
+        @JavascriptInterface
+        public String getItem(String key) {
+            return key == null ? null : prefs().getString(key, null);
+        }
+
+        @JavascriptInterface
+        public void removeItem(String key) {
+            if (key != null) {
+                prefs().edit().remove(key).apply();
+            }
+        }
+
+        @JavascriptInterface
+        public boolean copyToClipboard(String text) {
+            if (text == null) {
+                return false;
+            }
+            runOnUiThread(() -> {
+                try {
+                    ClipboardManager manager =
+                            (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                    if (manager != null) {
+                        manager.setPrimaryClip(ClipData.newPlainText("TSV 교대달력", text));
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "Clipboard failed", e);
+                }
+            });
+            return true;
+        }
+
+        @JavascriptInterface
+        public void toast(String message) {
+            if (message != null) {
+                MainActivity.this.toast(message);
+            }
+        }
     }
 
     // ------------------------------------------------------------ lifecycle
+
+    @Override
+    @SuppressWarnings("deprecation")
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQ_FILE_CHOOSER || filePathCallback == null) {
+            return;
+        }
+        Uri[] results = null;
+        if (resultCode == RESULT_OK && data != null) {
+            ClipData clip = data.getClipData();
+            if (clip != null && clip.getItemCount() > 0) {
+                results = new Uri[clip.getItemCount()];
+                for (int i = 0; i < clip.getItemCount(); i++) {
+                    results[i] = clip.getItemAt(i).getUri();
+                }
+            } else if (data.getData() != null) {
+                results = new Uri[]{data.getData()};
+            }
+        }
+        filePathCallback.onReceiveValue(results);
+        filePathCallback = null;
+    }
 
     @Override
     @SuppressWarnings("deprecation")
