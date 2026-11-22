@@ -318,16 +318,30 @@
     display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
   }
   .stat-item {
-    background: var(--surface-2); border-radius: 12px; padding: 12px 8px;
+    background: var(--surface-2); border-radius: 12px; padding: 14px 10px;
     text-align: center;
   }
-  .stat-val { font-size: 20px; font-weight: 800; margin-top: 4px; }
-  .stat-lbl { font-size: 11px; font-weight: 700; color: var(--text-2); }
+  .stat-val { font-size: 24px; font-weight: 800; margin-top: 6px; }
+  .stat-lbl { font-size: 14.5px; font-weight: 800; color: var(--text); }
   .upcoming-row {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 0; border-bottom: 1px solid var(--border);
+    padding: 12px 0; border-bottom: 1px solid var(--border); font-size: 15px; font-weight: 700;
   }
   .upcoming-row:last-child { border-bottom: none; padding-bottom: 0; }
+
+  .cal-summary-strip {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px;
+  }
+  .cal-sum-card {
+    background: var(--surface); border-radius: 14px; padding: 12px 8px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 6px; box-shadow: var(--shadow-sm); border: 1px solid var(--border);
+  }
+  .cal-sum-num { font-size: 15px; font-weight: 800; color: var(--text); }
+  .sub-shift-tag {
+    display: inline-block; font-size: 9.5px; font-weight: 800;
+    padding: 1px 5px; border-radius: 5px; margin-top: 2px; line-height: 1.25;
+  }
 
   /* Settings View */
   .settings-wrap { padding: 14px; display: flex; flex-direction: column; gap: 12px; }
@@ -509,59 +523,36 @@
   }
   .toast.show { opacity: 1; }
 
-  /* iPhone Duo 3D Half-Page Folding Transition (WebView-safe overflow:hidden halves) */
+  /* Left-Spine Full-Page Book Flip Transition */
   .main { position: relative; }
   .fold-stage {
     position: fixed; z-index: 45; pointer-events: none;
-    perspective: 1600px; -webkit-perspective: 1600px;
+    perspective: 1800px; -webkit-perspective: 1800px;
     overflow: hidden; background: var(--bg);
   }
-  .fold-pane {
-    position: absolute; top: 0; bottom: 0; width: 50%;
-    overflow: hidden; background: var(--bg);
-  }
-  .fold-pane.left { left: 0; }
-  .fold-pane.right { left: 50%; }
-  .fold-inner {
-    position: absolute; top: 0; bottom: 0; width: 200%;
+  .fold-base {
+    position: absolute; inset: 0; overflow: hidden;
     padding: 8px 8px 14px; background: var(--bg);
   }
-  .fold-pane.left .fold-inner { left: 0; }
-  .fold-pane.right .fold-inner { left: -100%; }
-  .fold-shade {
-    position: absolute; inset: 0; pointer-events: none;
-    background: rgba(15, 23, 42, 0); transition: background 0.48s ease;
+  .fold-page {
+    position: absolute; inset: 0; overflow: hidden;
+    padding: 8px 8px 14px; background: var(--bg);
+    transform-origin: left center; -webkit-transform-origin: left center;
+    will-change: transform, opacity;
+    box-shadow: 6px 0 24px rgba(15, 23, 42, 0.18);
+    transition: transform 0.44s cubic-bezier(0.24, 0.82, 0.25, 1), opacity 0.44s ease;
   }
-  .fold-stage.run .fold-pane.dim-target .fold-shade {
-    background: rgba(15, 23, 42, 0.14);
+  .fold-page.next { transform: rotateY(0deg); opacity: 1; }
+  .fold-stage.run .fold-page.next { transform: rotateY(-102deg); opacity: 0.15; }
+  .fold-page.prev { transform: rotateY(-102deg); opacity: 0.2; }
+  .fold-stage.run .fold-page.prev { transform: rotateY(0deg); opacity: 1; }
+  .fold-spine-shadow {
+    position: absolute; top: 0; bottom: 0; left: 0; width: 22px;
+    pointer-events: none; z-index: 6;
+    background: linear-gradient(90deg, rgba(15,23,42,0.18) 0%, rgba(15,23,42,0) 100%);
+    opacity: 0; transition: opacity 0.22s ease;
   }
-  .fold-leaf {
-    position: absolute; top: 0; bottom: 0; width: 50%;
-    transform-style: preserve-3d; -webkit-transform-style: preserve-3d;
-    will-change: transform; transition: transform 0.48s cubic-bezier(0.26, 0.82, 0.25, 1);
-  }
-  .fold-leaf.next { left: 50%; transform-origin: left center; transform: rotateY(0deg); }
-  .fold-stage.run .fold-leaf.next { transform: rotateY(-180deg); }
-  .fold-leaf.prev { left: 0; transform-origin: right center; transform: rotateY(0deg); }
-  .fold-stage.run .fold-leaf.prev { transform: rotateY(180deg); }
-
-  .fold-face {
-    position: absolute; inset: 0; overflow: hidden; background: var(--bg);
-    backface-visibility: hidden; -webkit-backface-visibility: hidden;
-  }
-  .fold-face.front .fold-inner { left: -100%; }
-  .fold-leaf.prev .fold-face.front .fold-inner { left: 0; }
-  .fold-face.back { transform: rotateY(180deg); }
-  .fold-leaf.next .fold-face.back .fold-inner { left: 0; }
-  .fold-leaf.prev .fold-face.back .fold-inner { left: -100%; }
-
-  .fold-crease-shadow {
-    position: absolute; top: 0; bottom: 0; left: 50%; width: 26px;
-    transform: translateX(-50%); pointer-events: none; z-index: 6;
-    background: linear-gradient(90deg, rgba(15,23,42,0) 0%, rgba(15,23,42,0.22) 50%, rgba(15,23,42,0) 100%);
-    opacity: 0; transition: opacity 0.24s ease;
-  }
-  .fold-stage.run .fold-crease-shadow { opacity: 1; }
+  .fold-stage.run .fold-spine-shadow { opacity: 1; }
 
   /* Folders / Board / Alarm */
   .folder-grid {
@@ -1223,8 +1214,45 @@
     const ov = state.overrides[ymd]?.[teamId];
     const team = state.teams.find(t => t.id === teamId);
     const base = getBaseShift(team, ymd);
-    if (ov) return { shift: ov, modified: ov !== base, base };
-    return { shift: base, modified: false, base };
+    if (ov && typeof ov === 'object') {
+      const main = ov.main || base;
+      const sub = ov.sub || '';
+      return { shift: main, subShift: sub, modified: (main !== base || Boolean(sub)), base };
+    }
+    if (ov) {
+      if (['연차','반차','교육'].includes(ov)) {
+        return { shift: base, subShift: ov, modified: true, base };
+      }
+      return { shift: ov, subShift: '', modified: ov !== base, base };
+    }
+    return { shift: base, subShift: '', modified: false, base };
+  }
+
+  function getMonthlyShiftStats(year, month) {
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const counts = { '주': 0, '주특': 0, '야': 0, '야특': 0, '휴': 0, '연차': 0, '기타': 0 };
+    let juTeuk = 0, yaTeuk = 0;
+    for (let d = 1; d <= daysInMonth; d++) {
+      const ymd = toYMD(year, month, d);
+      const dow = new Date(year, month - 1, d).getDay();
+      const isWeekendOrHol = (dow === 0 || dow === 6 || Boolean(KR_HOLIDAYS[ymd]));
+      const { shift: s, subShift: sub } = getShift(state.myTeamId, ymd);
+      if (counts[s] !== undefined) counts[s]++;
+      else counts['기타']++;
+      if (sub === '연차') counts['연차']++;
+      else if (sub === '반차' || sub === '교육') counts['기타']++;
+      if ((s === '주' || s === '주특') && (s === '주특' || isWeekendOrHol)) juTeuk++;
+      if ((s === '야' || s === '야특') && (s === '야특' || isWeekendOrHol)) yaTeuk++;
+    }
+    return {
+      totalJu: counts['주'] + counts['주특'],
+      juTeuk,
+      totalYa: counts['야'] + counts['야특'],
+      yaTeuk,
+      hyu: counts['휴'],
+      yeoncha: counts['연차'],
+      etc: counts['기타']
+    };
   }
 
   function getMemosForDate(ymd) {
@@ -1258,7 +1286,7 @@
       kind: 'memo', id: m.id, title: m.title, color: m.color || '#2563eb',
       time: m.allDay ? '종일' : (m.time || ''), done: !!m.done, raw: m
     }));
-    const shared = (state.cloud?.showSharedEvents !== false)
+    const shared = state.settings.showCompanyEvents
       ? cloudSharedEvents.filter(ev => ev.date === ymd).map(ev => {
           const isVac = ev.scope === 'vacation';
           const tag = isVac ? `[휴가·${ev.author || '조원'}]` : `[회사]`;
@@ -1477,30 +1505,22 @@
 
       if (dir === 'next') {
         stage.innerHTML = `
-          <div class="fold-pane left dim-target"><div class="fold-inner">${prevHtml}</div><div class="fold-shade"></div></div>
-          <div class="fold-pane right"><div class="fold-inner">${nextHtml}</div></div>
-          <div class="fold-leaf next">
-            <div class="fold-face front"><div class="fold-inner">${prevHtml}</div></div>
-            <div class="fold-face back"><div class="fold-inner">${nextHtml}</div></div>
-          </div>
-          <div class="fold-crease-shadow"></div>
+          <div class="fold-base">${nextHtml}</div>
+          <div class="fold-page next">${prevHtml}</div>
+          <div class="fold-spine-shadow"></div>
         `;
       } else {
         stage.innerHTML = `
-          <div class="fold-pane left"><div class="fold-inner">${nextHtml}</div></div>
-          <div class="fold-pane right dim-target"><div class="fold-inner">${prevHtml}</div><div class="fold-shade"></div></div>
-          <div class="fold-leaf prev">
-            <div class="fold-face front"><div class="fold-inner">${prevHtml}</div></div>
-            <div class="fold-face back"><div class="fold-inner">${nextHtml}</div></div>
-          </div>
-          <div class="fold-crease-shadow"></div>
+          <div class="fold-base">${prevHtml}</div>
+          <div class="fold-page prev">${nextHtml}</div>
+          <div class="fold-spine-shadow"></div>
         `;
       }
       document.body.appendChild(stage);
       requestAnimationFrame(() => {
         requestAnimationFrame(() => { stage.classList.add('run'); });
       });
-      setTimeout(() => { if (stage.parentNode) stage.remove(); }, 500);
+      setTimeout(() => { if (stage.parentNode) stage.remove(); }, 460);
     } else {
       foldAnimDir = '';
       foldPrevHtml = '';
@@ -1554,8 +1574,9 @@
         subText = `${lunar.isLeap ? '윤' : ''}${lunar.month}.${lunar.day}`;
       }
 
-      const { shift, modified } = getShift(state.myTeamId, c.ymd);
+      const { shift, subShift, modified } = getShift(state.myTeamId, c.ymd);
       const modCls = (modified && state.settings.highlightModified) ? 'is-modified' : '';
+      const subTagHtml = subShift ? `<span class="sub-shift-tag type-${subShift}">${escapeHtml(subShift)}</span>` : '';
 
       const ovHtml = state.settings.overlayTeamIds.length
         ? `<div class="other-teams-mini">${state.settings.overlayTeamIds.map(tid => {
@@ -1587,6 +1608,7 @@
           </div>
           <div class="badge-area">
             <span class="shift-badge type-${shift} ${modCls}">${shift}</span>
+            ${subTagHtml}
             ${ovHtml}
           </div>
           <div class="events-mini">${evHtml}</div>
@@ -1594,7 +1616,22 @@
       `;
     }
 
+    const st = getMonthlyShiftStats(viewYear, viewMonth);
     html += `</div>
+      <div class="cal-summary-strip">
+        <div class="cal-sum-card">
+          <span class="shift-badge type-주" style="width:28px;height:28px;font-size:12px;">주</span>
+          <div class="cal-sum-num">${st.totalJu}일<span style="font-size:12px;color:var(--text-2);font-weight:700;">(${st.juTeuk}일)</span></div>
+        </div>
+        <div class="cal-sum-card">
+          <span class="shift-badge type-야" style="width:28px;height:28px;font-size:12px;">야</span>
+          <div class="cal-sum-num">${st.totalYa}일<span style="font-size:12px;color:var(--text-2);font-weight:700;">(${st.yaTeuk}일)</span></div>
+        </div>
+        <div class="cal-sum-card">
+          <span class="shift-badge type-휴" style="width:28px;height:28px;font-size:12px;">휴</span>
+          <div class="cal-sum-num">${st.hyu}일</div>
+        </div>
+      </div>
       <div class="month-memo-box">
         <div class="month-memo-header">
           <span>📝 ${viewMonth}월 월별 메모</span>
@@ -1670,21 +1707,7 @@
   }
 
   function renderStatsTab(container) {
-    const daysInMonth = new Date(viewYear, viewMonth, 0).getDate();
-    const counts = { '주': 0, '주특': 0, '야': 0, '야특': 0, '휴': 0, '연차': 0, '기타': 0 };
-    let juTeuk = 0, yaTeuk = 0;
-    for (let d = 1; d <= daysInMonth; d++) {
-      const ymd = toYMD(viewYear, viewMonth, d);
-      const dow = new Date(viewYear, viewMonth - 1, d).getDay();
-      const isWeekendOrHol = (dow === 0 || dow === 6 || Boolean(KR_HOLIDAYS[ymd]));
-      const s = getShift(state.myTeamId, ymd).shift;
-      if (counts[s] !== undefined) counts[s]++;
-      else counts['기타']++;
-      if ((s === '주' || s === '주특') && (s === '주특' || isWeekendOrHol)) juTeuk++;
-      if ((s === '야' || s === '야특') && (s === '야특' || isWeekendOrHol)) yaTeuk++;
-    }
-    const totalJu = counts['주'] + counts['주특'];
-    const totalYa = counts['야'] + counts['야특'];
+    const st = getMonthlyShiftStats(viewYear, viewMonth);
 
     const today = getTodayYMD();
     let nextHyu = null, nextJu = null, nextYa = null;
@@ -1702,18 +1725,18 @@
         <div class="card">
           <div class="card-title">
             <span>${viewYear}년 ${viewMonth}월 근태 요약</span>
-            <span style="font-size:12px;color:var(--primary);">${escapeHtml(myTeam?.name || '')}</span>
+            <span style="font-size:13px;color:var(--primary);">${escapeHtml(myTeam?.name || '')}</span>
           </div>
           <div class="stat-grid" style="grid-template-columns:repeat(2,1fr);">
-            <div class="stat-item"><div class="stat-lbl">주간 (특근)</div><div class="stat-val" style="color:#ca8a04;">${totalJu}일<span style="font-size:14px;font-weight:700;color:var(--text-2);"> (${juTeuk}일)</span></div></div>
-            <div class="stat-item"><div class="stat-lbl">야간 (특근)</div><div class="stat-val">${totalYa}일<span style="font-size:14px;font-weight:700;color:var(--text-2);"> (${yaTeuk}일)</span></div></div>
+            <div class="stat-item"><div class="stat-lbl">주간 (특근)</div><div class="stat-val" style="color:#ca8a04;">${st.totalJu}일<span style="font-size:16px;font-weight:700;color:var(--text-2);"> (${st.juTeuk}일)</span></div></div>
+            <div class="stat-item"><div class="stat-lbl">야간 (특근)</div><div class="stat-val">${st.totalYa}일<span style="font-size:16px;font-weight:700;color:var(--text-2);"> (${st.yaTeuk}일)</span></div></div>
           </div>
           <div class="stat-grid" style="margin-top:8px;">
-            <div class="stat-item"><div class="stat-lbl">휴무</div><div class="stat-val" style="color:var(--hyu-fg);">${counts['휴']}일</div></div>
-            <div class="stat-item"><div class="stat-lbl">연차</div><div class="stat-val" style="color:var(--yeon-fg);">${counts['연차']}일</div></div>
-            <div class="stat-item"><div class="stat-lbl">기타</div><div class="stat-val" style="color:var(--edu-fg);">${counts['기타']}일</div></div>
+            <div class="stat-item"><div class="stat-lbl">휴무</div><div class="stat-val" style="color:var(--hyu-fg);">${st.hyu}일</div></div>
+            <div class="stat-item"><div class="stat-lbl">연차</div><div class="stat-val" style="color:var(--yeon-fg);">${st.yeoncha}일</div></div>
+            <div class="stat-item"><div class="stat-lbl">기타</div><div class="stat-val" style="color:var(--edu-fg);">${st.etc}일</div></div>
           </div>
-          <div style="font-size:11px;color:var(--text-3);margin-top:10px;">* 괄호 안 특근 일수는 주말(토·일) 및 국가 공휴일·대체공휴일 출근 기준 자동 집계</div>
+          <div style="font-size:11.5px;color:var(--text-3);margin-top:10px;">* 괄호 안 특근 일수는 주말(토·일) 및 국가 공휴일·대체공휴일 출근 기준 자동 집계</div>
         </div>
 
         <div class="card">
@@ -2218,19 +2241,31 @@
   /* =========================================================
      게시판 탭 (공지사항 + 자유게시판 + 사진)
      ========================================================= */
+  const BOARD_CATS = [
+    { id: '전체', label: '전체' },
+    { id: '공지', label: '공지사항' },
+    { id: '자유', label: '자유게시판' },
+    { id: '오류 및 요청사항', label: '오류 및 요청사항' },
+    { id: '맛집추천', label: '맛집추천' }
+  ];
+
+  function boardBadgeHtml(cat) {
+    if (cat === '공지') return '<span class="badge-notice">공지</span>';
+    if (cat === '오류 및 요청사항') return '<span class="badge-free" style="background:#fef3c7;color:#b45309;">오류/요청</span>';
+    if (cat === '맛집추천') return '<span class="badge-free" style="background:#dcfce7;color:#15803d;">맛집추천</span>';
+    return '<span class="badge-free">자유</span>';
+  }
+
   function renderBoardTab(container) {
     const statusLabel = cloudStatus === 'connected'
       ? `<span class="cloud-pill ok">● 실시간 (${escapeHtml(getWorkspaceCode())})</span>`
       : `<span class="cloud-pill err">● 오프라인</span>`;
 
-    const notices = cloudBoardPosts.filter(p => p.category === '공지');
-    const frees = cloudBoardPosts.filter(p => p.category !== '공지');
-
     const renderList = (arr, emptyMsg) => arr.length ? arr.map(p => `
       <div class="board-row" data-bid="${p.id}">
         <div style="min-width:0;flex:1;">
           <div style="display:flex;align-items:center;gap:6px;">
-            <span class="${p.category === '공지' ? 'badge-notice' : 'badge-free'}">${p.category === '공지' ? '공지' : '자유'}</span>
+            ${boardBadgeHtml(p.category)}
             <span style="font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(p.title || '')}</span>
             ${p.imageData ? `<span style="font-size:11px;color:var(--primary);font-weight:800;">[사진]</span>` : ''}
           </div>
@@ -2239,6 +2274,24 @@
         <span style="color:var(--text-3);font-size:14px;">›</span>
       </div>
     `).join('') : `<div style="padding:18px 0;text-align:center;font-size:12.5px;color:var(--text-3);">${emptyMsg}</div>`;
+
+    const sections = [];
+    if (boardCatFilter === '전체' || boardCatFilter === '공지') {
+      const notices = cloudBoardPosts.filter(p => p.category === '공지');
+      sections.push(`<div class="card" style="margin-bottom:12px;"><div class="card-title"><span>공지사항</span><span style="font-size:12px;color:var(--text-3);">${notices.length}건</span></div>${renderList(notices, '등록된 공지사항이 없습니다')}</div>`);
+    }
+    if (boardCatFilter === '전체' || boardCatFilter === '자유') {
+      const frees = cloudBoardPosts.filter(p => !p.category || p.category === '자유');
+      sections.push(`<div class="card" style="margin-bottom:12px;"><div class="card-title"><span>자유게시판</span><span style="font-size:12px;color:var(--text-3);">${frees.length}건</span></div>${renderList(frees, '자유롭게 첫 글을 남겨보세요')}</div>`);
+    }
+    if (boardCatFilter === '전체' || boardCatFilter === '오류 및 요청사항') {
+      const bugs = cloudBoardPosts.filter(p => p.category === '오류 및 요청사항');
+      sections.push(`<div class="card" style="margin-bottom:12px;"><div class="card-title"><span>오류 및 요청사항</span><span style="font-size:12px;color:var(--text-3);">${bugs.length}건</span></div>${renderList(bugs, '앱 오류나 개선 요청을 남겨주세요')}</div>`);
+    }
+    if (boardCatFilter === '전체' || boardCatFilter === '맛집추천') {
+      const foods = cloudBoardPosts.filter(p => p.category === '맛집추천');
+      sections.push(`<div class="card"><div class="card-title"><span>맛집추천</span><span style="font-size:12px;color:var(--text-3);">${foods.length}건</span></div>${renderList(foods, '주변 맛집을 공유해 보세요')}</div>`);
+    }
 
     container.innerHTML = `
       <div class="equip-wrap">
@@ -2250,24 +2303,13 @@
           <button class="btn btn-primary btn-sm" id="btnNewBoardPost">+ 글쓰기</button>
         </div>
         <div class="equip-cats">
-          ${['전체','공지','자유'].map(c => `<button class="cat-chip ${c === boardCatFilter ? 'active' : ''}" data-bcat="${c}">${c === '공지' ? '공지사항' : (c === '자유' ? '자유게시판' : '전체')}</button>`).join('')}
+          ${BOARD_CATS.map(c => `<button class="cat-chip ${c.id === boardCatFilter ? 'active' : ''}" data-bcat="${c.id}">${c.label}</button>`).join('')}
         </div>
-        ${boardCatFilter !== '자유' ? `
-          <div class="card" style="margin-bottom:12px;">
-            <div class="card-title"><span>공지사항</span><span style="font-size:12px;color:var(--text-3);">${notices.length}건</span></div>
-            ${renderList(notices, '등록된 공지사항이 없습니다')}
-          </div>
-        ` : ''}
-        ${boardCatFilter !== '공지' ? `
-          <div class="card">
-            <div class="card-title"><span>자유게시판</span><span style="font-size:12px;color:var(--text-3);">${frees.length}건</span></div>
-            ${renderList(frees, '자유롭게 첫 글을 남겨보세요')}
-          </div>
-        ` : ''}
+        ${sections.join('')}
       </div>
     `;
 
-    document.getElementById('btnNewBoardPost').onclick = openBoardForm;
+    document.getElementById('btnNewBoardPost').onclick = () => openBoardForm(null);
     container.querySelectorAll('[data-bcat]').forEach(b => {
       b.onclick = () => { boardCatFilter = b.dataset.bcat; renderBoardTab(container); };
     });
@@ -2276,38 +2318,52 @@
     });
   }
 
-  function openBoardForm() {
-    let imageData = '';
+  function openBoardForm(editPost) {
+    const isEdit = Boolean(editPost);
+    let imageData = editPost?.imageData || '';
+    const curCat = editPost?.category || '자유';
     openSheet(
-      '게시글 작성',
-      `팀 코드 ${getWorkspaceCode()} 게시판에 등록됩니다`,
+      isEdit ? '게시글 수정' : '게시글 작성',
+      `팀 코드 ${getWorkspaceCode()} 게시판`,
       `
         <div class="form-group">
           <label class="form-label">게시판 구분</label>
           <select class="select" id="boardCatSel">
-            <option value="자유">자유게시판</option>
-            <option value="공지">공지사항</option>
+            <option value="자유" ${curCat === '자유' ? 'selected' : ''}>자유게시판</option>
+            <option value="공지" ${curCat === '공지' ? 'selected' : ''}>공지사항</option>
+            <option value="오류 및 요청사항" ${curCat === '오류 및 요청사항' ? 'selected' : ''}>오류 및 요청사항</option>
+            <option value="맛집추천" ${curCat === '맛집추천' ? 'selected' : ''}>맛집추천</option>
           </select>
         </div>
         <div class="form-group">
           <label class="form-label">제목</label>
-          <input class="input" id="boardTitleInp" placeholder="제목을 입력하세요" />
+          <input class="input" id="boardTitleInp" placeholder="제목을 입력하세요" value="${escapeHtml(editPost?.title || '')}" />
         </div>
         <div class="form-group">
           <label class="form-label">내용</label>
-          <textarea class="textarea" id="boardBodyInp" placeholder="조원들과 나눌 내용을 적어주세요"></textarea>
+          <textarea class="textarea" id="boardBodyInp" placeholder="조원들과 나눌 내용을 적어주세요">${escapeHtml(editPost?.body || '')}</textarea>
         </div>
         <div class="form-group">
           <label class="form-label">사진 첨부 (선택)</label>
           <input type="file" id="boardPhotoInp" accept="image/*" style="display:none;" />
-          <button type="button" class="btn btn-soft" id="btnPickBoardPhoto" style="width:100%;">사진 선택하기</button>
-          <img id="boardPreview" style="display:none;width:100%;max-height:190px;object-fit:cover;border-radius:10px;margin-top:8px;" />
+          <div style="display:flex;gap:8px;">
+            <button type="button" class="btn btn-soft" id="btnPickBoardPhoto" style="flex:1;">사진 선택하기</button>
+            ${imageData ? `<button type="button" class="btn btn-danger btn-sm" id="btnClearBoardPhoto">사진 제거</button>` : ''}
+          </div>
+          <img id="boardPreview" src="${imageData || ''}" style="display:${imageData ? 'block' : 'none'};width:100%;max-height:190px;object-fit:cover;border-radius:10px;margin-top:8px;" />
         </div>
-        <button class="btn btn-primary" id="btnSubmitBoard" style="width:100%;padding:12px;">등록하기</button>
+        <button class="btn btn-primary" id="btnSubmitBoard" style="width:100%;padding:12px;">${isEdit ? '수정 저장하기' : '등록하기'}</button>
       `
     );
     const inp = document.getElementById('boardPhotoInp');
     document.getElementById('btnPickBoardPhoto').onclick = () => inp.click();
+    const clearBtn = document.getElementById('btnClearBoardPhoto');
+    if (clearBtn) clearBtn.onclick = () => {
+      imageData = '';
+      const prev = document.getElementById('boardPreview');
+      prev.src = ''; prev.style.display = 'none';
+      clearBtn.style.display = 'none';
+    };
     inp.onchange = async () => {
       const f = inp.files?.[0];
       if (!f) return;
@@ -2323,19 +2379,19 @@
       const body = document.getElementById('boardBodyInp').value.trim();
       if (!title) { showToast('제목을 입력해 주세요'); return; }
       const btn = document.getElementById('btnSubmitBoard');
-      btn.disabled = true; btn.textContent = '등록 중...';
+      btn.disabled = true; btn.textContent = isEdit ? '수정 중...' : '등록 중...';
       try {
         const now = new Date();
         await saveBoardPostToCloud({
-          id: 'bd_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+          id: isEdit ? editPost.id : ('bd_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6)),
           category, title, body, imageData,
-          author: getMyDisplayAuthor(),
-          dateLabel: `${now.getMonth()+1}/${now.getDate()} ${pad(now.getHours())}:${pad(now.getMinutes())}`
+          author: editPost?.author || getMyDisplayAuthor(),
+          dateLabel: isEdit ? (editPost.dateLabel + ' (수정됨)') : `${now.getMonth()+1}/${now.getDate()} ${pad(now.getHours())}:${pad(now.getMinutes())}`
         });
-        closeSheet(); showToast('게시글이 등록되었습니다');
+        closeSheet(); showToast(isEdit ? '게시글이 수정되었습니다' : '게시글이 등록되었습니다');
       } catch {
-        btn.disabled = false; btn.textContent = '등록하기';
-        showToast('등록 실패: 인터넷 연결 확인');
+        btn.disabled = false; btn.textContent = isEdit ? '수정 저장하기' : '등록하기';
+        showToast('저장 실패: 인터넷 연결 확인');
       }
     };
   }
@@ -2343,13 +2399,17 @@
   function openBoardDetail(postId) {
     const p = cloudBoardPosts.find(x => x.id === postId);
     if (!p) return;
+    const catLabel = BOARD_CATS.find(c => c.id === p.category)?.label || '자유게시판';
     openSheet(
       p.title || '게시글',
-      `${p.category === '공지' ? '공지사항' : '자유게시판'} · ${p.author || '조원'} · ${p.dateLabel || ''}`,
+      `${catLabel} · ${p.author || '조원'} · ${p.dateLabel || ''}`,
       `
         <div style="font-size:14px;line-height:1.65;white-space:pre-line;margin-bottom:12px;">${escapeHtml(p.body || '(내용 없음)')}</div>
         ${p.imageData ? `<img id="boardDetailImg" src="${p.imageData}" style="width:100%;max-height:300px;object-fit:cover;border-radius:12px;margin-bottom:14px;cursor:pointer;" />` : ''}
-        <button class="btn btn-danger" id="btnDelBoard" style="width:100%;">삭제</button>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-soft" id="btnEditBoard" style="flex:1;">수정</button>
+          <button class="btn btn-danger" id="btnDelBoard" style="flex:1;">삭제</button>
+        </div>
       `
     );
     const img = document.getElementById('boardDetailImg');
@@ -2357,6 +2417,7 @@
       document.getElementById('lightboxImg').src = img.src;
       document.getElementById('lightbox').classList.add('open');
     };
+    document.getElementById('btnEditBoard').onclick = () => openBoardForm(p);
     document.getElementById('btnDelBoard').onclick = async () => {
       if (!confirm('이 게시글을 삭제할까요?')) return;
       await deleteBoardPostFromCloud(p.id);
@@ -2490,7 +2551,9 @@
     if (hol) subParts.push(hol);
     else if (obs) subParts.push(obs);
 
-    const { shift, modified, base } = getShift(state.myTeamId, ymd);
+    const { shift, subShift, modified, base } = getShift(state.myTeamId, ymd);
+    let pendingMain = shift;
+    let pendingSub = subShift || '';
     const otherTeamsSummary = state.teams.map(t => {
       const ts = getShift(t.id, ymd).shift;
       return `<span class="mini-tag t-${ts}" style="font-size:11px;padding:3px 7px;">${escapeHtml(t.name)} ${ts}</span>`;
@@ -2543,8 +2606,13 @@
       `;
     }).join('') : `<div style="font-size:13px;color:var(--text-3);padding:12px 0;">등록된 메모나 일정이 없습니다.</div>`;
 
-    const shiftBtnsHtml = SHIFT_TYPES.map(st =>
-      `<button class="shift-pick-btn ${st === shift ? 'active' : ''}" data-pick-shift="${st}">${st}</button>`
+    const mainShifts = ['주','야','휴','주특','야특'];
+    const subShifts = ['연차','반차','교육'];
+    const mainBtnsHtml = mainShifts.map(st =>
+      `<button class="shift-pick-btn ${st === pendingMain ? 'active' : ''}" data-pick-main="${st}">${st}</button>`
+    ).join('');
+    const subBtnsHtml = subShifts.map(st =>
+      `<button class="shift-pick-btn ${st === pendingSub ? 'active' : ''}" data-pick-sub="${st}">${st}</button>`
     ).join('');
 
     openSheet(
@@ -2560,11 +2628,16 @@
         </div>
 
         <div style="margin-bottom:18px;padding-top:12px;border-top:1px solid var(--border);">
-          <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
             <span style="font-size:13px;font-weight:800;">내 근무 변경 (${escapeHtml(state.teams.find(t=>t.id===state.myTeamId)?.name || '')})</span>
-            ${modified ? `<button class="btn btn-soft btn-sm" id="btnResetShift">원래대로</button>` : ''}
+            <div style="display:flex;gap:6px;">
+              ${modified ? `<button class="btn btn-soft btn-sm" id="btnResetShift">원래대로</button>` : ''}
+              <button class="btn btn-primary btn-sm" id="btnSaveShift">저장</button>
+            </div>
           </div>
-          <div class="shift-pick-grid">${shiftBtnsHtml}</div>
+          <div class="shift-pick-grid" style="grid-template-columns:repeat(5,1fr);">${mainBtnsHtml}</div>
+          <div style="font-size:11.5px;font-weight:700;color:var(--text-2);margin:10px 0 6px;">추가 표시 (주·야 유지, 다시 누르면 해제)</div>
+          <div class="shift-pick-grid" style="grid-template-columns:repeat(3,1fr);">${subBtnsHtml}</div>
         </div>
 
         <div style="padding-top:12px;border-top:1px solid var(--border);">
@@ -2577,18 +2650,45 @@
       `
     );
 
-    document.querySelectorAll('[data-pick-shift]').forEach(b => {
+    const refreshShiftPickUI = () => {
+      document.querySelectorAll('[data-pick-main]').forEach(x => {
+        x.classList.toggle('active', x.dataset.pickMain === pendingMain);
+      });
+      document.querySelectorAll('[data-pick-sub]').forEach(x => {
+        x.classList.toggle('active', x.dataset.pickSub === pendingSub);
+      });
+    };
+
+    document.querySelectorAll('[data-pick-main]').forEach(b => {
       b.onclick = () => {
-        const picked = b.dataset.pickShift;
-        if (!state.overrides[ymd]) state.overrides[ymd] = {};
-        if (picked === base) delete state.overrides[ymd][state.myTeamId];
-        else state.overrides[ymd][state.myTeamId] = picked;
-        if (!Object.keys(state.overrides[ymd]).length) delete state.overrides[ymd];
-        saveState();
-        renderMain();
-        openDateSheet(ymd);
+        pendingMain = b.dataset.pickMain;
+        refreshShiftPickUI();
       };
     });
+    document.querySelectorAll('[data-pick-sub]').forEach(b => {
+      b.onclick = () => {
+        const picked = b.dataset.pickSub;
+        pendingSub = (pendingSub === picked) ? '' : picked;
+        refreshShiftPickUI();
+      };
+    });
+
+    document.getElementById('btnSaveShift').onclick = () => {
+      if (!state.overrides[ymd]) state.overrides[ymd] = {};
+      if (pendingMain === base && !pendingSub) {
+        delete state.overrides[ymd][state.myTeamId];
+      } else if (!pendingSub) {
+        state.overrides[ymd][state.myTeamId] = pendingMain;
+      } else {
+        state.overrides[ymd][state.myTeamId] = { main: pendingMain, sub: pendingSub };
+      }
+      if (!Object.keys(state.overrides[ymd]).length) delete state.overrides[ymd];
+      saveState();
+      syncAlarmsToNative();
+      renderMain();
+      openDateSheet(ymd);
+      showToast('근무가 저장되었습니다');
+    };
 
     const resetBtn = document.getElementById('btnResetShift');
     if (resetBtn) {
