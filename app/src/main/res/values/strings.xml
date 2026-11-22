@@ -1,4 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">TSV 교대달력</string>
+
+    <!-- Home-screen widgets -->
+    <string name="widget_1day_label">오늘 근무</string>
+    <string name="widget_2day_label">오늘·내일 근무</string>
+    <string name="widget_4day_label">4일 근무</string>
+    <string name="widget_team_4day_label">동료 4일 근무</string>
+    <string name="widget_month_label">한달 근무</string>
 </resources>

@@ -40,6 +40,35 @@ alarm notification with a full-screen intent, starts `AlarmActivity` (rings the
 default alarm tone, vibrates, shows over the lock screen) and re-arms the future
 entries after a reboot or an app update.
 
+## v1.6 — 홈 화면 위젯 5종
+
+다섯 개의 홈 화면 위젯이 추가되었고, 네이티브 쪽에 `window.AndroidWidget`
+브리지가 붙었습니다.
+
+| 위젯 | 크기 | 내용 |
+| --- | --- | --- |
+| `Widget1DayProvider` — 오늘 근무 | 1×1 | 오늘 `M.d` · 요일 · 큰 근무 배지 |
+| `Widget2DayProvider` — 오늘·내일 근무 | 2×1 | 오늘/내일 두 칸, 날짜·요일·배지 |
+| `Widget4DayProvider` — 4일 근무 | 2×2 | 오늘부터 4일, 2×2 그리드 |
+| `WidgetTeam4DayProvider` — 동료 4일 근무 | 2×1 | 4일 날짜 헤더 + 등록된 조마다 4일 배지 |
+| `WidgetMonthProvider` — 한달 근무 | 4×4 | `< 2026.11 >` + 요일 줄 + 6주×7일 그리드, 오늘 강조 |
+
+- `window.AndroidWidget.syncWidgetData(json)`은 페이지가 저장할 때마다
+  `{myTeamId, anchorDate, teams[], overrides{}, holidays{}}`를 넘겨받아
+  `SharedPreferences("tsv_widget_prefs", "widget_json")`에 보관하고, 다섯
+  프로바이더에 `ACTION_APPWIDGET_UPDATE`를 보내 즉시 다시 그립니다.
+  앱을 한 번도 열지 않았을 때는 `DEFAULT_DATA`와 같은 기본값(A/B/C조, B조,
+  기준일 2026-11-22)으로 계산합니다.
+- 근무 계산은 웹앱의 `getShift()`와 같습니다 — 패턴 인덱스 + `anchorDate`와의
+  일수 차이, `overrides`의 문자열/`{main, sub}` 객체 지원, `연차·반차·교육`은
+  서브 근무로 배지에 표시.
+- 색: 주/주특 = 앰버 원형 배지(`#F59E0B`), 야/야특 = 다크(`#1E293B`), 교육 =
+  파랑(`#0EA5E9`), 연차·반차 = 초록(`#16A34A`), 휴 = 원 없이 연한 주황 글씨.
+  날짜는 토요일 파랑 `#2563EB`, 일요일·공휴일 빨강 `#EF4444`.
+- 한달 위젯의 화살표는 `WIDGET_MONTH_PREV/MONTH_NEXT` 브로드캐스트로
+  `month_offset`을 옮겨 그립니다(0 = 이번 달).
+- 모든 카드를 누르면 앱이 열리고, 갱신 주기는 위젯별 30분(`1800000`ms)입니다.
+
 ## Build
 
 The GitHub Actions workflow (`.github/workflows/build-apk.yml`) builds a debug
@@ -47,7 +76,7 @@ APK on every push. Locally the same thing is `gradle assembleDebug` with JDK 17
 and the Android SDK installed.
 
 - applicationId: `com.tsv.dutycalendar` (installs beside `TSV 근무표`)
-- versionCode 4 / versionName 1.3
+- versionCode 9 / versionName 1.6
 - Signing: fixed PKCS12 key `app/tsv-duty-fixed.p12` wired into
   `signingConfigs.debug`, so every rebuild installs over the previous one.
 

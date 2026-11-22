@@ -90,6 +90,12 @@ import java.util.TimeZone;
  *   downloadAndInstall(apkUrl, fileName), which fetches the newest GitHub
  *   release APK into cache/updates/ and opens the system installer.
  *
+ *   window.AndroidWidget   — the five home-screen widgets. syncWidgetData(json)
+ *   keeps the page's shift table (myTeamId, anchorDate, teams, overrides,
+ *   holidays) in SharedPreferences("tsv_widget_prefs", "widget_json") and
+ *   broadcasts ACTION_APPWIDGET_UPDATE to every widget provider, so a shift
+ *   edited in the app is on the home screen at once. See ShiftWidgetHelper.
+ *
  * Coming back from the Samsung/Google calendar app re-syncs the device calendar:
  * onResume() calls the page's own window.onAppResume().
  */
@@ -190,6 +196,7 @@ public class MainActivity extends Activity {
         webView.addJavascriptInterface(new Bridge(), "AndroidBridge");
         webView.addJavascriptInterface(new AlarmBridge(), "AndroidAlarm");
         webView.addJavascriptInterface(new UpdaterBridge(), "AndroidUpdater");
+        webView.addJavascriptInterface(new WidgetBridge(), "AndroidWidget");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -1292,6 +1299,38 @@ public class MainActivity extends Activity {
         }
     }
 
+    // ------------------------------------------------------ home screen widgets
+
+    /**
+     * JS-facing API: window.AndroidWidget.*
+     *
+     * The page calls syncWidgetData() on every save (and once at startup) with
+     * {myTeamId, anchorDate, teams[], overrides{}, holidays{}}. Keeping that slice of
+     * the state native is what lets the widgets draw without opening the app, and the
+     * broadcast is what makes them repaint immediately instead of waiting for the
+     * 30-minute updatePeriodMillis.
+     */
+    public class WidgetBridge {
+
+        @JavascriptInterface
+        public void syncWidgetData(String json) {
+            if (json == null || json.trim().isEmpty()) {
+                return;
+            }
+            try {
+                // Parse once here so a broken payload never overwrites good data.
+                new JSONObject(json);
+                getSharedPreferences(ShiftWidgetHelper.PREFS, MODE_PRIVATE)
+                        .edit()
+                        .putString(ShiftWidgetHelper.KEY_JSON, json)
+                        .apply();
+                ShiftWidgetHelper.refreshAllWidgets(MainActivity.this);
+            } catch (Exception e) {
+                Log.w(TAG, "AndroidWidget.syncWidgetData failed", e);
+            }
+        }
+    }
+
     // --------------------------------------------------------- in-app updater
 
     /**
@@ -1317,10 +1356,10 @@ public class MainActivity extends Activity {
             try {
                 String version = getPackageManager()
                         .getPackageInfo(getPackageName(), 0).versionName;
-                return version == null || version.trim().isEmpty() ? "1.5" : version;
+                return version == null || version.trim().isEmpty() ? "1.6" : version;
             } catch (Exception e) {
                 Log.w(TAG, "getAppVersion failed", e);
-                return "1.5";
+                return "1.6";
             }
         }
 

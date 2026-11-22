@@ -1118,6 +1118,28 @@
     }
   }
 
+  function syncWidgetToNative() {
+    if (!window.AndroidWidget || typeof window.AndroidWidget.syncWidgetData !== 'function') return;
+    try {
+      const payload = {
+        myTeamId: state.myTeamId,
+        anchorDate: state.anchorDate,
+        teams: (state.teams || []).map(t => ({
+          id: t.id,
+          name: t.name,
+          anchorIndex: t.anchorIndex || 0,
+          pattern: t.pattern || [],
+          color: t.color || '#3182f6'
+        })),
+        overrides: state.overrides || {},
+        holidays: typeof KR_HOLIDAYS !== 'undefined' ? KR_HOLIDAYS : {}
+      };
+      window.AndroidWidget.syncWidgetData(JSON.stringify(payload));
+    } catch (e) {
+      console.warn('syncWidgetToNative failed:', e);
+    }
+  }
+
   async function saveSharedEventToCloud(ev) {
     if (!db) throw new Error('서버 연결 안 됨');
     const wsRef = db.collection('workspaces').doc(getWorkspaceCode());
@@ -1197,6 +1219,7 @@
   function saveState() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     syncAlarmsToNative();
+    syncWidgetToNative();
   }
 
   /* =========================================================
@@ -2576,7 +2599,7 @@
   /* =========================================================
      5-1. 인앱 자동 업데이트 (GitHub Releases 연동)
      ========================================================= */
-  const APP_FALLBACK_VERSION = '1.5';
+  const APP_FALLBACK_VERSION = '1.6';
   const UPDATE_RELEASES_API = 'https://api.github.com/repos/csh1oo4/tsv-/releases?per_page=10';
   const appUpdateState = {
     checking: false,
@@ -3661,6 +3684,7 @@
   syncDeviceCalendar(viewYear, viewMonth);
   initFirebase();
   syncAlarmsToNative();
+  syncWidgetToNative();
   setTimeout(() => checkAppUpdate(true), 1800);
 })();
 </script>

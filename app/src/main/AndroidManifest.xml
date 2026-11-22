@@ -71,6 +71,71 @@
             android:taskAffinity=""
             android:theme="@style/AppTheme"
             android:turnScreenOn="true" />
+
+        <!-- Home-screen widgets. MainActivity's AndroidWidget bridge broadcasts
+             ACTION_APPWIDGET_UPDATE to each of these after every sync. -->
+        <receiver
+            android:name=".Widget1DayProvider"
+            android:exported="true"
+            android:label="@string/widget_1day_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_1day_info" />
+        </receiver>
+
+        <receiver
+            android:name=".Widget2DayProvider"
+            android:exported="true"
+            android:label="@string/widget_2day_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_2day_info" />
+        </receiver>
+
+        <receiver
+            android:name=".Widget4DayProvider"
+            android:exported="true"
+            android:label="@string/widget_4day_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_4day_info" />
+        </receiver>
+
+        <receiver
+            android:name=".WidgetTeam4DayProvider"
+            android:exported="true"
+            android:label="@string/widget_team_4day_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_team_4day_info" />
+        </receiver>
+
+        <receiver
+            android:name=".WidgetMonthProvider"
+            android:exported="true"
+            android:label="@string/widget_month_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <!-- The month widget's < > arrows come back to this receiver. -->
+                <action android:name="com.tsv.dutycalendar.action.WIDGET_MONTH_PREV" />
+                <action android:name="com.tsv.dutycalendar.action.WIDGET_MONTH_NEXT" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_month_info" />
+        </receiver>
     </application>
 
 </manifest>
