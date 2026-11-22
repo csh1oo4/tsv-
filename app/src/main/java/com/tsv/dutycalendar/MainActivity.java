@@ -252,11 +252,16 @@ public class MainActivity extends Activity {
                         }
                     }
                     if (!mimes.isEmpty()) {
+                        // <input accept=".json,application/json">: some storage providers report
+                        // .json as text/plain, so keep that as a fallback filter.
+                        if (mimes.contains("application/json") && !mimes.contains("text/plain")) {
+                            mimes.add("text/plain");
+                        }
                         intent.putExtra(Intent.EXTRA_MIME_TYPES, mimes.toArray(new String[0]));
 
                         // <input type="file" accept="image/*"> must open the gallery / photo
                         // picker, not an "all files" browser: give the intent a concrete type
-                        // instead of the */* placeholder.
+                        // instead of the */* placeholder (other types keep v1.0's behaviour).
                         boolean onlyImages = true;
                         for (String mime : mimes) {
                             if (!mime.toLowerCase(Locale.US).startsWith("image/")) {
@@ -264,12 +269,8 @@ public class MainActivity extends Activity {
                                 break;
                             }
                         }
-                        if (mimes.size() == 1) {
-                            intent.setType(mimes.get(0));
-                        } else if (onlyImages) {
-                            intent.setType("image/*");
-                        }
                         if (onlyImages) {
+                            intent.setType(mimes.size() == 1 ? mimes.get(0) : "image/*");
                             title = "사진 선택";
                         }
                     }
