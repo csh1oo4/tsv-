@@ -67,6 +67,7 @@ entries after a reboot or an app update.
   날짜는 토요일 파랑 `#2563EB`, 일요일·공휴일 빨강 `#EF4444`.
 - 한달 위젯의 화살표는 `WIDGET_MONTH_PREV/MONTH_NEXT` 브로드캐스트로
   `month_offset`을 옮겨 그립니다(0 = 이번 달).
+- 한달 위젯은 5주짜리 달이면 여섯 번째 주 줄을 숨겨 그리드를 꽉 채웁니다.
 - 모든 카드를 누르면 앱이 열리고, 갱신 주기는 위젯별 30분(`1800000`ms)입니다.
 
 ## Build

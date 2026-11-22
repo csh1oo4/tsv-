@@ -84,6 +84,13 @@ public class WidgetMonthProvider extends AppWidgetProvider {
         String today = ShiftWidgetHelper.today();
         String monthYmd = ShiftWidgetHelper.toYmd(first);
 
+        // A 5-week month leaves the static sixth row empty; hide it so the grid fills.
+        int weeks = (int) Math.ceil((lead + daysInMonth) / 7.0);
+        for (int row = 0; row < WidgetIds.MONTH_ROW.length; row++) {
+            views.setViewVisibility(WidgetIds.MONTH_ROW[row],
+                    row < weeks ? android.view.View.VISIBLE : android.view.View.GONE);
+        }
+
         for (int cell = 0; cell < WidgetIds.MONTH_DATE.length; cell++) {
             int dayNumber = cell - lead + 1;
             int dateId = WidgetIds.MONTH_DATE[cell];
