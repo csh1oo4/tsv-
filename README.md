@@ -47,7 +47,7 @@ APK on every push. Locally the same thing is `gradle assembleDebug` with JDK 17
 and the Android SDK installed.
 
 - applicationId: `com.tsv.dutycalendar` (installs beside `TSV 근무표`)
-- versionCode 3 / versionName 1.2
+- versionCode 4 / versionName 1.3
 - Signing: fixed PKCS12 key `app/tsv-duty-fixed.p12` wired into
   `signingConfigs.debug`, so every rebuild installs over the previous one.
 
@@ -90,9 +90,27 @@ button opens the gallery/photo picker instead of an "all files" browser;
 `bridge.js` un-hides file inputs (including ones built inside a sheet) at click
 time so the WebView actually opens the picker.
 
+## v1.3
+
+- **새 아이콘** — the launcher icon is the artwork the user supplied (gold PI film
+roll + calendar on a white rounded-square backdrop). `tools/generate_icons_from_art.py`
+resizes it with LANCZOS into legacy squircle (`ic_launcher`), circle
+(`ic_launcher_round`) and adaptive foreground layers for all five densities and
+follows it with `icon-preview.png`. The adaptive background is plain white
+(`#FFFFFF`) so the white backdrop of the artwork blends in, and the foreground
+artwork sits at 76% of the 108dp canvas, inside the 72dp safe zone, so neither a
+circular (One UI) nor a squircle mask clips the film roll or the calendar.
+- The `<monochrome>` themed-icon layer was dropped: a tint silhouette of this
+photographic artwork loses the film roll's highlights, so themed icons simply
+fall back to the full-colour icon.
+- Web app: `assets/index.html` refreshed byte-for-byte from the web build.
+
 ## Icons
 
-`tools/generate_icons.py` draws the launcher art from scratch with PIL
-(deep blue → indigo background, white calendar card with a blue top bar and
-binder rings, bold TSV wordmark) and writes legacy, round, adaptive foreground
-and monochrome layers for all five densities, plus `icon-preview.png`.
+`tools/generate_icons_from_art.py SOURCE_IMAGE` builds the launcher icons from the
+supplied artwork (resize, centre, squircle/circle mask, adaptive safe-zone
+placement) and writes legacy, round and adaptive foreground layers for all five
+densities, plus `icon-preview.png`.
+
+The previous from-scratch artwork generator is kept in git history
+(`tools/generate_icons.py` at v1.2).
