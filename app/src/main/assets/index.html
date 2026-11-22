@@ -218,7 +218,8 @@
   }
   .shape-square .shift-badge { border-radius: 8px; }
   .shift-badge.type-주 { background: var(--ju-bg); color: var(--ju-fg); }
-  .shift-badge.type-야 { background: var(--ya-bg); color: var(--ya-fg); }
+  .shift-badge.type-야, .shift-badge.type-야특 { background: var(--ya-bg); color: var(--ya-fg); }
+  .shift-badge.type-주, .shift-badge.type-주특 { background: var(--ju-bg); color: var(--ju-fg); }
   .shift-badge.type-비 { background: var(--bi-bg); color: var(--bi-fg); }
   .shift-badge.type-휴 { background: var(--hyu-bg); color: var(--hyu-fg); }
   .shift-badge.type-연차, .shift-badge.type-반차 { background: var(--yeon-bg); color: var(--yeon-fg); font-size: 10px; }
@@ -373,22 +374,35 @@
   .btn-danger { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
   .btn-sm { padding: 6px 10px; font-size: 12px; border-radius: 9px; }
 
-  /* Bottom Nav */
+  /* Bottom Nav (Horizontal Sliding) */
   .bottom-nav {
     position: absolute; bottom: 0; left: 0; right: 0;
     height: calc(var(--nav-h) + var(--safe-bottom));
     padding-bottom: var(--safe-bottom);
     background: var(--surface); border-top: 1px solid var(--border);
-    display: grid; grid-template-columns: repeat(4, 1fr);
+    display: flex; align-items: stretch;
+    overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity;
     z-index: 30;
   }
+  .bottom-nav::-webkit-scrollbar { display: none; }
   .nav-item {
+    flex: 0 0 21.5%; min-width: 72px; scroll-snap-align: start;
     border: none; background: transparent; color: var(--text-3);
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 3px; font-size: 11px; font-weight: 700; cursor: pointer;
+    gap: 4px; font-size: 11px; font-weight: 700; cursor: pointer;
+    position: relative; padding: 4px 2px;
   }
-  .nav-item .nav-ico { font-size: 19px; line-height: 1; }
+  .nav-item .nav-ico { display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
+  .nav-item .nav-ico svg, .svg-ico {
+    width: 21px; height: 21px; stroke: currentColor; fill: none;
+    stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round;
+  }
   .nav-item.active { color: var(--primary); }
+  .nav-item.active::after {
+    content: ""; position: absolute; top: 0; left: 24%; right: 24%;
+    height: 2.5px; border-radius: 0 0 3px 3px; background: var(--primary);
+  }
 
   /* Drawer */
   .backdrop {
@@ -481,16 +495,56 @@
   }
   .toast.show { opacity: 1; }
 
-  @keyframes slideFromRight {
-    from { opacity: 0.45; transform: translateX(26px); }
-    to { opacity: 1; transform: translateX(0); }
+  /* 3D Page Flip Motion */
+  .main { perspective: 1400px; }
+  @keyframes pageFlipNext {
+    0% { opacity: 0.35; transform: rotateY(-18deg) translateX(36px) scale(0.97); }
+    100% { opacity: 1; transform: rotateY(0deg) translateX(0) scale(1); }
   }
-  @keyframes slideFromLeft {
-    from { opacity: 0.45; transform: translateX(-26px); }
-    to { opacity: 1; transform: translateX(0); }
+  @keyframes pageFlipPrev {
+    0% { opacity: 0.35; transform: rotateY(18deg) translateX(-36px) scale(0.97); }
+    100% { opacity: 1; transform: rotateY(0deg) translateX(0) scale(1); }
   }
-  .slide-next { animation: slideFromRight 0.2s ease-out; }
-  .slide-prev { animation: slideFromLeft 0.2s ease-out; }
+  .slide-next { transform-origin: right center; animation: pageFlipNext 0.34s cubic-bezier(0.22, 0.85, 0.32, 1); }
+  .slide-prev { transform-origin: left center; animation: pageFlipPrev 0.34s cubic-bezier(0.22, 0.85, 0.32, 1); }
+
+  /* Folders / Board / Alarm */
+  .folder-grid {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 12px;
+  }
+  .folder-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    padding: 12px; cursor: pointer; display: flex; align-items: center; gap: 10px;
+    box-shadow: var(--shadow-sm);
+  }
+  .folder-card:active { background: var(--surface-2); }
+  .folder-ico {
+    width: 36px; height: 36px; border-radius: 10px; background: var(--primary-soft);
+    color: var(--primary); display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .board-row {
+    padding: 12px 2px; border-bottom: 1px solid var(--border); cursor: pointer;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  }
+  .board-row:last-child { border-bottom: none; }
+  .badge-notice {
+    font-size: 10.5px; font-weight: 800; padding: 2px 7px; border-radius: 6px;
+    background: rgba(239,68,68,0.12); color: #ef4444; flex-shrink: 0;
+  }
+  .badge-free {
+    font-size: 10.5px; font-weight: 800; padding: 2px 7px; border-radius: 6px;
+    background: var(--primary-soft); color: var(--primary); flex-shrink: 0;
+  }
+  .alarm-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+    padding: 14px; margin-bottom: 10px; box-shadow: var(--shadow-sm);
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  }
+  .alarm-time { font-size: 26px; font-weight: 800; letter-spacing: -0.5px; }
+  .alarm-chip {
+    font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 999px;
+    background: var(--surface-2); color: var(--text-2);
+  }
 
   /* Equipment Share Tab */
   .equip-wrap { padding: 12px 12px 24px; }
@@ -572,33 +626,50 @@
       <button class="today-pill" id="btnToday">오늘</button>
     </div>
     <div class="topbar-right">
-      <button class="icon-btn" id="btnSearch" title="메모 검색">🔍</button>
-      <button class="icon-btn" id="btnShare" title="공유/내보내기">📤</button>
+      <button class="icon-btn" id="btnSearch" title="메모 검색">
+        <svg class="svg-ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      </button>
+      <button class="icon-btn" id="btnShare" title="공유/내보내기">
+        <svg class="svg-ico" viewBox="0 0 24 24"><path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+      </button>
     </div>
   </header>
 
   <div class="quickbar" id="quickbar">
     <div class="team-chips" id="teamChips"></div>
-    <div class="overlay-select" id="btnOverlayToggle">👥 다른조 같이보기</div>
+    <div class="overlay-select" id="btnOverlayToggle">다른조 같이보기</div>
   </div>
 
   <main class="main" id="mainContent"></main>
 
   <nav class="bottom-nav">
     <button class="nav-item active" data-tab="calendar">
-      <span class="nav-ico">📅</span><span>내 근무</span>
+      <span class="nav-ico"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
+      <span>내 근무</span>
     </button>
     <button class="nav-item" data-tab="compare">
-      <span class="nav-ico">👥</span><span>근무 비교</span>
+      <span class="nav-ico"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+      <span>전체 조</span>
     </button>
     <button class="nav-item" data-tab="equipment">
-      <span class="nav-ico">🔧</span><span>설비 공유</span>
+      <span class="nav-ico"><svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span>
+      <span>설비 공유</span>
+    </button>
+    <button class="nav-item" data-tab="alarm">
+      <span class="nav-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2"/><path d="M5 3 2 6"/><path d="m22 6-3-3"/></svg></span>
+      <span>알람</span>
+    </button>
+    <button class="nav-item" data-tab="board">
+      <span class="nav-ico"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+      <span>게시판</span>
     </button>
     <button class="nav-item" data-tab="stats">
-      <span class="nav-ico">📊</span><span>근태 요약</span>
+      <span class="nav-ico"><svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span>
+      <span>근태 요약</span>
     </button>
     <button class="nav-item" data-tab="settings">
-      <span class="nav-ico">⚙️</span><span>설정</span>
+      <span class="nav-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M4.93 4.93l2.12 2.12m9.9 9.9 2.12 2.12M2 12h3m14 0h3M4.93 19.07l2.12-2.12m9.9-9.9 2.12-2.12"/></svg></span>
+      <span>설정</span>
     </button>
   </nav>
 </div>
@@ -618,7 +689,7 @@
         <div style="font-size:18px;font-weight:800;" id="drawerCompany">TSV 교대</div>
         <div style="font-size:12px;color:var(--text-2);margin-top:2px;" id="drawerTeamInfo">내 근무조: B조</div>
       </div>
-      <button class="btn btn-soft btn-sm" id="btnOpenCompanyModal">편집</button>
+      <button class="btn btn-soft btn-sm" id="btnOpenCompanyModal">설정</button>
     </div>
   </div>
   <div class="drawer-body">
@@ -792,10 +863,15 @@
   };
 
   const TSV_PATTERN = ['주','주','주','주','휴','휴','야','야','야','야','휴','휴'];
-  const SHIFT_TYPES = ['주','야','휴','비','연차','반차','교육','출장'];
+  const SHIFT_TYPES = ['주','야','휴','주특','야특','연차','반차','교육'];
   const MEMO_COLORS = ['#2563eb','#0d9488','#eab308','#ef4444','#8b5cf6','#ec4899','#64748b'];
   const TEAM_COLORS = ['#2563eb','#10b981','#f59e0b','#8b5cf6','#ef4444','#06b6d4','#ec4899'];
   const EQUIP_CATS = ['전체','설비 트러블','점검/수리','작업 공유','기타'];
+  const DEFAULT_EQUIP_FOLDERS = [
+    { id: 'f_clean1', name: '세정기 1호기' },
+    { id: 'f_clean2', name: '세정기 2호기' },
+    { id: 'f_aoi', name: 'AOI 검사기' }
+  ];
 
   const DEFAULT_DATA = {
     companyName: 'TSV 교대',
@@ -812,6 +888,10 @@
     memos: [],
     // monthlyMemos: { "2026-11": "..." }
     monthlyMemos: {},
+    alarms: [
+      { id: 'al_day', hour: 6, minute: 30, shifts: ['주','주특'], enabled: false, gameEnabled: true, gameDifficulty: 'easy', gameCount: 1, sound: true, vibrate: true, label: '주간 출근 알람' },
+      { id: 'al_night', hour: 18, minute: 30, shifts: ['야','야특'], enabled: false, gameEnabled: true, gameDifficulty: 'easy', gameCount: 1, sound: true, vibrate: true, label: '야간 출근 알람' }
+    ],
     cloud: {
       enabled: true,
       teamCode: 'TSV-AMMK',
@@ -835,6 +915,9 @@
   let selectedDate = getTodayYMD();
   let currentTab = 'calendar';
   let equipCatFilter = '전체';
+  let selectedEquipFolderId = null;
+  let equipSearchQuery = '';
+  let boardCatFilter = '전체';
   let slideAnimClass = '';
   let deviceCalendars = []; // { id, name, accountName, color }
   let deviceEventsByDate = {}; // { "YYYY-MM-DD": [ { id, title, calId, calName, color, allDay, startTime, endTime } ] }
@@ -851,9 +934,13 @@
   let db = null;
   let cloudStatus = 'connecting'; // 'connecting' | 'connected' | 'offline'
   let cloudSharedEvents = [];
+  let cloudEquipFolders = [...DEFAULT_EQUIP_FOLDERS];
   let cloudEquipPosts = [];
+  let cloudBoardPosts = [];
   let unsubSharedEvents = null;
+  let unsubEquipFolders = null;
   let unsubEquipPosts = null;
+  let unsubBoardPosts = null;
 
   function getMyDisplayAuthor() {
     const myTeam = state.teams.find(t => t.id === state.myTeamId);
@@ -885,7 +972,9 @@
       return;
     }
     if (unsubSharedEvents) { try { unsubSharedEvents(); } catch {} }
+    if (unsubEquipFolders) { try { unsubEquipFolders(); } catch {} }
     if (unsubEquipPosts) { try { unsubEquipPosts(); } catch {} }
+    if (unsubBoardPosts) { try { unsubBoardPosts(); } catch {} }
 
     const wsRef = db.collection('workspaces').doc(getWorkspaceCode());
     cloudStatus = 'connecting';
@@ -894,13 +983,23 @@
       .onSnapshot(snap => {
         cloudStatus = 'connected';
         cloudSharedEvents = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        if (currentTab === 'calendar' || currentTab === 'equipment') renderMain();
+        if (currentTab === 'calendar' || currentTab === 'equipment' || currentTab === 'board') renderMain();
       }, err => {
         console.warn('sharedEvents error', err);
         cloudStatus = 'offline';
       });
 
-    unsubEquipPosts = wsRef.collection('equipmentPosts').orderBy('createdAt', 'desc').limit(80)
+    unsubEquipFolders = wsRef.collection('equipFolders').orderBy('name', 'asc').limit(50)
+      .onSnapshot(snap => {
+        cloudStatus = 'connected';
+        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        cloudEquipFolders = docs.length ? docs : [...DEFAULT_EQUIP_FOLDERS];
+        if (currentTab === 'equipment') renderMain();
+      }, err => {
+        console.warn('equipFolders error', err);
+      });
+
+    unsubEquipPosts = wsRef.collection('equipmentPosts').orderBy('createdAt', 'desc').limit(100)
       .onSnapshot(snap => {
         cloudStatus = 'connected';
         cloudEquipPosts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -909,6 +1008,69 @@
         console.warn('equipmentPosts error', err);
         cloudStatus = 'offline';
       });
+
+    unsubBoardPosts = wsRef.collection('boardPosts').orderBy('createdAt', 'desc').limit(100)
+      .onSnapshot(snap => {
+        cloudStatus = 'connected';
+        cloudBoardPosts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        if (currentTab === 'board') renderMain();
+      }, err => {
+        console.warn('boardPosts error', err);
+      });
+  }
+
+  async function saveEquipFolderToCloud(folder) {
+    if (!db) throw new Error('서버 연결 안 됨');
+    const wsRef = db.collection('workspaces').doc(getWorkspaceCode());
+    await wsRef.collection('equipFolders').doc(folder.id).set(folder);
+  }
+
+  async function saveBoardPostToCloud(post) {
+    if (!db) throw new Error('서버 연결 안 됨');
+    const wsRef = db.collection('workspaces').doc(getWorkspaceCode());
+    await wsRef.collection('boardPosts').doc(post.id).set({
+      ...post,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  }
+
+  async function deleteBoardPostFromCloud(postId) {
+    if (!db) return;
+    const wsRef = db.collection('workspaces').doc(getWorkspaceCode());
+    await wsRef.collection('boardPosts').doc(postId).delete();
+  }
+
+  function syncAlarmsToNative() {
+    if (!window.AndroidAlarm || typeof window.AndroidAlarm.scheduleAlarms !== 'function') return;
+    try {
+      const occurrences = [];
+      const today = getTodayYMD();
+      const nowMs = Date.now();
+      for (let i = 0; i < 30; i++) {
+        const ymd = addDaysYMD(today, i);
+        const shift = getShift(state.myTeamId, ymd).shift;
+        for (const al of (state.alarms || [])) {
+          if (!al.enabled) continue;
+          if (!al.shifts || !al.shifts.includes(shift)) continue;
+          const [y, m, d] = ymd.split('-').map(Number);
+          const dt = new Date(y, m - 1, d, al.hour, al.minute, 0, 0);
+          if (dt.getTime() <= nowMs + 5000) continue;
+          occurrences.push({
+            id: `${al.id}_${ymd}`,
+            triggerAtMs: dt.getTime(),
+            label: `${al.label || '근무 알람'} (${shift})`,
+            gameEnabled: !!al.gameEnabled,
+            gameDifficulty: al.gameDifficulty || 'easy',
+            gameCount: al.gameCount || 1,
+            sound: al.sound !== false,
+            vibrate: al.vibrate !== false
+          });
+        }
+      }
+      window.AndroidAlarm.scheduleAlarms(JSON.stringify(occurrences));
+    } catch (e) {
+      console.warn('syncAlarmsToNative failed:', e);
+    }
   }
 
   async function saveSharedEventToCloud(ev) {
@@ -979,6 +1141,7 @@
       return {
         ...structuredClone(DEFAULT_DATA),
         ...parsed,
+        alarms: Array.isArray(parsed.alarms) ? parsed.alarms : structuredClone(DEFAULT_DATA.alarms),
         cloud: { ...structuredClone(DEFAULT_DATA.cloud), ...(parsed.cloud || {}) },
         settings: { ...structuredClone(DEFAULT_DATA.settings), ...(parsed.settings || {}) }
       };
@@ -988,6 +1151,7 @@
   }
   function saveState() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    syncAlarmsToNative();
   }
 
   /* =========================================================
@@ -1215,6 +1379,8 @@
     if (currentTab === 'calendar') renderCalendarTab(main);
     else if (currentTab === 'compare') renderCompareTab(main);
     else if (currentTab === 'equipment') renderEquipmentTab(main);
+    else if (currentTab === 'alarm') renderAlarmTab(main);
+    else if (currentTab === 'board') renderBoardTab(main);
     else if (currentTab === 'stats') renderStatsTab(main);
     else if (currentTab === 'settings') renderSettingsTab(main);
   }
@@ -1383,12 +1549,14 @@
 
   function renderStatsTab(container) {
     const daysInMonth = new Date(viewYear, viewMonth, 0).getDate();
-    const counts = { '주': 0, '야': 0, '비': 0, '휴': 0, '연차': 0, '기타': 0 };
+    const counts = { '주': 0, '주특': 0, '야': 0, '야특': 0, '휴': 0, '연차': 0, '기타': 0 };
     for (let d = 1; d <= daysInMonth; d++) {
       const s = getShift(state.myTeamId, toYMD(viewYear, viewMonth, d)).shift;
       if (counts[s] !== undefined) counts[s]++;
       else counts['기타']++;
     }
+    const totalJu = counts['주'] + counts['주특'];
+    const totalYa = counts['야'] + counts['야특'];
 
     const today = getTodayYMD();
     let nextHyu = null, nextJu = null, nextYa = null;
@@ -1396,8 +1564,8 @@
       const ymd = addDaysYMD(today, i);
       const s = getShift(state.myTeamId, ymd).shift;
       if (!nextHyu && s === '휴') nextHyu = { ymd, diff: i };
-      if (!nextJu && s === '주') nextJu = { ymd, diff: i };
-      if (!nextYa && s === '야') nextYa = { ymd, diff: i };
+      if (!nextJu && (s === '주' || s === '주특')) nextJu = { ymd, diff: i };
+      if (!nextYa && (s === '야' || s === '야특')) nextYa = { ymd, diff: i };
     }
 
     const myTeam = state.teams.find(t => t.id === state.myTeamId);
@@ -1405,13 +1573,14 @@
       <div class="stats-wrap">
         <div class="card">
           <div class="card-title">
-            <span>📊 ${viewYear}년 ${viewMonth}월 근태 요약</span>
+            <span>${viewYear}년 ${viewMonth}월 근태 요약</span>
             <span style="font-size:12px;color:var(--primary);">${escapeHtml(myTeam?.name || '')}</span>
           </div>
-          <div class="stat-grid">
-            <div class="stat-item"><div class="stat-lbl">주간</div><div class="stat-val" style="color:#ca8a04;">${counts['주']}일</div></div>
-            <div class="stat-item"><div class="stat-lbl">야간</div><div class="stat-val">${counts['야']}일</div></div>
-            <div class="stat-item"><div class="stat-lbl">비번</div><div class="stat-val" style="color:var(--bi-fg);">${counts['비']}일</div></div>
+          <div class="stat-grid" style="grid-template-columns:repeat(2,1fr);">
+            <div class="stat-item"><div class="stat-lbl">주간 (특근)</div><div class="stat-val" style="color:#ca8a04;">${totalJu}일<span style="font-size:14px;font-weight:700;color:var(--text-2);"> (${counts['주특']}일)</span></div></div>
+            <div class="stat-item"><div class="stat-lbl">야간 (특근)</div><div class="stat-val">${totalYa}일<span style="font-size:14px;font-weight:700;color:var(--text-2);"> (${counts['야특']}일)</span></div></div>
+          </div>
+          <div class="stat-grid" style="margin-top:8px;">
             <div class="stat-item"><div class="stat-lbl">휴무</div><div class="stat-val" style="color:var(--hyu-fg);">${counts['휴']}일</div></div>
             <div class="stat-item"><div class="stat-lbl">연차</div><div class="stat-val" style="color:var(--yeon-fg);">${counts['연차']}일</div></div>
             <div class="stat-item"><div class="stat-lbl">기타</div><div class="stat-val" style="color:var(--edu-fg);">${counts['기타']}일</div></div>
@@ -1419,7 +1588,7 @@
         </div>
 
         <div class="card">
-          <div class="card-title"><span>⏳ 다가오는 근무 D-Day</span></div>
+          <div class="card-title"><span>다가오는 근무 D-Day</span></div>
           <div class="upcoming-row">
             <div><span class="shift-badge type-휴" style="width:24px;height:24px;font-size:11px;margin-right:8px;">휴</span>다음 휴무일</div>
             <div style="font-weight:800;color:var(--primary);">${nextHyu ? `D-${nextHyu.diff} (${nextHyu.ymd.slice(5)})` : '-'}</div>
@@ -1444,19 +1613,57 @@
         ? `<span class="cloud-pill">● 연결 중...</span>`
         : `<span class="cloud-pill err">● 오프라인</span>`);
 
-    const filtered = equipCatFilter === '전체'
-      ? cloudEquipPosts
-      : cloudEquipPosts.filter(p => p.category === equipCatFilter);
+    const q = equipSearchQuery.trim().toLowerCase();
+    const curFolder = cloudEquipFolders.find(f => f.id === selectedEquipFolderId);
 
-    const postsHtml = filtered.length ? filtered.map(p => {
-      const dt = p.dateLabel || '';
-      return `
+    let listHtml = '';
+    if (!selectedEquipFolderId && !q) {
+      const folderCards = cloudEquipFolders.map(f => {
+        const cnt = cloudEquipPosts.filter(p => (p.folderId || 'f_clean1') === f.id).length;
+        return `
+          <div class="folder-card" data-fid="${escapeHtml(f.id)}">
+            <div class="folder-ico">
+              <svg class="svg-ico" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            </div>
+            <div style="min-width:0;flex:1;">
+              <div style="font-size:13.5px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(f.name)}</div>
+              <div style="font-size:11px;color:var(--text-3);margin-top:2px;">글 ${cnt}건</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+      listHtml = `
+        <div style="display:flex;align-items:center;justify-content:space-between;margin:8px 2px 10px;">
+          <span style="font-size:13px;font-weight:800;color:var(--text-2);">설비 폴더 (${cloudEquipFolders.length})</span>
+          <button class="btn btn-soft btn-sm" id="btnAddEquipFolder">+ 새 폴더</button>
+        </div>
+        <div class="folder-grid">${folderCards}</div>
+      `;
+    } else {
+      let filtered = cloudEquipPosts;
+      if (selectedEquipFolderId && !q) {
+        filtered = filtered.filter(p => (p.folderId || 'f_clean1') === selectedEquipFolderId);
+      }
+      if (equipCatFilter !== '전체') {
+        filtered = filtered.filter(p => p.category === equipCatFilter);
+      }
+      if (q) {
+        filtered = filtered.filter(p =>
+          (p.title || '').toLowerCase().includes(q) ||
+          (p.note || '').toLowerCase().includes(q) ||
+          (p.author || '').toLowerCase().includes(q) ||
+          (p.folderName || '').toLowerCase().includes(q)
+        );
+      }
+
+      const postsHtml = filtered.length ? filtered.map(p => `
         <div class="equip-card">
           <div class="equip-card-head">
             <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+              ${p.folderName ? `<span class="alarm-chip">${escapeHtml(p.folderName)}</span>` : ''}
               <span class="equip-cat-badge">${escapeHtml(p.category || '기타')}</span>
               <span style="font-size:12px;font-weight:700;color:var(--text-2);">${escapeHtml(p.author || '조원')}</span>
-              <span style="font-size:11px;color:var(--text-3);">${escapeHtml(dt)}</span>
+              <span style="font-size:11px;color:var(--text-3);">${escapeHtml(p.dateLabel || '')}</span>
             </div>
             <button class="btn btn-danger btn-sm btn-del-equip" data-pid="${p.id}" style="padding:4px 8px;font-size:11px;">삭제</button>
           </div>
@@ -1464,32 +1671,69 @@
           ${p.note ? `<div style="font-size:13px;color:var(--text-2);white-space:pre-line;">${escapeHtml(p.note)}</div>` : ''}
           ${p.imageData ? `<img class="equip-photo" src="${p.imageData}" alt="설비 사진" />` : ''}
         </div>
+      `).join('') : `
+        <div style="text-align:center;padding:36px 16px;color:var(--text-3);">
+          <div style="font-size:14px;font-weight:700;color:var(--text-2);">등록된 설비 글이 없어요</div>
+          <div style="font-size:12px;margin-top:4px;">사진 올리기 버튼으로 이 설비의 사진과 메모를 올려보세요!</div>
+        </div>
       `;
-    }).join('') : `
-      <div style="text-align:center;padding:42px 16px;color:var(--text-3);">
-        <div style="font-size:34px;margin-bottom:8px;">🔧</div>
-        <div style="font-size:14px;font-weight:700;color:var(--text-2);">아직 공유된 설비 사진이 없어요</div>
-        <div style="font-size:12px;margin-top:4px;">오른쪽 위 버튼으로 설비 사진과 메모를 올려 조원들과 공유해 보세요!</div>
-      </div>
-    `;
+
+      listHtml = `
+        ${selectedEquipFolderId && !q ? `
+          <div style="display:flex;align-items:center;justify-content:space-between;margin:6px 0 10px;">
+            <button class="btn btn-soft btn-sm" id="btnBackFolders">← 전체 폴더</button>
+            <div style="font-size:14px;font-weight:800;">${escapeHtml(curFolder?.name || '폴더')}</div>
+            <button class="btn btn-primary btn-sm" id="btnNewEquipPostInFolder">+ 올리기</button>
+          </div>
+        ` : ''}
+        <div class="equip-cats">
+          ${EQUIP_CATS.map(c => `<button class="cat-chip ${c === equipCatFilter ? 'active' : ''}" data-cat="${c}">${c}</button>`).join('')}
+        </div>
+        ${postsHtml}
+      `;
+    }
 
     container.innerHTML = `
       <div class="equip-wrap">
         <div class="equip-top-card">
           <div>
-            <div style="font-size:15px;font-weight:800;">설비 사진·이슈 공유</div>
+            <div style="font-size:15px;font-weight:800;">설비 공유 폴더</div>
             <div style="margin-top:4px;">${statusLabel}</div>
           </div>
           <button class="btn btn-primary btn-sm" id="btnNewEquipPost">+ 사진 올리기</button>
         </div>
-        <div class="equip-cats">
-          ${EQUIP_CATS.map(c => `<button class="cat-chip ${c === equipCatFilter ? 'active' : ''}" data-cat="${c}">${c}</button>`).join('')}
+        <div style="margin-bottom:10px;">
+          <input class="input" id="equipSearchInp" placeholder="설비명, 제목, 내용 검색..." value="${escapeHtml(equipSearchQuery)}" />
         </div>
-        ${postsHtml}
+        ${listHtml}
       </div>
     `;
 
-    document.getElementById('btnNewEquipPost').onclick = openEquipPostForm;
+    document.getElementById('btnNewEquipPost').onclick = () => openEquipPostForm(selectedEquipFolderId);
+    const inFolderBtn = document.getElementById('btnNewEquipPostInFolder');
+    if (inFolderBtn) inFolderBtn.onclick = () => openEquipPostForm(selectedEquipFolderId);
+    const backBtn = document.getElementById('btnBackFolders');
+    if (backBtn) backBtn.onclick = () => { selectedEquipFolderId = null; renderEquipmentTab(container); };
+    const addFolderBtn = document.getElementById('btnAddEquipFolder');
+    if (addFolderBtn) addFolderBtn.onclick = () => {
+      const name = prompt('새 설비 폴더 이름을 입력하세요 (예: 세정기 3호기)');
+      if (!name || !name.trim()) return;
+      const folder = { id: 'f_' + Date.now(), name: name.trim() };
+      saveEquipFolderToCloud(folder).then(() => showToast('폴더가 생성되었습니다')).catch(() => showToast('폴더 저장 실패'));
+    };
+
+    const searchInp = document.getElementById('equipSearchInp');
+    searchInp.oninput = () => {
+      equipSearchQuery = searchInp.value;
+      const pos = searchInp.selectionStart;
+      renderEquipmentTab(container);
+      const nextInp = document.getElementById('equipSearchInp');
+      if (nextInp) { nextInp.focus(); try { nextInp.setSelectionRange(pos, pos); } catch {} }
+    };
+
+    container.querySelectorAll('.folder-card').forEach(el => {
+      el.onclick = () => { selectedEquipFolderId = el.dataset.fid; renderEquipmentTab(container); };
+    });
     container.querySelectorAll('.cat-chip').forEach(b => {
       b.onclick = () => { equipCatFilter = b.dataset.cat; renderEquipmentTab(container); };
     });
@@ -1508,12 +1752,19 @@
     });
   }
 
-  function openEquipPostForm() {
+  function openEquipPostForm(defaultFolderId) {
     let imageData = '';
+    const fId = defaultFolderId || (cloudEquipFolders[0]?.id || 'f_clean1');
     openSheet(
       '설비 사진 올리기',
       `팀 코드 ${getWorkspaceCode()} 조원들에게 실시간 공유됩니다`,
       `
+        <div class="form-group">
+          <label class="form-label">설비 폴더</label>
+          <select class="select" id="equipFolderSel">
+            ${cloudEquipFolders.map(f => `<option value="${escapeHtml(f.id)}" ${f.id === fId ? 'selected' : ''}>${escapeHtml(f.name)}</option>`).join('')}
+          </select>
+        </div>
         <div class="form-group">
           <label class="form-label">카테고리</label>
           <select class="select" id="equipCatSel">
@@ -1521,8 +1772,8 @@
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label">설비명 / 제목</label>
-          <input class="input" id="equipTitleInp" placeholder="예: 1공장 AOI 3호기 센서 이상" />
+          <label class="form-label">제목</label>
+          <input class="input" id="equipTitleInp" placeholder="예: 센서 오염 청소 및 재가동" />
         </div>
         <div class="form-group">
           <label class="form-label">내용 메모</label>
@@ -1564,8 +1815,12 @@
       btn.disabled = true; btn.textContent = '올리는 중...';
       try {
         const now = new Date();
+        const folderId = document.getElementById('equipFolderSel').value;
+        const folderObj = cloudEquipFolders.find(f => f.id === folderId);
         const post = {
           id: 'eq_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+          folderId,
+          folderName: folderObj?.name || '설비',
           category,
           title: title || `${category} 사진`,
           note,
@@ -1580,6 +1835,397 @@
         btn.disabled = false; btn.textContent = '업로드 공유';
         showToast('업로드 실패: 인터넷 연결을 확인해 주세요');
       }
+    };
+  }
+
+  /* =========================================================
+     알람 탭 (근무별 알람 + 사칙연산 게임)
+     ========================================================= */
+  function renderAlarmTab(container) {
+    const myTeam = state.teams.find(t => t.id === state.myTeamId);
+    const todayShift = getShift(state.myTeamId, getTodayYMD()).shift;
+    const alarms = state.alarms || [];
+
+    const cardsHtml = alarms.length ? alarms.map(al => {
+      const ampm = al.hour < 12 ? '오전' : '오후';
+      const h12 = al.hour % 12 === 0 ? 12 : al.hour % 12;
+      const timeStr = `${ampm} ${pad(h12)}:${pad(al.minute)}`;
+      const shiftChips = (al.shifts || []).map(s => `<span class="shift-badge type-${s}" style="width:22px;height:22px;font-size:10px;">${s}</span>`).join('');
+      return `
+        <div class="alarm-card" data-aid="${al.id}">
+          <div style="flex:1;min-width:0;cursor:pointer;" class="alarm-edit-area" data-aid="${al.id}">
+            <div style="font-size:12px;font-weight:700;color:var(--text-2);margin-bottom:2px;">${escapeHtml(al.label || '근무 알람')}</div>
+            <div class="alarm-time">${timeStr}</div>
+            <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:6px;">
+              ${shiftChips}
+              ${al.gameEnabled ? `<span class="alarm-chip" style="background:var(--primary-soft);color:var(--primary);">사칙연산 (${al.gameDifficulty === 'hard' ? '어려움' : (al.gameDifficulty === 'normal' ? '보통' : '쉬움')} ${al.gameCount || 1}문제)</span>` : `<span class="alarm-chip">게임 끔</span>`}
+            </div>
+          </div>
+          <button class="toggle ${al.enabled ? 'on' : ''} alarm-toggle" data-aid="${al.id}"></button>
+        </div>
+      `;
+    }).join('') : `
+      <div style="text-align:center;padding:42px 16px;color:var(--text-3);">
+        <div style="font-size:15px;font-weight:800;color:var(--text-2);">근무별 알람으로 지각 걱정 끝</div>
+        <div style="font-size:12px;margin-top:4px;">+ 알람 추가로 주간/야간 근무일만 울리게 설정해 보세요</div>
+      </div>
+    `;
+
+    container.innerHTML = `
+      <div class="equip-wrap">
+        <div class="equip-top-card">
+          <div>
+            <div style="font-size:15px;font-weight:800;">근무별 알람</div>
+            <div style="font-size:12px;color:var(--text-2);margin-top:3px;">내 근무조: <b style="color:var(--primary);">${escapeHtml(myTeam?.name || '')}</b> · 오늘(${todayShift}) · 휴무 자동 패스</div>
+          </div>
+          <button class="btn btn-primary btn-sm" id="btnAddAlarm">+ 알람 추가</button>
+        </div>
+        ${cardsHtml}
+        <div style="font-size:11.5px;color:var(--text-3);padding:6px 4px;line-height:1.5;">
+          • 드로어 좌측 상단 <b>설정</b>이나 상단 칩에서 내 근무조를 바꾸면 향후 30일치 알람이 자동으로 재조정됩니다.
+        </div>
+      </div>
+    `;
+
+    document.getElementById('btnAddAlarm').onclick = () => openAlarmForm(null);
+    container.querySelectorAll('.alarm-edit-area').forEach(el => {
+      el.onclick = () => openAlarmForm(el.dataset.aid);
+    });
+    container.querySelectorAll('.alarm-toggle').forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const al = state.alarms.find(x => x.id === btn.dataset.aid);
+        if (!al) return;
+        al.enabled = !al.enabled;
+        saveState();
+        renderAlarmTab(container);
+        showToast(al.enabled ? '근무 알람이 켜졌습니다' : '알람이 꺼졌습니다');
+      };
+    });
+  }
+
+  function openAlarmForm(alarmId) {
+    const existing = alarmId ? state.alarms.find(x => x.id === alarmId) : null;
+    const draft = existing ? structuredClone(existing) : {
+      id: 'al_' + Date.now(),
+      hour: 6, minute: 30,
+      shifts: ['주', '주특'],
+      enabled: true,
+      gameEnabled: true,
+      gameDifficulty: 'easy',
+      gameCount: 1,
+      sound: true,
+      vibrate: true,
+      label: '출근 알람'
+    };
+
+    const targetShifts = ['주', '주특', '야', '야특', '교육'];
+    const timeVal = `${pad(draft.hour)}:${pad(draft.minute)}`;
+
+    openSheet(
+      existing ? '알람 설정' : '새 근무 알람',
+      '선택한 근무 형태인 날에만 알람이 울립니다 (휴무 자동 제외)',
+      `
+        <div class="form-group">
+          <label class="form-label">알람 시간</label>
+          <input class="input" type="time" id="alTimeInp" value="${timeVal}" style="font-size:18px;font-weight:800;text-align:center;" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">알람 이름</label>
+          <input class="input" id="alLabelInp" value="${escapeHtml(draft.label || '')}" placeholder="예: 주간 출근 알람" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">울릴 근무 선택 (휴무는 자동 제외)</label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;" id="alShiftWrap">
+            ${targetShifts.map(s => {
+              const on = (draft.shifts || []).includes(s);
+              return `<button type="button" class="btn btn-sm al-shift-btn ${on ? 'btn-primary' : 'btn-soft'}" data-s="${s}">${s}</button>`;
+            }).join('')}
+          </div>
+        </div>
+        <div class="card" style="padding:12px;margin-bottom:12px;background:var(--surface-2);">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+            <div>
+              <div style="font-size:13.5px;font-weight:800;">알람 게임 (사칙연산)</div>
+              <div style="font-size:11.5px;color:var(--text-2);">문제를 풀어야 알람이 꺼집니다</div>
+            </div>
+            <button type="button" class="toggle ${draft.gameEnabled ? 'on' : ''}" id="alGameToggle"></button>
+          </div>
+          <div id="alGameOpts" style="display:${draft.gameEnabled ? 'block' : 'none'};">
+            <div style="display:flex;gap:6px;margin-bottom:8px;">
+              ${[['easy','쉬움'],['normal','보통'],['hard','어려움']].map(([k,lbl]) =>
+                `<button type="button" class="btn btn-sm al-diff-btn ${draft.gameDifficulty === k ? 'btn-primary' : 'btn-soft'}" data-d="${k}" style="flex:1;">${lbl}</button>`
+              ).join('')}
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;">
+              <span style="font-size:12.5px;font-weight:700;">문제 개수</span>
+              <select class="select" id="alCountSel" style="width:90px;padding:5px 8px;">
+                ${[1,2,3].map(n => `<option value="${n}" ${draft.gameCount === n ? 'selected' : ''}>${n}문제</option>`).join('')}
+              </select>
+            </div>
+            <button type="button" class="btn btn-soft btn-sm" id="btnPreviewMath" style="width:100%;margin-top:8px;">사칙연산 미리보기</button>
+          </div>
+        </div>
+        <div style="display:flex;gap:12px;margin-bottom:14px;">
+          <label style="flex:1;display:flex;align-items:center;justify-content:space-between;background:var(--surface-2);padding:10px 12px;border-radius:10px;font-size:13px;font-weight:700;">
+            알람음 <input type="checkbox" id="alSoundChk" ${draft.sound !== false ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--primary);" />
+          </label>
+          <label style="flex:1;display:flex;align-items:center;justify-content:space-between;background:var(--surface-2);padding:10px 12px;border-radius:10px;font-size:13px;font-weight:700;">
+            진동 <input type="checkbox" id="alVibChk" ${draft.vibrate !== false ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--primary);" />
+          </label>
+        </div>
+        <div style="display:flex;gap:8px;">
+          ${existing ? `<button type="button" class="btn btn-danger" style="flex:1;" id="btnDelAlarm">삭제</button>` : ''}
+          <button type="button" class="btn btn-primary" style="flex:2;" id="btnSaveAlarm">저장</button>
+        </div>
+      `
+    );
+
+    document.querySelectorAll('.al-shift-btn').forEach(b => {
+      b.onclick = () => {
+        const s = b.dataset.s;
+        if (draft.shifts.includes(s)) draft.shifts = draft.shifts.filter(x => x !== s);
+        else draft.shifts.push(s);
+        b.className = `btn btn-sm al-shift-btn ${draft.shifts.includes(s) ? 'btn-primary' : 'btn-soft'}`;
+      };
+    });
+    document.getElementById('alGameToggle').onclick = function() {
+      draft.gameEnabled = !draft.gameEnabled;
+      this.classList.toggle('on', draft.gameEnabled);
+      document.getElementById('alGameOpts').style.display = draft.gameEnabled ? 'block' : 'none';
+    };
+    document.querySelectorAll('.al-diff-btn').forEach(b => {
+      b.onclick = () => {
+        draft.gameDifficulty = b.dataset.d;
+        document.querySelectorAll('.al-diff-btn').forEach(x => {
+          x.className = `btn btn-sm al-diff-btn ${x.dataset.d === draft.gameDifficulty ? 'btn-primary' : 'btn-soft'}`;
+        });
+      };
+    });
+    document.getElementById('btnPreviewMath').onclick = () => {
+      const cnt = parseInt(document.getElementById('alCountSel').value, 10) || 1;
+      openMathPreviewModal(draft.gameDifficulty, cnt);
+    };
+    if (existing) {
+      document.getElementById('btnDelAlarm').onclick = () => {
+        state.alarms = state.alarms.filter(x => x.id !== existing.id);
+        saveState(); closeSheet(); renderMain(); showToast('알람이 삭제되었습니다');
+      };
+    }
+    document.getElementById('btnSaveAlarm').onclick = () => {
+      const [hh, mm] = (document.getElementById('alTimeInp').value || '06:30').split(':').map(Number);
+      draft.hour = isNaN(hh) ? 6 : hh;
+      draft.minute = isNaN(mm) ? 30 : mm;
+      draft.label = document.getElementById('alLabelInp').value.trim() || '근무 알람';
+      draft.gameCount = parseInt(document.getElementById('alCountSel').value, 10) || 1;
+      draft.sound = document.getElementById('alSoundChk').checked;
+      draft.vibrate = document.getElementById('alVibChk').checked;
+      if (!draft.shifts.length) { showToast('울릴 근무를 하나 이상 선택해 주세요'); return; }
+      if (existing) {
+        const idx = state.alarms.findIndex(x => x.id === existing.id);
+        if (idx >= 0) state.alarms[idx] = draft;
+      } else {
+        state.alarms.push(draft);
+      }
+      saveState(); closeSheet(); renderMain(); showToast('근무 알람이 저장되었습니다');
+    };
+  }
+
+  function makeMathProblem(diff) {
+    if (diff === 'hard') {
+      const a = 11 + Math.floor(Math.random() * 19);
+      const b = 3 + Math.floor(Math.random() * 9);
+      const c = 2 + Math.floor(Math.random() * 15);
+      return { q: `${a} × ${b} + ${c} = ?`, ans: a * b + c };
+    }
+    if (diff === 'normal') {
+      const a = 12 + Math.floor(Math.random() * 35);
+      const b = 5 + Math.floor(Math.random() * 25);
+      const op = Math.random() < 0.5 ? '+' : '-';
+      return { q: `${a} ${op} ${b} = ?`, ans: op === '+' ? a + b : a - b };
+    }
+    const a = 2 + Math.floor(Math.random() * 9);
+    const b = 1 + Math.floor(Math.random() * 9);
+    return { q: `${a} + ${b} = ?`, ans: a + b };
+  }
+
+  function openMathPreviewModal(diff, total) {
+    let solved = 0;
+    let cur = makeMathProblem(diff);
+    const renderQ = () => {
+      openSheet(
+        `알람 해제 게임 (${solved + 1}/${total})`,
+        '정답을 입력해야 알람이 해제됩니다',
+        `
+          <div style="background:var(--surface-2);border-radius:16px;padding:24px;text-align:center;font-size:28px;font-weight:800;margin-bottom:14px;">
+            ${cur.q}
+          </div>
+          <input class="input" type="number" id="mathAnsInp" placeholder="정답 숫자 입력" style="font-size:18px;font-weight:800;text-align:center;margin-bottom:12px;" />
+          <button class="btn btn-primary" id="btnMathCheck" style="width:100%;padding:12px;font-size:15px;">확인</button>
+        `
+      );
+      document.getElementById('btnMathCheck').onclick = () => {
+        const val = parseInt(document.getElementById('mathAnsInp').value, 10);
+        if (val !== cur.ans) { showToast('틀렸어요! 다시 계산해 보세요'); return; }
+        solved++;
+        if (solved >= total) {
+          closeSheet();
+          showToast('알람 해제 성공!');
+        } else {
+          cur = makeMathProblem(diff);
+          renderQ();
+        }
+      };
+    };
+    renderQ();
+  }
+
+  /* =========================================================
+     게시판 탭 (공지사항 + 자유게시판 + 사진)
+     ========================================================= */
+  function renderBoardTab(container) {
+    const statusLabel = cloudStatus === 'connected'
+      ? `<span class="cloud-pill ok">● 실시간 (${escapeHtml(getWorkspaceCode())})</span>`
+      : `<span class="cloud-pill err">● 오프라인</span>`;
+
+    const notices = cloudBoardPosts.filter(p => p.category === '공지');
+    const frees = cloudBoardPosts.filter(p => p.category !== '공지');
+
+    const renderList = (arr, emptyMsg) => arr.length ? arr.map(p => `
+      <div class="board-row" data-bid="${p.id}">
+        <div style="min-width:0;flex:1;">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span class="${p.category === '공지' ? 'badge-notice' : 'badge-free'}">${p.category === '공지' ? '공지' : '자유'}</span>
+            <span style="font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(p.title || '')}</span>
+            ${p.imageData ? `<span style="font-size:11px;color:var(--primary);font-weight:800;">[사진]</span>` : ''}
+          </div>
+          <div style="font-size:11.5px;color:var(--text-3);margin-top:3px;">${escapeHtml(p.author || '조원')} · ${escapeHtml(p.dateLabel || '')}</div>
+        </div>
+        <span style="color:var(--text-3);font-size:14px;">›</span>
+      </div>
+    `).join('') : `<div style="padding:18px 0;text-align:center;font-size:12.5px;color:var(--text-3);">${emptyMsg}</div>`;
+
+    container.innerHTML = `
+      <div class="equip-wrap">
+        <div class="equip-top-card">
+          <div>
+            <div style="font-size:15px;font-weight:800;">팀 게시판</div>
+            <div style="margin-top:4px;">${statusLabel}</div>
+          </div>
+          <button class="btn btn-primary btn-sm" id="btnNewBoardPost">+ 글쓰기</button>
+        </div>
+        <div class="equip-cats">
+          ${['전체','공지','자유'].map(c => `<button class="cat-chip ${c === boardCatFilter ? 'active' : ''}" data-bcat="${c}">${c === '공지' ? '공지사항' : (c === '자유' ? '자유게시판' : '전체')}</button>`).join('')}
+        </div>
+        ${boardCatFilter !== '자유' ? `
+          <div class="card" style="margin-bottom:12px;">
+            <div class="card-title"><span>공지사항</span><span style="font-size:12px;color:var(--text-3);">${notices.length}건</span></div>
+            ${renderList(notices, '등록된 공지사항이 없습니다')}
+          </div>
+        ` : ''}
+        ${boardCatFilter !== '공지' ? `
+          <div class="card">
+            <div class="card-title"><span>자유게시판</span><span style="font-size:12px;color:var(--text-3);">${frees.length}건</span></div>
+            ${renderList(frees, '자유롭게 첫 글을 남겨보세요')}
+          </div>
+        ` : ''}
+      </div>
+    `;
+
+    document.getElementById('btnNewBoardPost').onclick = openBoardForm;
+    container.querySelectorAll('[data-bcat]').forEach(b => {
+      b.onclick = () => { boardCatFilter = b.dataset.bcat; renderBoardTab(container); };
+    });
+    container.querySelectorAll('.board-row').forEach(row => {
+      row.onclick = () => openBoardDetail(row.dataset.bid);
+    });
+  }
+
+  function openBoardForm() {
+    let imageData = '';
+    openSheet(
+      '게시글 작성',
+      `팀 코드 ${getWorkspaceCode()} 게시판에 등록됩니다`,
+      `
+        <div class="form-group">
+          <label class="form-label">게시판 구분</label>
+          <select class="select" id="boardCatSel">
+            <option value="자유">자유게시판</option>
+            <option value="공지">공지사항</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">제목</label>
+          <input class="input" id="boardTitleInp" placeholder="제목을 입력하세요" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">내용</label>
+          <textarea class="textarea" id="boardBodyInp" placeholder="조원들과 나눌 내용을 적어주세요"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">사진 첨부 (선택)</label>
+          <input type="file" id="boardPhotoInp" accept="image/*" style="display:none;" />
+          <button type="button" class="btn btn-soft" id="btnPickBoardPhoto" style="width:100%;">사진 선택하기</button>
+          <img id="boardPreview" style="display:none;width:100%;max-height:190px;object-fit:cover;border-radius:10px;margin-top:8px;" />
+        </div>
+        <button class="btn btn-primary" id="btnSubmitBoard" style="width:100%;padding:12px;">등록하기</button>
+      `
+    );
+    const inp = document.getElementById('boardPhotoInp');
+    document.getElementById('btnPickBoardPhoto').onclick = () => inp.click();
+    inp.onchange = async () => {
+      const f = inp.files?.[0];
+      if (!f) return;
+      try {
+        imageData = await compressImageToDataUrl(f);
+        const prev = document.getElementById('boardPreview');
+        prev.src = imageData; prev.style.display = 'block';
+      } catch { showToast('사진 처리 실패'); }
+    };
+    document.getElementById('btnSubmitBoard').onclick = async () => {
+      const category = document.getElementById('boardCatSel').value;
+      const title = document.getElementById('boardTitleInp').value.trim();
+      const body = document.getElementById('boardBodyInp').value.trim();
+      if (!title) { showToast('제목을 입력해 주세요'); return; }
+      const btn = document.getElementById('btnSubmitBoard');
+      btn.disabled = true; btn.textContent = '등록 중...';
+      try {
+        const now = new Date();
+        await saveBoardPostToCloud({
+          id: 'bd_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+          category, title, body, imageData,
+          author: getMyDisplayAuthor(),
+          dateLabel: `${now.getMonth()+1}/${now.getDate()} ${pad(now.getHours())}:${pad(now.getMinutes())}`
+        });
+        closeSheet(); showToast('게시글이 등록되었습니다');
+      } catch {
+        btn.disabled = false; btn.textContent = '등록하기';
+        showToast('등록 실패: 인터넷 연결 확인');
+      }
+    };
+  }
+
+  function openBoardDetail(postId) {
+    const p = cloudBoardPosts.find(x => x.id === postId);
+    if (!p) return;
+    openSheet(
+      p.title || '게시글',
+      `${p.category === '공지' ? '공지사항' : '자유게시판'} · ${p.author || '조원'} · ${p.dateLabel || ''}`,
+      `
+        <div style="font-size:14px;line-height:1.65;white-space:pre-line;margin-bottom:12px;">${escapeHtml(p.body || '(내용 없음)')}</div>
+        ${p.imageData ? `<img id="boardDetailImg" src="${p.imageData}" style="width:100%;max-height:300px;object-fit:cover;border-radius:12px;margin-bottom:14px;cursor:pointer;" />` : ''}
+        <button class="btn btn-danger" id="btnDelBoard" style="width:100%;">삭제</button>
+      `
+    );
+    const img = document.getElementById('boardDetailImg');
+    if (img) img.onclick = () => {
+      document.getElementById('lightboxImg').src = img.src;
+      document.getElementById('lightbox').classList.add('open');
+    };
+    document.getElementById('btnDelBoard').onclick = async () => {
+      if (!confirm('이 게시글을 삭제할까요?')) return;
+      await deleteBoardPostFromCloud(p.id);
+      closeSheet(); showToast('삭제되었습니다');
     };
   }
 
@@ -1992,9 +2638,10 @@
 
   function openOverlayPicker() {
     const others = state.teams.filter(t => t.id !== state.myTeamId);
+    const showShared = state.cloud?.showSharedEvents !== false;
     openSheet(
-      '다른 조 같이 보기',
-      '내 달력에 함께 표시할 근무조를 선택하세요',
+      '다른 조 · 회사 일정 같이 보기',
+      '내 달력에 함께 표시할 항목을 선택하세요',
       `
         <div style="display:flex;flex-direction:column;gap:8px;">
           ${others.map(t => {
@@ -2006,6 +2653,10 @@
               </label>
             `;
           }).join('')}
+          <label style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--surface-2);border-radius:12px;cursor:pointer;border:1px solid var(--border);">
+            <span style="font-size:14px;font-weight:700;">회사 일정·공유 휴가 같이 보기</span>
+            <input type="checkbox" id="ovSharedChk" ${showShared ? 'checked' : ''} style="width:19px;height:19px;accent-color:var(--primary);" />
+          </label>
         </div>
         <div style="display:flex;gap:8px;margin-top:16px;">
           <button class="btn btn-soft" style="flex:1;" id="btnOvClear">모두 끄기</button>
@@ -2015,10 +2666,12 @@
     );
     document.getElementById('btnOvClear').onclick = () => {
       state.settings.overlayTeamIds = [];
+      state.cloud.showSharedEvents = false;
       saveState(); closeSheet(); renderAll();
     };
     document.getElementById('btnOvApply').onclick = () => {
       state.settings.overlayTeamIds = [...document.querySelectorAll('.ov-chk:checked')].map(x => x.value);
+      state.cloud.showSharedEvents = document.getElementById('ovSharedChk').checked;
       saveState(); closeSheet(); renderAll();
     };
   }
@@ -2063,9 +2716,15 @@
       }).join('');
 
       openSheet(
-        '회사 및 근무조 설정',
-        '다른 조도 조 이름·패턴·오늘 기준 순서를 자유롭게 맞출 수 있어요',
+        '회사 · 내 근무조 설정',
+        '내 근무조를 선택해 저장하면 근무별 알람과 자동 연동됩니다',
         `
+          <div class="form-group">
+            <label class="form-label">내 근무조 (알람 연동)</label>
+            <select class="select" id="compMyTeamSel">
+              ${draftTeams.map(t => `<option value="${escapeHtml(t.id)}" ${t.id === state.myTeamId ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('')}
+            </select>
+          </div>
           <div class="form-group">
             <label class="form-label">회사 / 근무표 이름</label>
             <input class="input" id="compNameInput" value="${escapeHtml(draftCompany.name)}" />
@@ -2081,6 +2740,8 @@
           </div>
         `
       );
+
+      document.getElementById('compMyTeamSel').onchange = (e) => { state.myTeamId = e.target.value; };
 
       document.getElementById('compNameInput').oninput = (e) => { draftCompany.name = e.target.value; };
       document.querySelectorAll('.team-name-inp').forEach(inp => {
@@ -2469,6 +3130,7 @@
   renderAll();
   syncDeviceCalendar(viewYear, viewMonth);
   initFirebase();
+  syncAlarmsToNative();
 })();
 </script>
 </body>

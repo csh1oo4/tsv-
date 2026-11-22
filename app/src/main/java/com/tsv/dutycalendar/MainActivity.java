@@ -71,6 +71,12 @@ import java.util.TimeZone;
  *   into KakaoTalk and friends, and a SharedPreferences mirror of the page's
  *   localStorage. assets/bridge.js wires the page's normal web APIs to it.
  *
+ *   window.AndroidAlarm    — the shift alarms. scheduleAlarms(json) hands the
+ *   page's upcoming alarm occurrences to AlarmReceiver, which keeps AlarmManager
+ *   and a high-priority full-screen notification in sync with them. The page
+ *   only calls it when the bridge exists, so the same index.html also runs as
+ *   a plain web app.
+ *
  * Coming back from the Samsung/Google calendar app re-syncs the device calendar:
  * onResume() calls the page's own window.onAppResume().
  */
@@ -83,6 +89,7 @@ public class MainActivity extends Activity {
     private static final String MAIN_STORAGE_KEY = "tsv_duty_calendar_v1";
 
     private static final int REQ_CALENDAR_PERMISSION = 2001;
+    private static final int REQ_NOTIFICATIONS = 2004;
     private static final int REQ_FILE_CHOOSER = 1001;
     private static final int REQ_WRITE_STORAGE = 1002;
     private static final int REQ_SHARE_STORAGE = 1003;
@@ -133,6 +140,12 @@ public class MainActivity extends Activity {
 
         configureWebView();
 
+        // Alarm plumbing: the channel has to exist before the first notification, and
+        // re-arming here restores alarms that a force-stop or an update dropped.
+        AlarmReceiver.ensureChannel(this);
+        AlarmReceiver.rescheduleAll(this);
+        requestNotificationPermission();
+
         if (savedInstanceState != null) {
             webView.restoreState(savedInstanceState);
         } else {
@@ -162,6 +175,7 @@ public class MainActivity extends Activity {
 
         webView.addJavascriptInterface(new CalendarBridge(), "AndroidCalendar");
         webView.addJavascriptInterface(new Bridge(), "AndroidBridge");
+        webView.addJavascriptInterface(new AlarmBridge(), "AndroidAlarm");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -640,6 +654,18 @@ public class MainActivity extends Activity {
         return String.format(Locale.US, "#%06X", 0xFFFFFF & argb);
     }
 
+    private void requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT < 33) {
+            return;
+        }
+        if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                == PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},
+                REQ_NOTIFICATIONS);
+    }
+
     private boolean hasCalendarPermission() {
         return checkSelfPermission(android.Manifest.permission.READ_CALENDAR)
                 == PackageManager.PERMISSION_GRANTED
@@ -662,6 +688,14 @@ public class MainActivity extends Activity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQ_CALENDAR_PERMISSION) {
             deliverPermissionResult(hasCalendarPermission());
+            return;
+        }
+        if (requestCode == REQ_NOTIFICATIONS) {
+            boolean granted = grantResults.length > 0
+                    && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+            if (!granted) {
+                toast("알림 권한이 없으면 알람 화면이 뜨지 않을 수 있어요");
+            }
             return;
         }
         if (requestCode == REQ_WRITE_STORAGE) {
@@ -1128,6 +1162,34 @@ public class MainActivity extends Activity {
         public void toast(String message) {
             if (message != null) {
                 MainActivity.this.toast(message);
+            }
+        }
+    }
+
+    /** JS-facing API: window.AndroidAlarm.* */
+    public class AlarmBridge {
+
+        /**
+         * Replaces the whole native alarm schedule. The page sends the occurrences it
+         * already filtered to the next 30 days as a JSON array of
+         * {id, triggerAtMs, label, gameEnabled, gameDifficulty, gameCount, sound, vibrate}.
+         */
+        @JavascriptInterface
+        public void scheduleAlarms(String jsonStr) {
+            try {
+                AlarmReceiver.ensureChannel(MainActivity.this);
+                AlarmReceiver.apply(MainActivity.this, jsonStr);
+            } catch (Exception e) {
+                Log.w(TAG, "AndroidAlarm.scheduleAlarms failed", e);
+            }
+        }
+
+        @JavascriptInterface
+        public void cancelAlarms() {
+            try {
+                AlarmReceiver.apply(MainActivity.this, "[]");
+            } catch (Exception e) {
+                Log.w(TAG, "AndroidAlarm.cancelAlarms failed", e);
             }
         }
     }
