@@ -4475,6 +4475,7 @@ function App() {
           setActiveTab(item.id);
         }
       },
+      "data-sfx": "tap",
       className: `min-w-[22%] snap-start flex flex-col items-center justify-center py-1.5 px-1.5 rounded-xl transition cursor-pointer relative ${isDragging ? "scale-110 bg-white text-blue-600 shadow-md ring-2 ring-blue-500 z-10" : isReorderingNav ? "animate-nav-wiggle bg-white/80 text-slate-700 border border-blue-200 mx-0.5" : active ? "text-blue-600" : "text-slate-500 hover:text-slate-800"}`
     }, isReorderingNav && /*#__PURE__*/React.createElement("div", {
       className: "flex items-center justify-between w-full px-0.5 mb-0.5",
