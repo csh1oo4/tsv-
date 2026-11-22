@@ -3,26 +3,26 @@ plugins {
 }
 
 android {
-    namespace 'com.tsvsecret.schedule'
+    namespace 'com.tsv.dutycalendar'
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.tsvsecret.schedule"
+        applicationId "com.tsv.dutycalendar"
         minSdk 24
         targetSdk 34
-        versionCode 3
-        versionName "1.2"
+        versionCode 1
+        versionName "1.0"
     }
 
     // Fixed debug key: keeps the signing certificate identical across every build so
     // updates install over the previous version without uninstalling.
     signingConfigs {
         debug {
-            storeFile file('tsv-fixed-debug.p12')
+            storeFile file('tsv-duty-fixed.p12')
             storeType 'PKCS12'
-            storePassword 'tsvdebug123'
-            keyAlias 'tsvdebug'
-            keyPassword 'tsvdebug123'
+            storePassword 'tsvduty123'
+            keyAlias 'tsvduty'
+            keyPassword 'tsvduty123'
         }
     }
 

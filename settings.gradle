@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "tsv-secret-schedule"
+rootProject.name = "tsv-duty-calendar"
 include ':app'
