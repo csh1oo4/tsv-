@@ -70,6 +70,47 @@ entries after a reboot or an app update.
 - 한달 위젯은 5주짜리 달이면 여섯 번째 주 줄을 숨겨 그리드를 꽉 채웁니다.
 - 모든 카드를 누르면 앱이 열리고, 갱신 주기는 위젯별 30분(`1800000`ms)입니다.
 
+## v2.0 — React 디자인 개편 + 실시간 공유/네이티브 5종 연결
+
+The page is now the React + Tailwind design the user sent, kept as one HTML file:
+`assets/index.html` carries React 18.3.1, ReactDOM, the Tailwind Play CDN runtime and
+the Firebase 10.14.1 compat SDK **inlined**, and the JSX is **pre-compiled at build
+time** (no `text/babel`, no Babel at runtime), so the app still starts with no network.
+
+- **Firestore (팀 코드, 기본 `TSV-AMMK`)** — `workspaces/{teamCode}/`
+  - `sharedEvents` — 회사 공통 / 휴가 일정. 개인(🔒) 일정은 `localStorage`에만 남는다.
+    v1.6.x 문서(`title`, `scope`)와 v2 문서(`text`, `shareType`)를 모두 읽고 v2 형태로 쓴다.
+  - `equipFolders`, `equipPosts` — 설비 폴더와 점검 기록. v1.6.x의 `equipmentPosts`
+    (`note`, `imageData`, `folderName`)도 함께 구독해 기존 기록이 그대로 보이고,
+    폴더가 없던 기록은 "미분류 설비 기록" 폴더에 모인다.
+  - `boardPosts` — 게시판. v1.6.x의 `body`/`imageData`/`dateLabel`/한글 카테고리
+    (`맛집추천`, `공지` …)도 v2 카테고리로 매핑해 읽는다.
+- **`tsvHandleBack()`** — the page closes the top-most modal/drawer (or leaves the widget
+  view) and the hardware back press only exits when nothing is open. `BACK_JS` calls it first.
+- **설비 검색** — the 설비 공유 tab keeps its own search field and filters client-side while
+  typing (the input node is never rebuilt, so Korean IME composition is safe).
+- **`AndroidAlarm`** — the page computes the next 30 days of shift alarms from
+  `alarms`/`myGroupId`/`groups`/`pattern`/`anchorDate`/`overrides` and calls
+  `scheduleAlarms(json)` with the same occurrence shape as before
+  (`{id, triggerAtMs, label, gameEnabled, gameDifficulty, gameCount, sound, vibrate}`).
+- **`AndroidWidget`** — `syncWidgetData(json)` gets `{myTeamId, anchorDate, teams[], overrides,
+  holidays, events}` translated from the React state: `groups[].offset` → `anchorIndex`,
+  `overrides`/`subOverrides` (`{teamId}_{ymd}`) → `{ymd: {teamId: {main, sub}}}`,
+  `HOLIDAYS` → `{ymd: name}`, and the next 75 days of memos/shared/device events →
+  `{ymd: [{title, color, kind}]}`.
+- **`AndroidCalendar`** — permission/`getCalendars`/`getEvents` are read into the drawer
+  list and merged into the calendar cells and the day sheet; `window.onAppResume`
+  re-reads the device calendar (and re-syncs alarms/widgets) on return.
+- **`AndroidUpdater`** — the 설정 tab now opens with a 🔄 앱 업데이트 card: it reads
+  `getAppVersion()`, looks for the newest `duty-calendar-v*` GitHub release, shows
+  `onUpdateProgress`/`onUpdateError` and calls `downloadAndInstall(url, name)`.
+- **`AndroidBridge.shareImageDataUrl`** — 근무표 PNG is now handed to the native share
+  sheet (gallery + KakaoTalk) instead of a web download.
+- **데이터 이관** — on first launch the page converts v1.6.x `tsv_duty_calendar_v1`
+  (`teams[].anchorIndex` → `groups[].offset`, `overrides` → `{teamId}_{ymd}` + sub shifts,
+  memo array → per-date map, `alarms[].hour/minute` → `time: "HH:MM"`) exactly once.
+- versionCode 11 / versionName 2.0, same fixed signing key.
+
 ## Build
 
 The GitHub Actions workflow (`.github/workflows/build-apk.yml`) builds a debug
@@ -77,7 +118,7 @@ APK on every push. Locally the same thing is `gradle assembleDebug` with JDK 17
 and the Android SDK installed.
 
 - applicationId: `com.tsv.dutycalendar` (installs beside `TSV 근무표`)
-- versionCode 9 / versionName 1.6
+- versionCode 11 / versionName 2.0
 - Signing: fixed PKCS12 key `app/tsv-duty-fixed.p12` wired into
   `signingConfigs.debug`, so every rebuild installs over the previous one.
 

@@ -115,9 +115,14 @@ public class MainActivity extends Activity {
 
     private static final String PICTURE_ALBUM = "TSV교대달력";
 
-    /** Returns '1' when the back press was consumed (sheet/drawer closed, scrolled up). */
+    /**
+     * Returns '1' when the back press was consumed. v2.0 is a React page, so the page
+     * exposes window.tsvHandleBack(): it closes the top-most modal/drawer or leaves the
+     * widget view, and only when nothing is open does the press fall through to exit.
+     */
     private static final String BACK_JS =
             "(function(){try{"
+                    + "if(typeof window.tsvHandleBack==='function'&&window.tsvHandleBack()){return '1';}"
                     + "var s=document.getElementById('sheet');"
                     + "var d=document.getElementById('drawer');"
                     + "var b=document.getElementById('backdrop');"
@@ -1356,10 +1361,10 @@ public class MainActivity extends Activity {
             try {
                 String version = getPackageManager()
                         .getPackageInfo(getPackageName(), 0).versionName;
-                return version == null || version.trim().isEmpty() ? "1.6.1" : version;
+                return version == null || version.trim().isEmpty() ? "2.0" : version;
             } catch (Exception e) {
                 Log.w(TAG, "getAppVersion failed", e);
-                return "1.6.1";
+                return "2.0";
             }
         }
 
