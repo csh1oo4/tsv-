@@ -135,6 +135,35 @@ time** (no `text/babel`, no Babel at runtime), so the app still starts with no n
   `localStorage` (`todaywork_v33_sound`) plus 톡톡/슉슉/띠링 preview buttons.
 - versionCode 12 / versionName 2.1, same fixed signing key.
 
+## v2.4.3 — 앱 아이콘 3종 (순백 · 다크 블랙 · 스카이 블루) 선택
+
+승현 님이 보내신 블랙·스카이블루 아이콘 2종을 더해, 설정 탭에서 **🤍 순백 · 🖤 다크 블랙 ·
+💙 스카이 블루** 중 원하는 아이콘으로 바꿀 수 있게 했다(`versionCode 19`, `versionName 2.4.3`).
+
+- **아이콘 리소스** — `tools/generate_icon_variants.py`가 원본 목업 두 장(둥근 사각형 아트 +
+  검은/흰 바깥 모서리)에서 3종을 만든다. 다시 그리지 않고 픽셀 처리만 한다:
+  `background_field()`가 바탕색(시안/중성 검정)만 골라 정규화 블러로 부드러운 색장을 만들고,
+  `full_bleed()`가 목업의 바깥 모서리와 광택 베벨을 그 색장으로 녹여 어느 마스크에서도
+  모서리 끊김이 없는 꽉 찬 사각형으로 만든다. 그 위에 아트를 얹고 바깥은 색장을 이어 붙인다.
+- **잘림 없음(승현 님 지시)** — 필름 롤·리본·달력·느낌표가 어떤 마스크에서도 1픽셀도 잘리지
+  않도록 비율을 정했다. 소스 아트의 물체 외곽을 기준으로 계산해 레거시 스퀘어클 0.95,
+  레거시 원형 0.79, 적응형 108dp 아트 0.545(72dp 가시 원 안에 들어가는 한계 0.550)를 쓴다.
+  `workspace_tmp/verify_icons.py`로 6가지 마스크(레거시 스퀘어클·원형, 적응형 72dp 원·스퀘어클,
+  전체 원·스퀘어클)에 대해 아트 화소 71만~92만 개가 모두 마스크 안(alpha 255)에 있음을 확인했다.
+- **`<activity-alias>` 3종** — `MainActivity`에서 `MAIN`/`LAUNCHER`를 떼고 `.LauncherWhite`
+  (기본, `@mipmap/ic_launcher`), `.LauncherBlack`(`ic_launcher_black`),
+  `.LauncherBlue`(`ic_launcher_blue`)가 런처 진입점을 맡는다. 셋 다 `targetActivity=".MainActivity"`.
+- **`window.AndroidIcon` 브리지** — `getCurrentIcon()`은 `PackageManager.getComponentEnabledSetting()`
+  으로 지금 켜진 alias를, `setIcon(key)`는 **선택한 alias를 먼저 ENABLED**로 켠 뒤 나머지 둘을
+  DISABLED로 내린다(순서를 뒤집으면 런처가 아이콘 없는 순간을 캐시한다). 둘 다 `DONT_KILL_APP`이라
+  화면과 페이지 상태가 유지된다.
+- **설정 탭 `🎨 앱 아이콘 선택`** — 3열 카드에 실제 96×96 썸네일(웹앱에 data URI로 내장)을 넣고,
+  적용 중인 아이콘에 파란 테두리 + `사용 중` 배지를 붙였다. 카드를 누르면 `AndroidIcon.setIcon()`을
+  호출하고 "아이콘이 변경되었습니다! 홈 화면 반영까지 1~2초 걸릴 수 있으며 기기에 따라 앱이
+  잠깐 닫힐 수 있습니다." 안내를 띄운다. 브리지가 없는 웹 미리보기에서는 안내만 한다.
+- versionCode 19 / versionName 2.4.3, 고정 서명 키(`app/tsv-duty-fixed.p12`) 그대로라 덮어쓰기
+  설치된다. 웹앱 `APP_VERSION`과 `getAppVersion()` 폴백도 2.4.3. 그 밖의 기능 변경 없음.
+
 ## v2.4.2 — 아이콘 바탕을 순백(#FFFFFF)으로
 
 - **하늘색 원형 바탕 제거** — 승현 님이 요청하신 대로 v2.4.1 아이콘 뒤의 연한 하늘색 원판을

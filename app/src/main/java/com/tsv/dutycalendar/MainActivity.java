@@ -9,6 +9,7 @@ import android.app.NotificationManager;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipboardManager;
+import android.content.ComponentName;
 import android.content.ContentResolver;
 import android.content.ContentUris;
 import android.content.ContentValues;
@@ -89,6 +90,11 @@ import java.util.TimeZone;
  *   window.AndroidUpdater  — the in-app update: getAppVersion() and
  *   downloadAndInstall(apkUrl, fileName), which fetches the newest GitHub
  *   release APK into cache/updates/ and opens the system installer.
+ *
+ *   window.AndroidIcon     — the app icon. Three activity-aliases (LauncherWhite /
+ *   LauncherBlack / LauncherBlue) each carry one launcher icon; getCurrentIcon()
+ *   reports which one is enabled and setIcon(key) switches to it, so 설정 → 앱 아이콘
+ *   선택 changes the home-screen icon without uninstalling the app.
  *
  *   window.AndroidWidget   — the five home-screen widgets. syncWidgetData(json)
  *   keeps the page's shift table (myTeamId, anchorDate, teams, overrides,
@@ -205,6 +211,7 @@ public class MainActivity extends Activity {
         webView.addJavascriptInterface(new UpdaterBridge(), "AndroidUpdater");
         webView.addJavascriptInterface(new WidgetBridge(), "AndroidWidget");
         webView.addJavascriptInterface(new WeatherBridge(), "AndroidWeather");
+        webView.addJavascriptInterface(new IconBridge(), "AndroidIcon");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -1499,6 +1506,81 @@ public class MainActivity extends Activity {
         }
     }
 
+
+    // -------------------------------------------------------------- app icon bridge
+
+    /**
+     * JS-facing API: window.AndroidIcon.*
+     *
+     * The three launcher entries are activity-aliases in AndroidManifest.xml, one per
+     * icon (white / black / blue), all pointing at MainActivity. getCurrentIcon()
+     * reports the enabled one; setIcon(key) enables the requested alias and only then
+     * disables the other two — the reverse order leaves a moment where the launcher
+     * has no icon for the app, which some launchers cache as "icon missing".
+     * DONT_KILL_APP keeps the WebView (and the page's state) alive across the switch.
+     */
+    public class IconBridge {
+
+        private final String[][] variants = {
+                {"white", "LauncherWhite"},
+                {"black", "LauncherBlack"},
+                {"blue", "LauncherBlue"},
+        };
+
+        private ComponentName alias(String name) {
+            return new ComponentName(getPackageName(), getPackageName() + "." + name);
+        }
+
+        @JavascriptInterface
+        public String getCurrentIcon() {
+            try {
+                PackageManager pm = getPackageManager();
+                for (String[] variant : variants) {
+                    if (pm.getComponentEnabledSetting(alias(variant[1]))
+                            == PackageManager.COMPONENT_ENABLED_STATE_ENABLED) {
+                        return variant[0];
+                    }
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "AndroidIcon.getCurrentIcon failed", e);
+            }
+            // v2.4.3 is the first version with aliases, so nothing is set explicitly
+            // until the user picks one: the manifest default (white) is showing.
+            return "white";
+        }
+
+        @JavascriptInterface
+        public String setIcon(String key) {
+            String wanted = key == null ? "" : key.trim().toLowerCase(Locale.ROOT);
+            String chosen = null;
+            for (String[] variant : variants) {
+                if (variant[0].equals(wanted)) {
+                    chosen = variant[1];
+                }
+            }
+            if (chosen == null) {
+                return "unknown";
+            }
+            try {
+                PackageManager pm = getPackageManager();
+                pm.setComponentEnabledSetting(alias(chosen),
+                        PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                        PackageManager.DONT_KILL_APP);
+                for (String[] variant : variants) {
+                    if (!variant[1].equals(chosen)) {
+                        pm.setComponentEnabledSetting(alias(variant[1]),
+                                PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                                PackageManager.DONT_KILL_APP);
+                    }
+                }
+                return "ok";
+            } catch (Exception e) {
+                Log.w(TAG, "AndroidIcon.setIcon failed", e);
+                return "error";
+            }
+        }
+    }
+
     // ------------------------------------------------------------- weather bridge
 
     /**
@@ -1608,10 +1690,10 @@ public class MainActivity extends Activity {
             try {
                 String version = getPackageManager()
                         .getPackageInfo(getPackageName(), 0).versionName;
-                return version == null || version.trim().isEmpty() ? "2.4.2" : version;
+                return version == null || version.trim().isEmpty() ? "2.4.3" : version;
             } catch (Exception e) {
                 Log.w(TAG, "getAppVersion failed", e);
-                return "2.4.2";
+                return "2.4.3";
             }
         }
 

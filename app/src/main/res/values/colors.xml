@@ -3,4 +3,7 @@
     <color name="app_background">#F6F8FB</color>
     <color name="app_header">#1D4ED8</color>
     <color name="ic_launcher_background">#FFFFFF</color>
+    <!-- v2.4.3 icon variants: the colour each artwork's own backdrop continues into. -->
+    <color name="ic_launcher_black_background">#252324</color>
+    <color name="ic_launcher_blue_background">#10D6F4</color>
 </resources>
