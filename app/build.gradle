@@ -63,3 +63,65 @@ dependencies {
 
     testImplementation 'junit:junit:4.13.2'
 }
+
+// The repository has one shared "Build APK" workflow, so the checks hang off assembleDebug:
+// a debug APK only counts as built once the JS structure tests, the JVM unit tests and the
+// signature check have passed.
+tasks.register('jsTests', Exec) {
+    group = 'verification'
+    description = 'Runs the JS logic and structure tests (skipped when node is absent).'
+    workingDir rootProject.projectDir
+    commandLine 'sh', '-c',
+            'if command -v node >/dev/null 2>&1; then node tools/tests/run.js; ' +
+            'else echo "node not found - JS tests skipped"; fi'
+}
+
+tasks.register('verifyApkSignature') {
+    group = 'verification'
+    description = 'Confirms the debug APK is signed with app/filemanager-fixed.p12.'
+    doLast {
+        def apk = file("${buildDir}/outputs/apk/debug/app-debug.apk")
+        if (!apk.exists()) {
+            throw new GradleException("APK not found: ${apk}")
+        }
+        def sdk = System.getenv('ANDROID_HOME') ?: System.getenv('ANDROID_SDK_ROOT')
+        if (!sdk) {
+            println 'ANDROID_HOME not set - skipping apksigner check'
+            return
+        }
+        def candidates = file("${sdk}/build-tools").listFiles()
+                ?.findAll { it.isDirectory() }?.sort { it.name }
+        def apksigner = null
+        candidates?.each { dir ->
+            def candidate = new File(dir, 'apksigner')
+            if (candidate.exists()) {
+                apksigner = candidate
+            }
+        }
+        if (apksigner == null) {
+            println 'apksigner not found - skipping signature check'
+            return
+        }
+        def output = new ByteArrayOutputStream()
+        exec {
+            commandLine apksigner.absolutePath, 'verify', '--verbose', '--print-certs', apk.absolutePath
+            standardOutput = output
+            errorOutput = output
+        }
+        def text = output.toString('UTF-8')
+        println text
+        if (!text.contains('CN=NAS FileManager')) {
+            throw new GradleException('APK is not signed with the fixed NAS FileManager key')
+        }
+        println 'APK signed with the fixed NAS FileManager key'
+    }
+}
+
+tasks.matching { it.name == 'testDebugUnitTest' }.configureEach {
+    dependsOn 'jsTests'
+}
+
+tasks.matching { it.name == 'assembleDebug' }.configureEach {
+    dependsOn 'testDebugUnitTest'
+    finalizedBy 'verifyApkSignature'
+}
