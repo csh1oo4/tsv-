@@ -168,6 +168,51 @@ time** (no `text/babel`, no Babel at runtime), so the app still starts with no n
   + v2.5.1 신규(키패드 시/분 포커스·덮어쓰기 단위/렌더, 설정 탭 순서·삭제 요소 부재, MP3/WAV
   리소스)를 전수 통과.
 
+## v2.5.2 — 게시판·설비공유 글씨 확대 · 사진 고화질 저장 · 핀치 줌 뷰어
+
+`versionCode 22`, `versionName 2.5.2`. 승현 님 요청 3건("게시판 글씨 폰트 크기 좀 더 키워주고 /
+사진 첨부 했을때 확대를 손으로 드래그 해서 커지게 해줘 지금은 확대해도 화질저하로 글씨가 잘안보여 /
+설비 공유도 마찬가지로")을 반영했다.
+
+- **🔠 게시판·설비공유 글씨 확대** — 목록·상세·댓글·입력창 전반의 Tailwind 폰트 유틸을 한 단계씩
+  올렸다. 게시판 목록 글 제목 `text-sm`(14px) → `text-[17px] font-bold leading-snug`, 작성자·날짜
+  `text-[11px]` → `text-[13px] text-slate-500`, 카테고리 배지 `text-[10px]` → `text-[11px]`,
+  머리글 `text-lg` → `text-xl`. 게시판 상세는 제목 `text-[19px] leading-snug`, 본문 `text-xs`(12px)
+  → `text-[15px] leading-[1.65]`, 댓글 `text-xs` → `text-[14.5px] leading-[1.6]`, 댓글 시각
+  `text-[10px]` → `text-[12px]`, 댓글 입력창 `text-[14.5px]`. 글쓰기는 제목 입력 `text-[16px]`,
+  본문 입력 `text-[15px] leading-[1.6]`, 등록 버튼 `text-[14px] py-3`. 설비공유는 글 제목
+  `text-[16px] font-bold`, 본문 `text-[14.5px] leading-[1.65]`, 작성자·날짜·수정/삭제 버튼
+  `text-[12.5px]`, 폴더 카드 이름 `text-[14.5px]`·설명 `text-[12px]`, 검색 결과도 같은 기준,
+  등록 모달 제목 `text-[16px]`·내용 `text-[15px]`.
+- **📷 사진 첨부 화질 개선(글씨 뭉개짐 해결)** — 원인은 `handleFileToDataUrl()`이 모든 사진을
+  **최대 변 900px · JPEG 품질 0.72**로 다시 그려 저장하던 것이었다. 이 함수를
+  `compressImageFile(file, options, cb)`로 교체해, 한 장이면 **최대 변 1920px · JPEG 0.90**으로
+  저장하고(`IMAGE_ATTACH_MAX_DIM`·`IMAGE_ATTACH_QUALITY`), 결과 base64가 문서 예산
+  `IMAGE_ATTACH_BUDGET = 800KB`를 넘으면 품질 `0.9 → 0.86 → 0.82 → 0.78`과 해상도
+  `1920 → 1651 → 1421 → 1229 → 900px` 순으로 낮춰 **가장 선명한 조합**에서 멈춘다. Firestore
+  문서 한도 1,048,576 bytes 안에서 본문·댓글 몫을 남기기 위한 값이다. 여러 장을 넘기면
+  `imageAttachPlan(count)`가 장당 예산(800KB ÷ 장수, 최소 140KB)과 시작 해상도(1장 1920 /
+  2장 1600 / 3장 1440 / 4장 이상 1280px)를 나눠 총합이 800KB를 넘지 않게 한다. 이미 원본이
+  충분히 작고 가벼우면 재압축하지 않고 원본을 그대로 쓴다. 리샘플은
+  `imageSmoothingQuality = "high"`로 하고, 카드 안 사진은 `object-cover`(잘림)에서
+  `object-contain bg-slate-50`(전체 표시)으로 바꿔 점검 사진의 글씨가 잘리지 않는다.
+- **🔍 사진 확대 뷰어 — 핀치 줌 · 드래그 · 더블탭** — 1x/2x 클릭 토글 라이트박스를
+  `PhotoZoomLightbox` 컴포넌트로 교체했다. 두 손가락 핀치로 **1x~5x 연속 확대/축소**
+  (`photoPinchScale`, `photoZoomClamp`), 확대 상태에서 한 손가락 **드래그 이동**
+  (`photoPanBounds`·`photoClampPan`으로 사진 밖으로 나가지 않게 경계 고정), **더블탭
+  1x ↔ 2.5x**(`photoDoubleTapScale`). 제스처 영역에 `touch-action: none`과 `select-none`,
+  `-webkit-touch-callout: none`을 주어 WebView 기본 스크롤·확대와 충돌하지 않게 했고,
+  화면 위에는 제목·`✕`, 아래에는 `−` / `1.0x`(누르면 원본 크기) / `+` 버튼과 사용 안내를
+  두어 한 손으로도 조작할 수 있다. 확대·이동 시 `transform 160ms ease-out`으로 부드럽게
+  붙고, 저장된 고해상도 원본을 그대로 띄운다. 게시판 상세·설비 폴더 카드·설비 검색 결과
+  세 곳 모두 이 뷰어를 쓴다(뒤로가기 버튼으로 닫히는 동작 유지).
+- versionCode 22 / versionName 2.5.2, 고정 서명 키(`app/tsv-duty-fixed.p12`) 그대로라 덮어쓰기
+  설치된다. 웹앱 `APP_VERSION`도 2.5.2.
+- 검증: `tmp/v252/check252.py` — v2.4 회귀(교체된 라이트박스 7종 제외 77종) + v2.5·v2.5.1 기능
+  회귀 + v2.5.2 신규(글씨 크기 22종 렌더, 압축 상수·계획·바이트 계산 20종, 핀치/드래그/더블탭
+  단위 21종, 뷰어 렌더·DOM 14종) 총 **230/230 통과**. 실기기 손가락 제스처 감도는 환경 제약상
+  미검증.
+
 ## v2.5 — 설비공유 메뉴 원격 공개/숨김 · 급여기준 근태요약 · 알람 시간 키패드 · 기상나팔
 
 `versionCode 20`, `versionName 2.5`.

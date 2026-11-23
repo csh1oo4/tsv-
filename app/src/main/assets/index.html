@@ -531,7 +531,7 @@ const {
   useRef,
   useMemo
 } = React;
-const APP_VERSION = "2.5.1";
+const APP_VERSION = "2.5.2";
 
 // 🔊 앱 효과음 — 외부 오디오 파일 없이 Web Audio API로 만드는 짧은 소리
 const SFX_STORAGE_KEY = "todaywork_v33_sound";
@@ -2072,6 +2072,270 @@ const decideMonthSwipe = (dx, elapsedMs, width) => {
   if (!farEnough && !quickFlick) return 0;
   return dx < 0 ? 1 : -1;
 };
+/* v2.5.2 — 사진 첨부는 글씨가 뭉개지지 않도록 고해상도로 저장한다.
+   Firestore 문서 한도(1,048,576 bytes) 안에서 1장은 최대 변 1920px · JPEG 0.90,
+   여러 장이면 장수에 맞춰 문서 예산을 나눠 해상도·품질을 동적으로 낮춘다. */
+const IMAGE_ATTACH_MAX_DIM = 1920;
+const IMAGE_ATTACH_MIN_DIM = 900;
+const IMAGE_ATTACH_QUALITY = 0.9;
+const IMAGE_ATTACH_BUDGET = 800 * 1024;
+const IMAGE_QUALITY_STEPS = [0.9, 0.86, 0.82, 0.78];
+const imageDataUrlBytes = url => {
+  if (!url || typeof url !== "string") return 0;
+  const comma = url.indexOf(",");
+  const body = comma >= 0 ? url.slice(comma + 1) : url;
+  return Math.ceil(body.length * 3 / 4);
+};
+const imageAttachPlan = count => {
+  const n = Math.max(1, Math.min(9, Math.round(Number(count) || 1)));
+  return {
+    count: n,
+    budget: Math.max(140 * 1024, Math.floor(IMAGE_ATTACH_BUDGET / n)),
+    maxDim: n <= 1 ? IMAGE_ATTACH_MAX_DIM : n === 2 ? 1600 : n === 3 ? 1440 : 1280
+  };
+};
+/* =====================================================================
+   v2.5.2 — 사진 확대 뷰어: 두 손가락 핀치 줌(1x~5x) · 확대 상태 드래그 이동 ·
+   더블탭 1x ↔ 2.5x. 게시판 글 사진과 설비공유 사진이 모두 이 뷰어를 쓴다.
+   ===================================================================== */
+const PHOTO_ZOOM_MIN = 1;
+const PHOTO_ZOOM_MAX = 5;
+const PHOTO_ZOOM_DOUBLE = 2.5;
+const PHOTO_ZOOM_TAP_GAP = 320;
+const photoZoomClamp = value => {
+  const v = Number(value);
+  if (!isFinite(v)) return PHOTO_ZOOM_MIN;
+  return Math.min(PHOTO_ZOOM_MAX, Math.max(PHOTO_ZOOM_MIN, v));
+};
+const photoZoomRound = value => Math.round(photoZoomClamp(value) * 10) / 10;
+const photoZoomStep = (scale, direction) => photoZoomRound((Number(scale) || PHOTO_ZOOM_MIN) + (direction > 0 ? 0.5 : -0.5));
+const photoZoomLabel = scale => `${photoZoomRound(scale).toFixed(1)}x`;
+const photoPanBounds = (baseW, baseH, viewW, viewH, scale) => {
+  const s = photoZoomClamp(scale);
+  return {
+    x: Math.max(0, (Number(baseW) * s - Number(viewW)) / 2),
+    y: Math.max(0, (Number(baseH) * s - Number(viewH)) / 2)
+  };
+};
+const photoClampPan = (tx, ty, bounds) => ({
+  x: Math.min(bounds.x, Math.max(-bounds.x, Number(tx) || 0)),
+  y: Math.min(bounds.y, Math.max(-bounds.y, Number(ty) || 0))
+});
+const photoPinchScale = (startScale, startSpan, span) => photoZoomClamp((Number(startScale) || 1) * ((Number(span) || 1) / (Number(startSpan) || 1)));
+const photoDoubleTapScale = current => photoZoomClamp(current) > 1.05 ? PHOTO_ZOOM_MIN : PHOTO_ZOOM_DOUBLE;
+const photoTouchSpan = (a, b) => {
+  const dx = Number(a.clientX) - Number(b.clientX);
+  const dy = Number(a.clientY) - Number(b.clientY);
+  return Math.sqrt(dx * dx + dy * dy);
+};
+const PhotoZoomLightbox = ({
+  src,
+  title,
+  onClose
+}) => {
+  const [view, setView] = useState({
+    scale: 1,
+    x: 0,
+    y: 0
+  });
+  const [smooth, setSmooth] = useState(false);
+  const boxRef = useRef(null);
+  const imgRef = useRef(null);
+  const liveRef = useRef({
+    scale: 1,
+    x: 0,
+    y: 0
+  });
+  const gestureRef = useRef(null);
+  const measure = () => {
+    const box = boxRef.current;
+    const img = imgRef.current;
+    const viewW = box && box.clientWidth ? box.clientWidth : 0;
+    const viewH = box && box.clientHeight ? box.clientHeight : 0;
+    return {
+      viewW,
+      viewH,
+      baseW: img && img.clientWidth ? img.clientWidth : viewW,
+      baseH: img && img.clientHeight ? img.clientHeight : viewH
+    };
+  };
+  const apply = (nextScale, nextX, nextY, animate) => {
+    const size = measure();
+    const scale = photoZoomClamp(nextScale);
+    const bounds = photoPanBounds(size.baseW, size.baseH, size.viewW, size.viewH, scale);
+    const pos = photoClampPan(nextX, nextY, bounds);
+    liveRef.current = {
+      scale,
+      x: pos.x,
+      y: pos.y
+    };
+    setSmooth(!!animate);
+    setView({
+      scale,
+      x: pos.x,
+      y: pos.y
+    });
+  };
+  const zoomBy = direction => apply(photoZoomStep(liveRef.current.scale, direction), liveRef.current.x, liveRef.current.y, true);
+  const resetZoom = () => apply(1, 0, 0, true);
+  const onTouchStart = e => {
+    const touches = e.touches || [];
+    if (touches.length >= 2) {
+      gestureRef.current = {
+        mode: "pinch",
+        startSpan: photoTouchSpan(touches[0], touches[1]) || 1,
+        startScale: liveRef.current.scale,
+        startX: liveRef.current.x,
+        startY: liveRef.current.y,
+        midX: (touches[0].clientX + touches[1].clientX) / 2,
+        midY: (touches[0].clientY + touches[1].clientY) / 2,
+        moved: true,
+        lastTap: 0
+      };
+      setSmooth(false);
+      return;
+    }
+    if (touches.length === 1) {
+      const prev = gestureRef.current;
+      gestureRef.current = {
+        mode: "pan",
+        startX: liveRef.current.x,
+        startY: liveRef.current.y,
+        startScale: liveRef.current.scale,
+        originX: touches[0].clientX,
+        originY: touches[0].clientY,
+        moved: false,
+        lastTap: prev && prev.lastTap ? prev.lastTap : 0
+      };
+      setSmooth(false);
+    }
+  };
+  const onTouchMove = e => {
+    const g = gestureRef.current;
+    if (!g) return;
+    try {
+      if (e.cancelable && e.preventDefault) e.preventDefault();
+    } catch (preventErr) {}
+    const touches = e.touches || [];
+    if (g.mode === "pinch" && touches.length >= 2) {
+      const span = photoTouchSpan(touches[0], touches[1]) || g.startSpan;
+      const midX = (touches[0].clientX + touches[1].clientX) / 2;
+      const midY = (touches[0].clientY + touches[1].clientY) / 2;
+      apply(photoPinchScale(g.startScale, g.startSpan, span), g.startX + (midX - g.midX), g.startY + (midY - g.midY), false);
+      return;
+    }
+    if (g.mode === "pan" && touches.length === 1) {
+      const dx = touches[0].clientX - g.originX;
+      const dy = touches[0].clientY - g.originY;
+      if (!g.moved && Math.abs(dx) + Math.abs(dy) > 8) g.moved = true;
+      if (liveRef.current.scale > 1) apply(liveRef.current.scale, g.startX + dx, g.startY + dy, false);
+    }
+  };
+  const onTouchEnd = e => {
+    const g = gestureRef.current;
+    if (!g) return;
+    const touches = e.touches || [];
+    if (touches.length === 1) {
+      gestureRef.current = {
+        mode: "pan",
+        startX: liveRef.current.x,
+        startY: liveRef.current.y,
+        startScale: liveRef.current.scale,
+        originX: touches[0].clientX,
+        originY: touches[0].clientY,
+        moved: true,
+        lastTap: 0
+      };
+      return;
+    }
+    if (touches.length > 1) return;
+    if (g.mode === "pan" && !g.moved) {
+      const now = Date.now();
+      if (g.lastTap && now - g.lastTap < PHOTO_ZOOM_TAP_GAP) {
+        apply(photoDoubleTapScale(liveRef.current.scale), 0, 0, true);
+        gestureRef.current = {
+          mode: null,
+          lastTap: 0
+        };
+        return;
+      }
+      gestureRef.current = {
+        mode: null,
+        lastTap: now
+      };
+      return;
+    }
+    gestureRef.current = {
+      mode: null,
+      lastTap: 0
+    };
+    if (liveRef.current.scale <= 1.02) apply(1, 0, 0, true);
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "fixed inset-0 z-[60] bg-slate-950/95 flex flex-col",
+    onClick: onClose
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between gap-2 px-3 py-2.5 text-white shrink-0",
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-[13px] font-extrabold truncate pr-2"
+  }, title || "사진"), /*#__PURE__*/React.createElement("button", {
+    onClick: onClose,
+    className: "p-2 rounded-lg bg-white/15 shrink-0"
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "close",
+    size: 20
+  }))), /*#__PURE__*/React.createElement("div", {
+    ref: boxRef,
+    className: "flex-1 relative overflow-hidden select-none bg-black/40",
+    style: {
+      touchAction: "none",
+      WebkitUserSelect: "none",
+      WebkitTouchCallout: "none"
+    },
+    onTouchStart: onTouchStart,
+    onTouchMove: onTouchMove,
+    onTouchEnd: onTouchEnd,
+    onTouchCancel: onTouchEnd,
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "absolute inset-0 flex items-center justify-center",
+    style: {
+      transform: `translate3d(${view.x}px, ${view.y}px, 0)`,
+      transition: smooth ? "transform 160ms ease-out" : "none",
+      willChange: "transform"
+    }
+  }, /*#__PURE__*/React.createElement("img", {
+    ref: imgRef,
+    src: src,
+    alt: title || "",
+    draggable: false,
+    className: "max-w-full max-h-full w-auto h-auto bg-white",
+    style: {
+      transform: `scale(${view.scale})`,
+      transformOrigin: "center center",
+      transition: smooth ? "transform 160ms ease-out" : "none"
+    }
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "shrink-0 px-3 pt-2 pb-3 space-y-2",
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-center gap-2.5"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => zoomBy(-1),
+    disabled: view.scale <= PHOTO_ZOOM_MIN,
+    className: "w-11 h-11 rounded-full bg-white/15 text-white text-2xl font-extrabold leading-none disabled:opacity-30"
+  }, "\u2212"), /*#__PURE__*/React.createElement("button", {
+    onClick: resetZoom,
+    className: "px-4 h-11 rounded-full bg-white/15 text-white text-sm font-extrabold tabular-nums"
+  }, photoZoomLabel(view.scale)), /*#__PURE__*/React.createElement("button", {
+    onClick: () => zoomBy(1),
+    disabled: view.scale >= PHOTO_ZOOM_MAX,
+    className: "w-11 h-11 rounded-full bg-white/15 text-white text-2xl font-extrabold leading-none disabled:opacity-30"
+  }, "+")), /*#__PURE__*/React.createElement("p", {
+    className: "text-center text-[11px] leading-relaxed text-slate-400"
+  }, "\uB450 \uC190\uAC00\uB77D\uC73C\uB85C \uBC8C\uB824 \uD655\uB300 \xB7 \uD655\uB300 \uC0C1\uD0DC\uC5D0\uC11C \uB4DC\uB798\uADF8 \xC774\uB3D9 \xB7 \uB450 \uBC88 \uD0ED\uD558\uBA74 2.5x")));
+};
 function App() {
   const loadState = (key, fallback) => {
     try {
@@ -3201,38 +3465,66 @@ function App() {
       notify(newItem.shareType === "company" ? "회사 공통 일정으로 등록되어 조원들에게 공유되었습니다." : "휴가 일정이 조원들과 공유되었습니다.");
     }).catch(() => notify("오프라인 상태라 이 기기에만 저장했습니다."));
   };
-  const handleFileToDataUrl = (file, cb) => {
+  const compressImageFile = (file, options, cb) => {
     if (!file) return;
+    const opts = options || {};
+    const plan = imageAttachPlan(opts.count);
+    const budget = Math.max(140 * 1024, Math.floor((opts.budget || IMAGE_ATTACH_BUDGET) / plan.count));
+    const startDim = Math.max(IMAGE_ATTACH_MIN_DIM, opts.maxDim || plan.maxDim);
     const reader = new FileReader();
     reader.onerror = () => cb(null);
     reader.onload = e => {
+      const original = e.target.result;
       const img = new Image();
-      img.onerror = () => cb(e.target.result);
+      img.onerror = () => cb(original);
       img.onload = () => {
         try {
-          const maxDim = 900;
-          let w = img.width;
-          let h = img.height;
-          if (w > maxDim || h > maxDim) {
-            if (w >= h) {
-              h = Math.round(h * maxDim / w);
-              w = maxDim;
-            } else {
-              w = Math.round(w * maxDim / h);
-              h = maxDim;
+          const draw = (maxDim, quality) => {
+            let w = img.width;
+            let h = img.height;
+            if (!w || !h) return null;
+            if (w > maxDim || h > maxDim) {
+              const ratio = maxDim / Math.max(w, h);
+              w = Math.max(1, Math.round(w * ratio));
+              h = Math.max(1, Math.round(h * ratio));
             }
+            const canvas = document.createElement("canvas");
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext("2d");
+            if (!ctx) return null;
+            try {
+              ctx.imageSmoothingEnabled = true;
+              ctx.imageSmoothingQuality = "high";
+            } catch (smoothErr) {}
+            ctx.drawImage(img, 0, 0, w, h);
+            return canvas.toDataURL("image/jpeg", quality);
+          };
+          if (Math.max(img.width, img.height) <= startDim && imageDataUrlBytes(original) <= budget) {
+            cb(original);
+            return;
           }
-          const canvas = document.createElement("canvas");
-          canvas.width = w;
-          canvas.height = h;
-          const ctx = canvas.getContext("2d");
-          ctx.drawImage(img, 0, 0, w, h);
-          cb(canvas.toDataURL("image/jpeg", 0.72));
+          const dims = [startDim, Math.round(startDim * 0.86), Math.round(startDim * 0.74), Math.round(startDim * 0.64), IMAGE_ATTACH_MIN_DIM];
+          let fallback = null;
+          for (let di = 0; di < dims.length; di++) {
+            const dim = Math.max(IMAGE_ATTACH_MIN_DIM, dims[di]);
+            for (let qi = 0; qi < IMAGE_QUALITY_STEPS.length; qi++) {
+              const url = draw(dim, IMAGE_QUALITY_STEPS[qi]);
+              if (!url) continue;
+              if (!fallback || imageDataUrlBytes(url) < imageDataUrlBytes(fallback)) fallback = url;
+              if (imageDataUrlBytes(url) <= budget) {
+                cb(url);
+                return;
+              }
+            }
+            if (dim <= IMAGE_ATTACH_MIN_DIM) break;
+          }
+          cb(fallback || original);
         } catch (err) {
-          cb(e.target.result);
+          cb(original);
         }
       };
-      img.src = e.target.result;
+      img.src = original;
     };
     reader.readAsDataURL(file);
   };
@@ -4787,12 +5079,12 @@ function App() {
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between mb-3"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h2", {
-    className: "text-lg font-extrabold text-slate-900"
+    className: "text-xl font-extrabold text-slate-900"
   }, "\uC124\uBE44 \uACF5\uC720 \uC11C\uBC84"), /*#__PURE__*/React.createElement("p", {
-    className: "text-xs text-slate-500"
+    className: "text-[13px] text-slate-500 leading-snug"
   }, "\uD638\uAE30\uBCC4 \uD3F4\uB354\uC5D0 \uC124\uBE44 \uC0AC\uC9C4\uACFC \uC810\uAC80 \uC774\uB825\uC744 \uACF5\uC720\uD558\uC138\uC694.")), /*#__PURE__*/React.createElement("button", {
     onClick: () => setNewFolderOpen(true),
-    className: "flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold"
+    className: "flex items-center gap-1 px-3 py-2 rounded-xl bg-slate-100 text-slate-700 text-[13px] font-bold"
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "plus",
     size: 14
@@ -4808,7 +5100,7 @@ function App() {
     value: equipSearch,
     onChange: e => setEquipSearch(e.target.value),
     placeholder: "\uC124\uBE44\uBA85, \uC99D\uC0C1, \uBD80\uD488\uBA85 \uAC80\uC0C9 (\uC608: \uC138\uC815\uAE30, \uB178\uC990, \uC13C\uC11C)...",
-    className: "w-full pl-9 pr-8 py-2.5 rounded-xl bg-slate-100 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+    className: "w-full pl-9 pr-8 py-3 rounded-xl bg-slate-100 text-[14px] text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
   }), equipSearch && /*#__PURE__*/React.createElement("button", {
     onClick: () => setEquipSearch(""),
     className: "absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400"
@@ -4827,11 +5119,11 @@ function App() {
     key: it.id,
     className: "p-3.5 rounded-2xl border border-slate-200 bg-white"
   }, /*#__PURE__*/React.createElement("span", {
-    className: "inline-block px-2 py-0.5 rounded bg-blue-50 text-blue-600 text-[10px] font-bold mb-1"
+    className: "inline-block px-2 py-0.5 rounded bg-blue-50 text-blue-600 text-[11px] font-bold mb-1"
   }, "\uD83D\uDCC1 ", it.folderName), /*#__PURE__*/React.createElement("h3", {
-    className: "text-sm font-bold text-slate-900"
+    className: "text-[16px] font-bold text-slate-900"
   }, it.title), /*#__PURE__*/React.createElement("p", {
-    className: "text-xs text-slate-600 mt-1"
+    className: "text-[14.5px] leading-[1.6] text-slate-700 mt-1.5"
   }, it.content), it.image && /*#__PURE__*/React.createElement("img", {
     src: it.image,
     alt: it.title || "",
@@ -4840,16 +5132,16 @@ function App() {
       title: it.title || it.folderName || "설비 사진",
       zoom: 1
     }),
-    className: "mt-2.5 w-full max-h-48 object-cover rounded-xl border border-slate-100 cursor-zoom-in"
+    className: "mt-2.5 w-full max-h-60 object-contain bg-slate-50 rounded-xl border border-slate-100 cursor-zoom-in"
   }), /*#__PURE__*/React.createElement("div", {
-    className: "mt-2 flex items-center justify-between gap-2 text-[11px] text-slate-400"
+    className: "mt-2.5 flex items-center justify-between gap-2 text-[12.5px] text-slate-400"
   }, /*#__PURE__*/React.createElement("span", {
     className: "truncate"
   }, it.author, " \xB7 ", it.date), canEditPost(it) && /*#__PURE__*/React.createElement("span", {
     className: "flex items-center gap-1.5 shrink-0"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => openEquipEdit(it, it.folderId),
-    className: "flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 text-[11px] font-bold text-slate-700"
+    className: "flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 text-[12.5px] font-bold text-slate-700"
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "edit",
     size: 12
@@ -4859,7 +5151,7 @@ function App() {
       title: it.title,
       folderId: it.folderId
     }),
-    className: "flex items-center gap-1 px-2 py-1 rounded-lg bg-rose-50 text-[11px] font-bold text-rose-600"
+    className: "flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-50 text-[12.5px] font-bold text-rose-600"
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "trash",
     size: 12
@@ -4878,11 +5170,11 @@ function App() {
       size: 20,
       className: isSelected ? "text-blue-600" : "text-amber-500"
     }), /*#__PURE__*/React.createElement("span", {
-      className: "text-[11px] font-bold text-slate-400"
+      className: "text-xs font-bold text-slate-400"
     }, folder.items.length, "\uAC74")), /*#__PURE__*/React.createElement("div", {
-      className: "text-xs font-extrabold text-slate-900 truncate"
+      className: "text-[14.5px] font-extrabold text-slate-900 truncate"
     }, folder.name), /*#__PURE__*/React.createElement("div", {
-      className: "text-[10px] text-slate-500 truncate mt-0.5"
+      className: "text-[12px] text-slate-500 truncate mt-1"
     }, folder.desc));
   })), (() => {
     const currentFolder = equipFolders.find(f => f.id === selectedFolderId) || equipFolders[0];
@@ -4892,9 +5184,9 @@ function App() {
     }, /*#__PURE__*/React.createElement("div", {
       className: "flex items-center justify-between mb-3"
     }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h3", {
-      className: "text-sm font-extrabold text-slate-900"
+      className: "text-[16px] font-extrabold text-slate-900"
     }, "\uD83D\uDCC1 ", currentFolder.name), /*#__PURE__*/React.createElement("p", {
-      className: "text-[11px] text-slate-400"
+      className: "text-xs text-slate-500 mt-0.5"
     }, currentFolder.desc)), /*#__PURE__*/React.createElement("button", {
       onClick: () => {
         setEquipItemForm({
@@ -4906,14 +5198,14 @@ function App() {
         setEquipEditing(null);
         setNewEquipItemOpen(true);
       },
-      className: "flex items-center gap-1 px-3 py-1.5 rounded-full bg-blue-600 text-white text-xs font-bold"
+      className: "flex items-center gap-1 px-3.5 py-2 rounded-full bg-blue-600 text-white text-[13px] font-bold"
     }, /*#__PURE__*/React.createElement(Icon, {
       name: "plus",
       size: 14
     }), " \uC0AC\uC9C4\xB7\uAE00 \uB4F1\uB85D")), currentFolder.items.length === 0 ? /*#__PURE__*/React.createElement("div", {
       className: "py-10 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200"
     }, /*#__PURE__*/React.createElement("p", {
-      className: "text-xs text-slate-400"
+      className: "text-sm text-slate-400"
     }, "\uC544\uC9C1 \uB4F1\uB85D\uB41C \uC124\uBE44 \uC0AC\uC9C4\uC774\uB098 \uC810\uAC80 \uC774\uB825\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.")) : /*#__PURE__*/React.createElement("div", {
       className: "space-y-3"
     }, currentFolder.items.map(item => /*#__PURE__*/React.createElement("div", {
@@ -4922,11 +5214,11 @@ function App() {
     }, /*#__PURE__*/React.createElement("div", {
       className: "flex items-center justify-between"
     }, /*#__PURE__*/React.createElement("h4", {
-      className: "text-sm font-bold text-slate-900"
+      className: "text-[16px] font-bold text-slate-900"
     }, item.title), /*#__PURE__*/React.createElement("span", {
-      className: "text-[10px] text-slate-400"
+      className: "text-[12px] text-slate-400"
     }, item.date)), /*#__PURE__*/React.createElement("p", {
-      className: "text-xs text-slate-600 mt-1.5 leading-relaxed"
+      className: "text-[14.5px] leading-[1.65] text-slate-700 mt-2"
     }, item.content), item.image && /*#__PURE__*/React.createElement("img", {
       src: item.image,
       alt: item.title,
@@ -4935,16 +5227,16 @@ function App() {
         title: item.title || "설비 사진",
         zoom: 1
       }),
-      className: "mt-2.5 w-full max-h-56 object-cover rounded-xl border border-slate-100 cursor-zoom-in"
+      className: "mt-2.5 w-full max-h-64 object-contain bg-slate-50 rounded-xl border border-slate-100 cursor-zoom-in"
     }), /*#__PURE__*/React.createElement("div", {
-      className: "mt-2 pt-2 border-t border-slate-100 flex items-center justify-between gap-2 text-[11px] text-slate-400"
+      className: "mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between gap-2 text-[12.5px] text-slate-400"
     }, /*#__PURE__*/React.createElement("span", {
       className: "truncate"
     }, "\uC791\uC131\uC790: ", item.author), canEditPost(item) && /*#__PURE__*/React.createElement("span", {
       className: "flex items-center gap-1.5 shrink-0"
     }, /*#__PURE__*/React.createElement("button", {
       onClick: () => openEquipEdit(item, currentFolder.id),
-      className: "flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 text-[11px] font-bold text-slate-700"
+      className: "flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 text-[12.5px] font-bold text-slate-700"
     }, /*#__PURE__*/React.createElement(Icon, {
       name: "edit",
       size: 12
@@ -4954,7 +5246,7 @@ function App() {
         title: item.title,
         folderId: currentFolder.id
       }),
-      className: "flex items-center gap-1 px-2 py-1 rounded-lg bg-rose-50 text-[11px] font-bold text-rose-600"
+      className: "flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-50 text-[12.5px] font-bold text-rose-600"
     }, /*#__PURE__*/React.createElement(Icon, {
       name: "trash",
       size: 12
@@ -5075,7 +5367,7 @@ function App() {
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between mb-3"
   }, /*#__PURE__*/React.createElement("h2", {
-    className: "text-lg font-extrabold text-slate-900"
+    className: "text-xl font-extrabold text-slate-900"
   }, "\uD604\uC7A5 \uAC8C\uC2DC\uD310"), /*#__PURE__*/React.createElement("button", {
     onClick: () => {
       setEditingPostId(null);
@@ -5095,11 +5387,11 @@ function App() {
     className: "flex gap-1.5 mb-4 overflow-x-auto no-scrollbar pb-1"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => setBoardFilter("all"),
-    className: `px-3 py-1.5 rounded-full text-xs font-bold shrink-0 transition ${boardFilter === "all" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600"}`
+    className: `px-3.5 py-2 rounded-full text-[13px] font-bold shrink-0 transition ${boardFilter === "all" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600"}`
   }, "\uC804\uCCB4\uAE00"), BOARD_CATEGORIES.map(cat => /*#__PURE__*/React.createElement("button", {
     key: cat.id,
     onClick: () => setBoardFilter(cat.id),
-    className: `px-3 py-1.5 rounded-full text-xs font-bold shrink-0 transition ${boardFilter === cat.id ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600"}`
+    className: `px-3.5 py-2 rounded-full text-[13px] font-bold shrink-0 transition ${boardFilter === cat.id ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600"}`
   }, cat.label))), /*#__PURE__*/React.createElement("div", {
     className: "space-y-5"
   }, BOARD_CATEGORIES.filter(cat => boardFilter === "all" || boardFilter === cat.id).map(cat => {
@@ -5109,35 +5401,35 @@ function App() {
     }, /*#__PURE__*/React.createElement("div", {
       className: "flex items-center justify-between mb-2"
     }, /*#__PURE__*/React.createElement("span", {
-      className: "text-sm font-extrabold text-slate-900"
+      className: "text-base font-extrabold text-slate-900"
     }, cat.label), /*#__PURE__*/React.createElement("span", {
-      className: "text-[11px] text-slate-400"
+      className: "text-xs font-bold text-slate-400"
     }, list.length, "\uAC74")), list.length === 0 ? /*#__PURE__*/React.createElement("p", {
-      className: "text-xs text-slate-400 py-3 px-2 bg-slate-50 rounded-xl"
+      className: "text-sm text-slate-400 py-3.5 px-2 bg-slate-50 rounded-xl"
     }, "\uB4F1\uB85D\uB41C \uAE00\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.") : /*#__PURE__*/React.createElement("div", {
       className: "divide-y divide-slate-100 border-t border-b border-slate-100"
     }, list.map(post => /*#__PURE__*/React.createElement("div", {
       key: post.id,
       onClick: () => setSelectedPostId(post.id),
-      className: "py-3 flex items-center justify-between gap-2 cursor-pointer hover:bg-slate-50 px-1"
+      className: "py-3.5 flex items-center justify-between gap-2 cursor-pointer hover:bg-slate-50 px-1"
     }, /*#__PURE__*/React.createElement("div", {
       className: "min-w-0 flex-1"
     }, /*#__PURE__*/React.createElement("div", {
       className: "flex items-center gap-1.5"
     }, /*#__PURE__*/React.createElement("span", {
-      className: `px-1.5 py-0.5 rounded text-[10px] font-extrabold shrink-0 ${cat.badgeBg}`
+      className: `px-2 py-0.5 rounded text-[11px] font-extrabold shrink-0 ${cat.badgeBg}`
     }, cat.label), /*#__PURE__*/React.createElement("p", {
-      className: "text-sm font-semibold text-slate-800 truncate"
+      className: "text-[17px] font-bold leading-snug text-slate-800 truncate"
     }, post.title), post.comments.length > 0 && /*#__PURE__*/React.createElement("span", {
-      className: "text-xs font-bold text-blue-600"
+      className: "text-[13px] font-bold text-blue-600"
     }, post.comments.length), /*#__PURE__*/React.createElement("span", {
-      className: "w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-extrabold flex items-center justify-center shrink-0"
+      className: "w-4 h-4 rounded-full bg-rose-500 text-white text-[10px] font-extrabold flex items-center justify-center shrink-0"
     }, "N")), /*#__PURE__*/React.createElement("p", {
-      className: "text-[11px] text-slate-400 mt-0.5"
+      className: "text-[13px] text-slate-500 mt-1"
     }, post.author, " \xB7 ", post.date)), post.image && /*#__PURE__*/React.createElement("img", {
       src: post.image,
       alt: "",
-      className: "w-11 h-11 rounded-lg object-cover shrink-0 border border-slate-200"
+      className: "w-12 h-12 rounded-lg object-cover shrink-0 border border-slate-200"
     })))));
   }))), activeTab === "settings" && /*#__PURE__*/React.createElement("div", {
     className: "p-4 space-y-5"
@@ -6063,7 +6355,7 @@ function App() {
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between pb-2 border-b border-slate-100"
   }, /*#__PURE__*/React.createElement("h3", {
-    className: "text-base font-extrabold text-slate-900"
+    className: "text-lg font-extrabold text-slate-900"
   }, editingPostId ? "게시글 수정" : "게시판 새 글 작성"), /*#__PURE__*/React.createElement("button", {
     onClick: () => setPostEditorOpen(false),
     className: "p-1 text-slate-500"
@@ -6078,7 +6370,7 @@ function App() {
       ...prev,
       category: c.id
     })),
-    className: `px-3 py-1.5 rounded-xl text-xs font-bold ${postForm.category === c.id ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600"}`
+    className: `px-3.5 py-2 rounded-xl text-[13px] font-bold ${postForm.category === c.id ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600"}`
   }, c.label))), /*#__PURE__*/React.createElement("input", {
     type: "text",
     value: postForm.title,
@@ -6087,7 +6379,7 @@ function App() {
       title: e.target.value
     })),
     placeholder: "\uC81C\uBAA9\uC744 \uC785\uB825\uD558\uC138\uC694",
-    className: "w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold"
+    className: "w-full px-3 py-3 rounded-xl border border-slate-200 text-[16px] font-semibold"
   }), /*#__PURE__*/React.createElement("textarea", {
     rows: 4,
     value: postForm.content,
@@ -6096,20 +6388,20 @@ function App() {
       content: e.target.value
     })),
     placeholder: "\uC870\uC6D0\uB4E4\uACFC \uB098\uB20C \uB0B4\uC6A9\uC744 \uC785\uB825\uD558\uC138\uC694",
-    className: "w-full px-3 py-2.5 rounded-xl border border-slate-200 text-xs"
+    className: "w-full px-3 py-3 rounded-xl border border-slate-200 text-[15px] leading-[1.6]"
   }), /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center gap-2"
   }, /*#__PURE__*/React.createElement("label", {
-    className: "flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 text-xs font-bold text-slate-700 cursor-pointer"
+    className: "flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-slate-100 text-[13px] font-bold text-slate-700 cursor-pointer"
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "image",
     size: 16
   }), " \uC0AC\uC9C4 \uCCA8\uBD80", /*#__PURE__*/React.createElement("input", {
     type: "file",
     accept: "image/*",
-    onChange: e => handleFileToDataUrl(e.target.files?.[0], url => setPostForm(prev => ({
+    onChange: e => compressImageFile(e.target.files?.[0], { count: 1 }, url => setPostForm(prev => ({
       ...prev,
       image: url
     }))),
@@ -6119,7 +6411,7 @@ function App() {
       ...prev,
       image: null
     })),
-    className: "text-xs text-rose-500 font-bold"
+    className: "text-[13px] text-rose-500 font-bold"
   }, "\uC0AC\uC9C4 \uC0AD\uC81C")), /*#__PURE__*/React.createElement("button", {
     onClick: () => {
       if (!postForm.title.trim()) return;
@@ -6162,11 +6454,11 @@ function App() {
         notify("게시글이 등록되었습니다.");
       }
     },
-    className: "px-5 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold"
+    className: "px-5 py-3 rounded-xl bg-blue-600 text-white text-[14px] font-bold"
   }, editingPostId ? "수정 저장" : "등록하기")), postForm.image && /*#__PURE__*/React.createElement("img", {
     src: postForm.image,
     alt: "",
-    className: "w-full max-h-40 object-cover rounded-xl border border-slate-200"
+    className: "w-full max-h-52 object-contain bg-slate-100 rounded-xl border border-slate-200"
   }))), selectedPostId && (() => {
     const post = posts.find(p => p.id === selectedPostId);
     if (!post) return null;
@@ -6178,8 +6470,8 @@ function App() {
     }, /*#__PURE__*/React.createElement("div", {
       className: "flex items-center justify-between pb-2 border-b border-slate-100"
     }, /*#__PURE__*/React.createElement("span", {
-      className: "text-xs font-bold text-blue-600"
-    }, catInfo ? catInfo.label : "게시판"), /*#__PURE__*/React.createElement("div", {
+      className: "text-[13px] font-extrabold text-blue-600"
+    }, catInfo ? catInfo.label : "\uAC8C\uC2DC\uD310"), /*#__PURE__*/React.createElement("div", {
       className: "flex items-center gap-1.5"
     }, canEditPost(post) && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
       onClick: () => {
@@ -6217,11 +6509,11 @@ function App() {
       name: "close",
       size: 18
     })))), /*#__PURE__*/React.createElement("h3", {
-      className: "text-base font-extrabold text-slate-900"
+      className: "text-[19px] font-extrabold leading-snug text-slate-900"
     }, post.title), /*#__PURE__*/React.createElement("p", {
-      className: "text-[11px] text-slate-400"
+      className: "text-[13px] text-slate-500"
     }, post.author, " \xB7 ", post.date), /*#__PURE__*/React.createElement("p", {
-      className: "text-xs text-slate-700 leading-relaxed whitespace-pre-wrap"
+      className: "text-[15px] leading-[1.65] text-slate-800 whitespace-pre-wrap"
     }, post.content), post.image && /*#__PURE__*/React.createElement("img", {
       src: post.image,
       alt: post.title || "",
@@ -6230,20 +6522,20 @@ function App() {
         title: post.title || "게시판 사진",
         zoom: 1
       }),
-      className: "w-full rounded-xl border border-slate-200 cursor-zoom-in"
+      className: "w-full max-h-[60vh] object-contain bg-slate-50 rounded-xl border border-slate-200 cursor-zoom-in"
     }), /*#__PURE__*/React.createElement("div", {
       className: "pt-3 border-t border-slate-100 space-y-2"
     }, /*#__PURE__*/React.createElement("span", {
-      className: "text-xs font-bold text-slate-700"
+      className: "text-[13px] font-bold text-slate-700"
     }, "\uB313\uAE00 ", post.comments.length), post.comments.map(c => /*#__PURE__*/React.createElement("div", {
       key: c.id,
-      className: "p-2.5 rounded-xl bg-slate-50 text-xs"
+      className: "p-3 rounded-xl bg-slate-50 text-[14.5px] leading-[1.6]"
     }, /*#__PURE__*/React.createElement("div", {
       className: "flex justify-between font-bold text-slate-700"
     }, /*#__PURE__*/React.createElement("span", null, c.author), /*#__PURE__*/React.createElement("span", {
-      className: "text-[10px] text-slate-400 font-normal"
+      className: "text-[12px] text-slate-400 font-normal"
     }, c.time)), /*#__PURE__*/React.createElement("p", {
-      className: "text-slate-600 mt-1"
+      className: "text-slate-700 mt-1.5"
     }, c.text))), /*#__PURE__*/React.createElement("div", {
       className: "flex gap-2 pt-1"
     }, /*#__PURE__*/React.createElement("input", {
@@ -6251,13 +6543,13 @@ function App() {
       value: commentInput,
       onChange: e => setCommentInput(e.target.value),
       placeholder: "\uB313\uAE00\uC744 \uC785\uB825\uD558\uC138\uC694...",
-      className: "flex-1 px-3 py-2 rounded-xl border border-slate-200 text-xs"
+      className: "flex-1 px-3 py-2.5 rounded-xl border border-slate-200 text-[14.5px]"
     }), /*#__PURE__*/React.createElement("button", {
       onClick: () => {
         if (!commentInput.trim()) return;
         addCommentToPost(post.id);
       },
-      className: "px-3.5 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold"
+      className: "px-4 py-2.5 rounded-xl bg-slate-900 text-white text-[13.5px] font-bold"
     }, "\uB4F1\uB85D")))));
   })(), equipDeleteTarget && /*#__PURE__*/React.createElement("div", {
     className: "fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 px-6"
@@ -6335,7 +6627,7 @@ function App() {
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between pb-2 border-b border-slate-100"
   }, /*#__PURE__*/React.createElement("h3", {
-    className: "text-base font-extrabold text-slate-900"
+    className: "text-lg font-extrabold text-slate-900"
   }, equipEditing ? "설비 기록 수정" : "설비 사진 · 점검 기록 등록"), /*#__PURE__*/React.createElement("button", {
     onClick: () => {
       setNewEquipItemOpen(false);
@@ -6353,7 +6645,7 @@ function App() {
       title: e.target.value
     })),
     placeholder: "\uC81C\uBAA9 (\uC608: \uD788\uD130 \uC628\uB3C4\uC13C\uC11C \uAD50\uCCB4 \uC0AC\uC9C4)",
-    className: "w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm font-bold"
+    className: "w-full px-3 py-3 rounded-xl border border-slate-200 text-[16px] font-bold"
   }), equipEditing && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
     className: "text-[10px] font-bold text-slate-400"
   }, "\uC124\uBE44 \uD3F4\uB354"), /*#__PURE__*/React.createElement("select", {
@@ -6362,7 +6654,7 @@ function App() {
       ...prev,
       folderId: e.target.value
     })),
-    className: "mt-1 w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-800"
+    className: "mt-1 w-full px-3 py-3 rounded-xl border border-slate-200 bg-white text-[13.5px] font-bold text-slate-800"
   }, equipFolders.filter(f => f.id !== "f_unfiled").map(f => /*#__PURE__*/React.createElement("option", {
     key: f.id,
     value: f.id
@@ -6374,18 +6666,18 @@ function App() {
       content: e.target.value
     })),
     placeholder: "\uC870\uCE58 \uB0B4\uC6A9 \uBC0F \uD2B9\uC774\uC0AC\uD56D\uC744 \uC785\uB825\uD558\uC138\uC694",
-    className: "w-full px-3 py-2.5 rounded-xl border border-slate-200 text-xs"
+    className: "w-full px-3 py-3 rounded-xl border border-slate-200 text-[15px] leading-[1.6]"
   }), /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between"
   }, /*#__PURE__*/React.createElement("label", {
-    className: "flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 text-xs font-bold text-slate-700 cursor-pointer"
+    className: "flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-slate-100 text-[13px] font-bold text-slate-700 cursor-pointer"
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "image",
     size: 16
   }), " ", equipItemForm.image ? "사진 교체" : "설비 사진 업로드", /*#__PURE__*/React.createElement("input", {
     type: "file",
     accept: "image/*",
-    onChange: e => handleFileToDataUrl(e.target.files?.[0], url => setEquipItemForm(prev => ({
+    onChange: e => compressImageFile(e.target.files?.[0], { count: 1 }, url => setEquipItemForm(prev => ({
       ...prev,
       image: url
     }))),
@@ -6437,7 +6729,7 @@ function App() {
       playSfx("save");
       notify("설비 공유 폴더에 업로드되었습니다.");
     },
-    className: "px-5 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold"
+    className: "px-5 py-3 rounded-xl bg-blue-600 text-white text-[14px] font-bold"
   }, equipEditing ? "수정 저장" : "업로드")), equipItemForm.image && /*#__PURE__*/React.createElement("div", {
     className: "space-y-1.5"
   }, /*#__PURE__*/React.createElement("img", {
@@ -7000,46 +7292,11 @@ function App() {
       onClick: () => setRingingAlarm(null),
       className: "mt-8 px-10 py-4 rounded-full bg-rose-600 text-white text-base font-extrabold"
     }, "\uC54C\uB78C \uB044\uAE30") : null));
-  })(), photoLightbox && /*#__PURE__*/React.createElement("div", {
-    className: "fixed inset-0 z-[60] bg-slate-950/95 flex flex-col",
-    onClick: () => setPhotoLightbox(null)
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center justify-between px-3 py-2.5 text-white shrink-0",
-    onClick: e => e.stopPropagation()
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "text-xs font-extrabold truncate pr-2"
-  }, photoLightbox.title || "사진"), /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center gap-1.5 shrink-0"
-  }, /*#__PURE__*/React.createElement("button", {
-    onClick: () => setPhotoLightbox(prev => prev ? Object.assign({}, prev, {
-      zoom: prev.zoom === 2 ? 1 : 2
-    }) : prev),
-    className: "px-3 py-1.5 rounded-lg bg-white/15 text-[11px] font-extrabold"
-  }, photoLightbox.zoom === 2 ? "1x 보기" : "2x 확대"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setPhotoLightbox(null),
-    className: "p-1.5 rounded-lg bg-white/15"
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "close",
-    size: 18
-  })))), /*#__PURE__*/React.createElement("div", {
-    className: "flex-1 overflow-auto",
-    onClick: e => e.stopPropagation()
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "min-w-full min-h-full flex items-start justify-center p-2"
-  }, /*#__PURE__*/React.createElement("img", {
+  })(), photoLightbox && /*#__PURE__*/React.createElement(PhotoZoomLightbox, {
     src: photoLightbox.src,
-    alt: photoLightbox.title || "",
-    onClick: () => setPhotoLightbox(prev => prev ? Object.assign({}, prev, {
-      zoom: prev.zoom === 2 ? 1 : 2
-    }) : prev),
-    className: "rounded-lg bg-white",
-    style: {
-      width: photoLightbox.zoom === 2 ? "200%" : "100%",
-      maxWidth: "none"
-    }
-  }))), /*#__PURE__*/React.createElement("p", {
-    className: "py-2 text-center text-[10px] text-slate-400 shrink-0"
-  }, "\uC0AC\uC9C4\uC744 \uB204\uB974\uBA74 1x \u2194 2x \xB7 2x\uC5D0\uC11C\uB294 \uB04C\uC5B4\uC11C \uC774\uB3D9 \xB7 \uBC30\uACBD/\uB4A4\uB85C\uAC00\uAE30\uB85C \uB2EB\uAE30"))));
+    title: photoLightbox.title,
+    onClose: () => setPhotoLightbox(null)
+  })));
 }
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(/*#__PURE__*/React.createElement(App, null));
