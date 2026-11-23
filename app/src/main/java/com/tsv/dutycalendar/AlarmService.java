@@ -567,6 +567,7 @@ public class AlarmService extends Service {
         Intent open = new Intent(this, AlarmActivity.class);
         open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         open.putExtra(AlarmReceiver.EXTRA_ALARM_JSON, json);
+        open.putExtra(AlarmReceiver.EXTRA_FIRED, true);
         PendingIntent openPi = PendingIntent.getActivity(this, id.hashCode(), open,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 

@@ -62,6 +62,11 @@ public class AlarmReceiver extends BroadcastReceiver {
     public static final String EXTRA_CHEER = "cheer";
     /** The whole occurrence as JSON; AlarmService and AlarmActivity both read this. */
     public static final String EXTRA_ALARM_JSON = "alarmJson";
+    /**
+     * true only when the alarm is actually due. The status-bar alarm icon opens the
+     * same screen through AlarmClockInfo's show intent, which must not start ringing.
+     */
+    public static final String EXTRA_FIRED = "fired";
 
     /** Shared alarm store; MainActivity also reads it for its permission prompts. */
     public static final String PREFS = "tsv_duty_alarms";
@@ -260,7 +265,11 @@ public class AlarmReceiver extends BroadcastReceiver {
         // the status-bar alarm icon; its "show" intent opens the alarm screen.
         Intent show = new Intent(context, AlarmActivity.class);
         show.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        // Per-alarm data URI: without it every show intent filterEquals() the others and
+        // FLAG_UPDATE_CURRENT would leave only the last scheduled alarm in place.
+        show.setData(Uri.parse("tsvdualarm://show/" + Uri.encode(id)));
         show.putExtra(EXTRA_ALARM_JSON, json);
+        show.putExtra(EXTRA_FIRED, false);
         PendingIntent showPi = PendingIntent.getActivity(context, id.hashCode(), show,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
@@ -406,6 +415,7 @@ public class AlarmReceiver extends BroadcastReceiver {
         Intent activity = new Intent(context, AlarmActivity.class);
         activity.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         activity.putExtra(EXTRA_ALARM_JSON, json);
+        activity.putExtra(EXTRA_FIRED, true);
         try {
             context.startActivity(activity);
         } catch (Exception e) {

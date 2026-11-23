@@ -67,6 +67,8 @@ public class AlarmActivity extends Activity {
     private String difficulty = "easy";
     private String cheer = "";
     private String alarmJson = "";
+    /** true only when the alarm is due; the status-bar icon opens this screen with false. */
+    private boolean firedFromAlarm = false;
 
     private String activeType = "math";
     private int totalProblems = 1;
@@ -106,13 +108,16 @@ public class AlarmActivity extends Activity {
         buildUi();
         AlarmService.setStoppedListener(this::onAlarmStoppedElsewhere);
 
-        // The service is started by the receiver; starting it here as well covers the
-        // case where the notification's full-screen intent opened this screen after
-        // the service had already been cleaned up.
-        if (!AlarmService.isRinging()) {
+        // The receiver starts the service before it opens this screen. Starting it here
+        // as well only covers a screen opened from the notification after the service had
+        // been cleaned up — never for the status-bar alarm icon (fired == false), which
+        // would otherwise ring an alarm hours early.
+        if (!AlarmService.isRinging() && firedFromAlarm) {
             AlarmService.start(this, alarmJson);
         }
-        if (gameEnabled) {
+        if (gameEnabled && !AlarmService.isRinging() && !firedFromAlarm) {
+            showScheduledInfo();
+        } else if (gameEnabled) {
             startChallenge();
         }
     }
@@ -143,6 +148,7 @@ public class AlarmActivity extends Activity {
                 Log.w(TAG, "bad alarm json", e);
             }
         }
+        firedFromAlarm = intent.getBooleanExtra(AlarmReceiver.EXTRA_FIRED, false);
         if (spec != null) {
             alarmId = spec.optString("id", alarmId);
             String name = spec.optString("label", "");
@@ -329,6 +335,18 @@ public class AlarmActivity extends Activity {
     }
 
     // ------------------------------------------------------------ the games
+
+    /** 예약된 알람을 상태바 아이콘에서 열었을 때: 소리 없이 정보만 보여준다. */
+    private void showScheduledInfo() {
+        questionView.setText("예약된 알람입니다");
+        questionView.setTextSize(22f);
+        hintView.setText("예정된 시각에 알람이 울립니다.");
+        answerView.setVisibility(View.GONE);
+        gridView.setVisibility(View.GONE);
+        progressView.setVisibility(View.GONE);
+        primaryButton.setText("닫기");
+        primaryButton.setOnClickListener(v -> finish());
+    }
 
     private void startChallenge() {
         solved = 0;
@@ -668,10 +686,14 @@ public class AlarmActivity extends Activity {
         dismissed = false;
         solved = 0;
         readExtras(intent);
-        if (!AlarmService.isRinging()) {
+        if (!AlarmService.isRinging() && firedFromAlarm) {
             AlarmService.start(this, alarmJson);
         }
-        startChallenge();
+        if (gameEnabled && !firedFromAlarm && !AlarmService.isRinging()) {
+            showScheduledInfo();
+        } else {
+            startChallenge();
+        }
     }
 
     @Override
