@@ -636,6 +636,10 @@ var SynoFileTestSuite = (function () {
 
         check('applicationId stays com.choi.filemanager',
             gradle.indexOf('applicationId "com.choi.filemanager"') >= 0);
+        check('app/build.gradle braces are balanced',
+            (gradle.match(/\{/g) || []).length === (gradle.match(/\}/g) || []).length,
+            String((gradle.match(/\{/g) || []).length) + '/'
+            + String((gradle.match(/\}/g) || []).length));
         check('versionCode is 3', /versionCode 3\b/.test(gradle));
         check('versionName is 1.2', gradle.indexOf('versionName "1.2"') >= 0);
         check('signing uses the fixed keystore',

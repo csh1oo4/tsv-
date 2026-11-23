@@ -15,7 +15,8 @@ android {
     }
 
     // Fixed key: the certificate is identical in every build, so v1.1 / v1.2 install as an
-    // update over the previous version instead of needing an uninstall first.    signingConfigs {
+    // update over the previous version instead of needing an uninstall first.
+    signingConfigs {
         debug {
             storeFile file('filemanager-fixed.p12')
             storeType 'PKCS12'
