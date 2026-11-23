@@ -135,6 +135,26 @@ time** (no `text/babel`, no Babel at runtime), so the app still starts with no n
   `localStorage` (`todaywork_v33_sound`) plus 톡톡/슉슉/띠링 preview buttons.
 - versionCode 12 / versionName 2.1, same fixed signing key.
 
+## v2.4.1 — 새 앱 아이콘 (PI 필름 롤 · 달력 · 느낌표)
+
+- **새 런처 아이콘** — the artwork the user sent on 2026-11-23 (white rounded-square
+  backdrop, light-blue disc, gold PI film roll, red calendar, two yellow exclamation
+  marks) replaces the v1.3 icon. The black that showed outside the rounded-square
+  mask in the source file is flood-filled with white (`#FFFFFF`) — the artwork's own
+  backdrop colour — and the anti-aliased edge line is trimmed, so no black corner is
+  left in any icon. `tools/generate_icons_from_art.py` does the cleanup, then writes
+  the legacy squircle (`ic_launcher`), legacy circle (`ic_launcher_round`) and
+  adaptive foreground layers for all five densities plus `icon-preview.png`.
+- The adaptive background stays `#FFFFFF`; the foreground artwork sits at 75% of the
+  108dp canvas (the visible art spans ~71% of the layer, the film roll / calendar /
+  exclamation marks ~68%), so
+  neither the circular nor the One UI squircle mask cuts into the artwork.
+- versionCode 17 / versionName 2.4.1, same fixed signing key (`app/tsv-duty-fixed.p12`),
+  so it installs over v2.4 without uninstalling. Web app: `APP_VERSION` and the
+  `AndroidUpdater.getAppVersion()` fallback follow the same number.
+- No functional change: everything from v2.4 (alarms, games, master permissions,
+  widgets, device calendar, Firebase sharing) is untouched.
+
 ## v2.4 — 알람이 실제로 울리게 · 알람 구성 · 사진 확대 · 마스터 권한
 
 - **알람이 안 울리던 문제의 근본 수정**
@@ -301,10 +321,15 @@ fall back to the full-colour icon.
 
 ## Icons
 
-`tools/generate_icons_from_art.py SOURCE_IMAGE` builds the launcher icons from the
-supplied artwork (resize, centre, squircle/circle mask, adaptive safe-zone
-placement) and writes legacy, round and adaptive foreground layers for all five
-densities, plus `icon-preview.png`.
+`tools/generate_icons_from_art.py SOURCE_IMAGE [out_res_dir] [--preview PATH]`
+builds the launcher icons from the supplied artwork and writes legacy, round and
+adaptive foreground layers for all five densities, plus a preview sheet. It does
+not redraw the artwork: it (1) flood-fills any black backdrop outside the artwork's
+rounded square with white and trims the anti-aliased edge line, (2) resizes with
+LANCZOS, (3) centres the artwork at 94% (squircle), 88% (circle) or 75% (adaptive,
+inside the 72dp safe zone) of the canvas, and (4) applies the squircle/circle mask
+for the legacy layers. The adaptive background is `#FFFFFF`
+(`values/colors.xml` → `ic_launcher_background`).
 
 The previous from-scratch artwork generator is kept in git history
 (`tools/generate_icons.py` at v1.2).
