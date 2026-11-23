@@ -1,50 +1,32 @@
 /*
- * app.js — the 「NAS 파일매니저」 screen.
+ * app.js — the 「SynoFile Pro」 screen.
  *
- * One screen, four tabs: 내 폰 / 시놀로지 / 즐겨찾기 / 설정. Everything file-shaped goes
- * through two bridges (see bridge.js): FM.local for the phone, FM.nas for DSM. Photos and
- * videos are displayed from the loopback server (FM.mediaUrl), never by fetching bytes
- * into the page.
+ * One screen, two storage sides (시놀로지 NAS / 내 폰 저장소) drawn exactly the way the
+ * design puts them: header with the connection badge and the transfer drawer, dual tabs,
+ * favourite chips, search / sort / view / select row, breadcrumbs, folder cards, a 2-column
+ * media grid (or list), the floating selection bar, the full-screen viewer and the four
+ * sheets (server, transfers, menu, dialog).
+ *
+ * Every byte that moves comes from the two Java bridges (see bridge.js):
+ *   FM.nas('list' | 'mkdir' | 'rename' | 'delete' | 'copyMove' | 'upload' | 'download' …)
+ *   FM.local('list' | 'mkdir' | 'rename' | 'delete' | 'copyMove' | 'open' | 'share' …)
+ * Photos and videos are shown from LocalServer (FM.mediaUrl: /nt /s for the NAS, /lt /f for
+ * the phone), never by reading files into the page.
  */
 (function () {
     'use strict';
 
     var C = window.FMCore;
     var FM = window.FM;
-    var $ = function (id) {
+    var I = window.FMIcons;
+
+    function $(id) {
         return document.getElementById(id);
-    };
+    }
 
-    var LS = {
-        view: 'fm_view',
-        sort: 'fm_sort',
-        favs: 'fm_favs',
-        settings: 'fm_settings'
-    };
-
-    var state = {
-        tab: 'phone',
-        view: localStorage.getItem(LS.view) || 'grid',
-        sort: localStorage.getItem(LS.sort) || 'name',
-        filter: 'all',
-        query: '',
-        searching: false,
-        selecting: false,
-        selection: [],
-        connected: false,
-        booted: false,
-        local: null,
-        phoneRoot: '',
-        phone: {path: '', entries: [], quick: [], parent: '', storage: null},
-        nas: {path: '/', entries: [], parent: '/', total: 0},
-        favs: readFavs(),
-        settings: readSettings(),
-        busy: false,
-        viewer: {items: [], index: 0, scale: 1, tx: 0, ty: 0},
-        player: {entry: null, url: ''}
-    };
-
-    // ------------------------------------------------------------------ utils
+    function ic(name, cls) {
+        return I ? I.svg(name, cls) : '';
+    }
 
     function esc(value) {
         return String(value === null || value === undefined ? '' : value)
@@ -52,191 +34,197 @@
             .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
-    var toastTimer = null;
-
-    function toast(message) {
-        var el = $('toast');
-        el.textContent = message;
-        el.classList.add('on');
-        if (toastTimer) {
-            clearTimeout(toastTimer);
+    function each(nodes, fn) {
+        if (!nodes) {
+            return;
         }
-        toastTimer = setTimeout(function () {
-            el.classList.remove('on');
-        }, 2600);
+        for (var i = 0; i < nodes.length; i++) {
+            fn(nodes[i], i);
+        }
+    }
+
+    /** Walks up from a tap target to the element carrying data-<attr>. */
+    function closestAttr(node, attr) {
+        var el = node;
+        for (var guard = 0; el && guard < 12; guard++) {
+            if (el.getAttribute) {
+                var value = el.getAttribute(attr);
+                if (value !== null && value !== undefined && value !== '') {
+                    return el;
+                }
+            }
+            el = el.parentNode;
+        }
+        return null;
+    }
+
+    var LS = {
+        view: 'sf_view',
+        sort: 'sf_sort',
+        filter: 'sf_filter',
+        favs: 'sf_favs',
+        settings: 'sf_settings'
+    };
+
+    var VERSION = '1.1';
+    var PACKAGE = 'com.choi.filemanager';
+
+    function read(key, fallback) {
+        try {
+            var v = localStorage.getItem(key);
+            return v === null ? fallback : v;
+        } catch (e) {
+            return fallback;
+        }
+    }
+
+    function write(key, value) {
+        try {
+            localStorage.setItem(key, value);
+        } catch (e) {
+            // storing a preference is never worth failing a screen for
+        }
     }
 
     function readFavs() {
         try {
-            var raw = JSON.parse(localStorage.getItem(LS.favs) || '[]');
+            var raw = JSON.parse(read(LS.favs, '[]'));
             return Array.isArray(raw) ? raw : [];
         } catch (e) {
             return [];
         }
     }
 
-    function writeFavs() {
-        try {
-            localStorage.setItem(LS.favs, JSON.stringify(state.favs));
-        } catch (e) {
-            // favourites are a convenience
-        }
-    }
-
     function readSettings() {
         var defaults = {ignoreSsl: true, autoLogin: true, showHidden: false};
         try {
-            var raw = JSON.parse(localStorage.getItem(LS.settings) || '{}');
-            return Object.assign(defaults, raw || {});
+            var raw = JSON.parse(read(LS.settings, '{}'));
+            if (!raw || typeof raw !== 'object') {
+                return defaults;
+            }
+            return {
+                ignoreSsl: raw.ignoreSsl !== false,
+                autoLogin: raw.autoLogin !== false,
+                showHidden: !!raw.showHidden
+            };
         } catch (e) {
             return defaults;
         }
     }
 
-    function writeSettings() {
-        try {
-            localStorage.setItem(LS.settings, JSON.stringify(state.settings));
-        } catch (e) {
-            // ignore
-        }
+    function saveSettings() {
+        write(LS.settings, JSON.stringify(state.settings));
     }
 
-    function sideOf(tab) {
-        return tab === 'nas' ? 'nas' : 'phone';
+    var state = {
+        side: 'phone',
+        view: read(LS.view, 'grid') === 'list' ? 'list' : 'grid',
+        sort: read(LS.sort, 'date'),
+        filter: read(LS.filter, 'all'),
+        query: '',
+        selecting: false,
+        selected: {},
+        phone: {path: '', root: '', rootLabel: '내부 저장소', entries: [], quick: [], parent: '', storage: null},
+        nas: {path: '/', entries: [], parent: '/', total: 0},
+        local: null,
+        nasStatus: {},
+        connected: false,
+        booted: false,
+        loading: false,
+        nativeMissing: false,
+        favs: readFavs(),
+        settings: readSettings(),
+        transfers: [],
+        transferSeq: 0,
+        viewer: {items: [], index: 0, scale: 1, tx: 0, ty: 0, side: 'phone'},
+        picker: null,
+        dialogCfg: null,
+        toastTimer: null,
+        pressTimer: null,
+        pressEntry: null,
+        suppressClick: false,
+        listTouchBound: false
+    };
+
+    // ---------------------------------------------------------------- helpers
+
+    function isNas() {
+        return state.side === 'nas';
     }
 
-    function isNasSide() {
-        return state.tab === 'nas';
+    function sideState() {
+        return isNas() ? state.nas : state.phone;
     }
 
-    function currentEntries() {
-        if (state.tab === 'phone') {
-            return state.phone.entries;
-        }
-        if (state.tab === 'nas') {
-            return state.nas.entries;
-        }
-        return [];
+    function entries() {
+        return sideState().entries || [];
     }
 
     function currentPath() {
-        if (state.tab === 'nas') {
-            return state.nas.path;
-        }
-        return state.phone.path;
+        return isNas() ? (state.nas.path || '/') : (state.phone.path || state.phone.root || '');
     }
 
-    // ----------------------------------------------------------------- dialogs
-
-    function openModal(html) {
-        $('modalSheet').innerHTML = html;
-        $('modal').classList.add('on');
-    }
-
-    function closeModal() {
-        $('modal').classList.remove('on');
-        $('modalSheet').innerHTML = '';
-    }
-
-    function promptDialog(opts) {
-        var options = opts || {};
-        return new Promise(function (resolve) {
-            openModal(
-                '<h3>' + esc(options.title || '이름 입력') + '</h3>'
-                + (options.desc ? '<div class="body">' + esc(options.desc) + '</div>' : '')
-                + '<div class="field"><input id="dlgInput" type="text" autocomplete="off" '
-                + 'value="' + esc(options.value || '') + '" placeholder="'
-                + esc(options.placeholder || '') + '"></div>'
-                + '<div class="foot"><button class="btn ghost" id="dlgCancel">취소</button>'
-                + '<button class="btn" id="dlgOk">' + esc(options.okText || '확인') + '</button></div>'
-            );
-            var input = $('dlgInput');
-            var done = function (value) {
-                closeModal();
-                resolve(value);
-            };
-            $('dlgCancel').onclick = function () {
-                done(null);
-            };
-            $('dlgOk').onclick = function () {
-                done(input.value);
-            };
-            input.addEventListener('keydown', function (event) {
-                if (event.key === 'Enter') {
-                    done(input.value);
-                }
-            });
-            setTimeout(function () {
-                input.focus();
-                try {
-                    input.setSelectionRange(0, input.value.length);
-                } catch (e) {
-                    // selection is cosmetic
-                }
-            }, 60);
-        });
-    }
-
-    function confirmDialog(title, message, okText, danger) {
-        return new Promise(function (resolve) {
-            openModal(
-                '<h3>' + esc(title) + '</h3>'
-                + '<div class="body">' + esc(message || '') + '</div>'
-                + '<div class="foot"><button class="btn ghost" id="dlgCancel">취소</button>'
-                + '<button class="btn ' + (danger ? 'danger' : '') + '" id="dlgOk">'
-                + esc(okText || '확인') + '</button></div>'
-            );
-            $('dlgCancel').onclick = function () {
-                closeModal();
-                resolve(false);
-            };
-            $('dlgOk').onclick = function () {
-                closeModal();
-                resolve(true);
-            };
-        });
-    }
-
-    function progressDialog(title) {
-        $('progressSheet').innerHTML =
-            '<h3>' + esc(title) + '</h3>'
-            + '<div class="body" id="pgMessage">준비하는 중...</div>'
-            + '<div class="progress-track"><div class="progress-fill" id="pgFill"></div></div>';
-        $('progress').classList.add('on');
-        var fill = $('pgFill');
-        var message = $('pgMessage');
-        return {
-            update: function (percent, text) {
-                if (text) {
-                    message.textContent = text;
-                }
-                if (percent === null || percent === undefined || percent < 0) {
-                    fill.classList.add('indeterminate');
-                } else {
-                    fill.classList.remove('indeterminate');
-                    fill.style.width = Math.max(3, Math.min(100, percent)) + '%';
-                }
-            },
-            close: function () {
-                $('progress').classList.remove('on');
-                $('progressSheet').innerHTML = '';
+    function findEntry(path) {
+        var list = entries();
+        for (var i = 0; i < list.length; i++) {
+            if (list[i] && list[i].path === path) {
+                return list[i];
             }
-        };
+        }
+        return null;
     }
 
-    // -------------------------------------------------------------------- boot
+    function displayOf(path, side) {
+        if (side === 'nas') {
+            return path || '/';
+        }
+        return C.displayPath(path, state.phone.root);
+    }
+
+    function toast(message) {
+        var el = $('toast');
+        $('toastMsg').textContent = message;
+        el.classList.add('on');
+        if (state.toastTimer) {
+            clearTimeout(state.toastTimer);
+        }
+        state.toastTimer = setTimeout(function () {
+            el.classList.remove('on');
+        }, 2600);
+    }
+
+    function applyIcons(scope) {
+        if (I) {
+            I.apply(scope || document);
+        }
+    }
+
+    // ------------------------------------------------------------------ boot
+
+    function start() {
+        if (I) {
+            I.apply(document);
+        }
+        bindChrome();
+        if (!FM.hasNative) {
+            state.nativeMissing = true;
+            state.booted = true;
+            render();
+            return;
+        }
+        boot();
+    }
 
     function boot() {
         if (state.booted) {
             return;
         }
         state.booted = true;
-        bindChrome();
-        applyViewChrome();
-        if (!FM.hasNative) {
-            renderBadBrowser();
-            return;
+        state.nativeMissing = false;
+        if (I) {
+            I.apply(document);
         }
+        render();
         FM.local('status').then(function (res) {
             state.local = res;
             if (res.serverBase) {
@@ -244,42 +232,54 @@
                 window.fmServerToken = res.serverToken || '';
             }
             var roots = res.roots || [];
-            state.phoneRoot = roots.length ? roots[0].path : '/storage/emulated/0';
-            return refreshNasStatus().then(function () {
-                return maybeAutoLogin();
-            }).then(function () {
-                return loadPhone(state.phoneRoot);
-            });
+            state.phone.root = roots.length ? roots[0].path : '/storage/emulated/0';
+            state.phone.rootLabel = roots.length ? (roots[0].label || '내부 저장소') : '내부 저장소';
+            return refreshNasStatus();
+        }).then(function () {
+            return maybeAutoLogin();
+        }).then(function () {
+            return loadPhone(state.phone.path || state.phone.root);
         }).catch(function (error) {
+            state.loading = false;
             toast(error.message || '폰 저장소를 열지 못했습니다.');
             render();
         });
     }
 
-    FM.onReady = boot;
+    FM.onReady = function () {
+        boot();
+    };
+
     FM.onResume = function () {
         if (!state.booted) {
             boot();
             return;
         }
-        // Coming back from the permission screen: refresh what we can see.
         refreshLocalStatus().then(function () {
-            if (state.tab === 'phone') {
-                loadPhone(state.phone.path || state.phoneRoot);
-            } else {
+            if (isNas()) {
                 render();
+            } else {
+                loadPhone(state.phone.path || state.phone.root);
             }
         });
     };
+
     FM.onPermissionResult = function () {
-        refreshLocalStatus();
+        refreshLocalStatus().then(function () {
+            render();
+        });
     };
 
     function refreshLocalStatus() {
         return FM.local('status').then(function (res) {
             state.local = res;
-            if (res.roots && res.roots.length && !state.phoneRoot) {
-                state.phoneRoot = res.roots[0].path;
+            if (res.serverBase) {
+                window.fmServerBase = res.serverBase;
+                window.fmServerToken = res.serverToken || '';
+            }
+            if (!state.phone.root && res.roots && res.roots.length) {
+                state.phone.root = res.roots[0].path;
+                state.phone.rootLabel = res.roots[0].label || '내부 저장소';
             }
             return res;
         }).catch(function () {
@@ -289,9 +289,11 @@
 
     function refreshNasStatus() {
         return FM.nas('status').then(function (res) {
+            state.nasStatus = res || {};
             state.connected = !!res.connected;
-            state.nasStatus = res;
-            renderHeader();
+            if (res.connected) {
+                state.nas.path = state.nas.path || '/';
+            }
             return res;
         }).catch(function () {
             state.connected = false;
@@ -299,7 +301,7 @@
         });
     }
 
-    /** App start: sign in again without asking, when the user left 자동 로그인 on. */
+    /** Signs in again with the password in the keystore when 자동 로그인 was left on. */
     function maybeAutoLogin() {
         var info = state.nasStatus || {};
         if (state.connected || !info.hasSavedPassword || !state.settings.autoLogin) {
@@ -309,38 +311,45 @@
             if (res && res.connected) {
                 state.connected = true;
                 state.nasStatus = res;
-                renderHeader();
+                render();
             }
         }).catch(function () {
-            // a failed automatic sign-in stays quiet; the NAS tab shows the login form
+            // a wrong stored password stays quiet until the user opens the NAS tab
         });
     }
 
-    // ----------------------------------------------------------------- loading
+    // --------------------------------------------------------------- loading
 
     function loadPhone(path, opts) {
-        var target = path || state.phoneRoot;
         var options = opts || {};
-        setLoading(true);
+        var target = path || state.phone.path || state.phone.root;
+        if (!target) {
+            return Promise.resolve();
+        }
+        state.loading = true;
+        renderStatus();
         return FM.local('list', {path: target, showHidden: !!state.settings.showHidden})
             .then(function (res) {
-                state.phone.path = res.path;
+                state.loading = false;
+                state.phone.path = res.path || target;
                 state.phone.entries = res.entries || [];
                 state.phone.parent = res.parent || state.phone.path;
-                state.phone.quick = res.quick || [];
-                state.phone.storage = res.storage || null;
-                if (!state.phoneRoot && state.local && state.local.roots) {
-                    state.phoneRoot = state.local.roots[0].path;
+                state.phone.quick = res.quick || state.phone.quick;
+                state.phone.storage = res.storage || state.phone.storage;
+                if (!state.phone.root) {
+                    state.phone.root = state.phone.path;
                 }
                 if (!options.keepSelection) {
                     clearSelection(false);
                 }
                 render();
+                return res;
             })
             .catch(function (error) {
-                setLoading(false);
+                state.loading = false;
                 toast(error.message || '폴더를 읽지 못했습니다.');
                 render();
+                return null;
             });
     }
 
@@ -348,15 +357,14 @@
         var options = opts || {};
         if (!state.connected) {
             render();
-            return Promise.resolve();
+            return Promise.resolve(null);
         }
-        setLoading(true);
-        return FM.nas('list', {
-            path: path || state.nas.path || '/',
-            sortBy: state.sort,
-            sortDirection: 'asc'
-        }).then(function (res) {
-            state.nas.path = res.path || path || '/';
+        var target = path || state.nas.path || '/';
+        state.loading = true;
+        renderStatus();
+        return FM.nas('list', {path: target}).then(function (res) {
+            state.loading = false;
+            state.nas.path = res.path || target;
             state.nas.entries = res.entries || [];
             state.nas.parent = res.parent || '/';
             state.nas.total = res.total || state.nas.entries.length;
@@ -364,798 +372,948 @@
                 clearSelection(false);
             }
             render();
+            return res;
         }).catch(function (error) {
-            setLoading(false);
+            state.loading = false;
             toast(error.message || '시놀로지 폴더를 읽지 못했습니다.');
             render();
+            return null;
         });
-    }
-
-    function setLoading(value) {
-        state.busy = value;
-        var line = $('countText');
-        if (value && line) {
-            line.textContent = '불러오는 중...';
-        }
     }
 
     function reload(keepSelection) {
-        if (state.tab === 'phone') {
-            return loadPhone(state.phone.path, {keepSelection: keepSelection});
+        if (isNas()) {
+            return loadNas(state.nas.path, {keepSelection: !!keepSelection});
         }
-        if (state.tab === 'nas') {
-            return loadNas(state.nas.path, {keepSelection: keepSelection});
-        }
-        render();
-        return Promise.resolve();
+        return loadPhone(state.phone.path || state.phone.root, {keepSelection: !!keepSelection});
     }
 
-    // ------------------------------------------------------------------ render
+    function navigate(path) {
+        var target = C.normalizePath(path);
+        if (isNas()) {
+            if (!state.connected) {
+                toast('시놀로지에 먼저 연결해 주세요.');
+                render();
+                return;
+            }
+            state.query = '';
+            loadNas(target);
+            return;
+        }
+        if (!target || !state.phone.root) {
+            return;
+        }
+        if (target.length < C.normalizePath(state.phone.root).length) {
+            target = state.phone.root;
+        }
+        state.query = '';
+        loadPhone(target);
+    }
+
+    function goUp() {
+        if (isNas()) {
+            if (C.normalizePath(state.nas.path) === '/') {
+                return;
+            }
+            navigate(C.parentOf(state.nas.path));
+            return;
+        }
+        var path = C.normalizePath(state.phone.path);
+        var root = C.normalizePath(state.phone.root || path);
+        if (path === root) {
+            return;
+        }
+        var parent = C.normalizePath(C.parentOf(path));
+        if (parent.length < root.length) {
+            parent = root;
+        }
+        navigate(parent);
+    }
+
+    function switchSide(side) {
+        if (state.side === side) {
+            return;
+        }
+        state.side = side;
+        state.query = '';
+        state.filter = 'all';
+        write(LS.filter, state.filter);
+        $('searchInput').value = '';
+        clearSelection(false);
+        if (side === 'nas') {
+            if (state.connected && !state.nas.entries.length) {
+                loadNas(state.nas.path || '/');
+                return;
+            }
+            render();
+            return;
+        }
+        if (!state.phone.entries.length && state.phone.root) {
+            loadPhone(state.phone.path || state.phone.root);
+            return;
+        }
+        render();
+    }
+
+    // ---------------------------------------------------------------- render
 
     function render() {
         renderHeader();
-        renderChrome();
-        if (state.tab === 'settings') {
-            renderSettings();
-            return;
-        }
-        if (state.tab === 'nas' && !state.connected) {
-            renderConnect();
-            return;
-        }
-        $('connect').classList.add('hidden');
-        $('connect').innerHTML = '';
-        $('pathbar').classList.remove('hidden');
-        $('quick').classList.remove('hidden');
-        $('toolbar').classList.remove('hidden');
-        $('list').classList.remove('hidden');
-
-        renderCrumbs();
-        renderQuick();
+        renderTabs();
+        renderToolbar();
+        renderFavbar();
         renderList();
-        renderSelbar();
+        renderSelection();
+        renderMini();
+        renderStatus();
     }
 
     function renderHeader() {
-        var dot = $('nasDot');
-        var text = $('nasState');
-        if (!dot || !text) {
-            return;
-        }
+        var badge = $('connBadge');
+        var label = $('connLabel');
+        var subtitle = $('serverSubtitle');
+        var info = state.nasStatus || {};
+
         if (state.connected) {
-            dot.classList.add('on');
-            var name = (state.nasStatus && state.nasStatus.serverName) || '';
-            text.textContent = name ? name + ' 연결됨' : '시놀로지 연결됨';
+            badge.classList.add('on');
+            var name = info.serverName || '';
+            label.textContent = name ? (name + ' 연결됨') : '연결됨';
+            subtitle.textContent = (info.baseUrl || 'DSM')
+                + (info.account ? ' · ' + info.account : '');
         } else {
-            dot.classList.remove('on');
-            text.textContent = '시놀로지 연결 안 됨';
+            badge.classList.remove('on');
+            label.textContent = '연결 안 됨';
+            subtitle.textContent = info.lastUrl
+                ? (info.lastUrl + ' · 로그인 필요')
+                : '서버를 연결해 주세요';
         }
-        var tab = $('tab-nas');
-        if (tab) {
-            tab.classList.toggle('active', state.tab === 'nas');
+
+        var running = C.transferSummary(state.transfers).running;
+        var transferBadge = $('transferBadge');
+        if (running > 0) {
+            transferBadge.textContent = String(running);
+            transferBadge.classList.remove('hide');
+        } else {
+            transferBadge.classList.add('hide');
         }
+
+        $('nasCountPill').textContent = String(C.fileCount(state.nas.entries));
+        $('phoneCountPill').textContent = String(C.fileCount(state.phone.entries));
     }
 
-    function applyViewChrome() {
-        var list = $('list');
-        list.className = state.view === 'list' ? 'list' : 'grid';
-        $('btnView').textContent = state.view === 'list' ? '☰' : '▦';
-        $('sort').value = state.sort;
-        $('filters').querySelectorAll('button').forEach(function (button) {
-            button.classList.toggle('on', button.dataset.filter === state.filter);
-        });
-        $('searchwrap').classList.toggle('on', state.searching);
-        if (state.searching) {
-            $('search').value = state.query;
-        }
-        var favTab = state.tab === 'fav';
-        $('btnNewFolder').classList.toggle('hidden', favTab);
-        $('filters').style.display = favTab ? 'none' : 'flex';
-        $('sort').style.display = favTab ? 'none' : '';
+    function renderTabs() {
+        var nasTab = $('tab-nas');
+        var phoneTab = $('tab-phone');
+        nasTab.classList.toggle('on', isNas());
+        phoneTab.classList.toggle('on', !isNas());
     }
 
-    function renderChrome() {
-        var tabs = document.querySelectorAll('.tab');
-        tabs.forEach(function (button) {
-            button.classList.toggle('active', button.dataset.tab === state.tab);
-        });
-        var browsable = state.tab === 'phone' || state.tab === 'nas' || state.tab === 'fav';
-        $('view-browse').classList.toggle('active', browsable);
-        $('view-settings').classList.toggle('active', state.tab === 'settings');
+    function renderToolbar() {
+        $('sortLabel').textContent = C.sortLabel(state.sort);
+        var viewBtn = $('viewToggle');
+        viewBtn.innerHTML = ic(state.view === 'grid' ? 'list' : 'layout-grid');
+        var selectBtn = $('selectModeBtn');
+        selectBtn.classList.toggle('on', state.selecting);
+
+        var favBtn = $('btnFav');
+        favBtn.classList.toggle('on', isFavourite());
+        favBtn.innerHTML = ic('star');
+
+        var filterChip = $('filterChip');
+        if (state.filter !== 'all') {
+            filterChip.textContent = C.filterLabel(state.filter);
+            filterChip.classList.remove('hide');
+        } else {
+            filterChip.classList.add('hide');
+        }
+
+        var up = $('btnUp');
+        if (isNas()) {
+            up.disabled = C.normalizePath(state.nas.path) === '/';
+        } else {
+            up.disabled = !state.phone.path
+                || C.normalizePath(state.phone.path) === C.normalizePath(state.phone.root || state.phone.path);
+        }
+
+        renderCrumbs();
     }
 
     function renderCrumbs() {
         var container = $('crumbs');
         var crumbs;
-        if (state.tab === 'fav') {
-            crumbs = [{label: '즐겨찾기', path: ''}];
-        } else if (state.tab === 'nas') {
-            crumbs = C.breadcrumbs(state.nas.path, '공유 폴더', '/');
+        if (isNas()) {
+            crumbs = C.breadcrumbs(state.nas.path || '/', 'NAS', '/');
         } else {
-            var label = (state.local && state.local.roots && state.local.roots[0]
-                && state.local.roots[0].label) || '내부 저장소';
-            crumbs = C.breadcrumbs(state.phone.path, label, state.phoneRoot);
+            crumbs = C.breadcrumbs(state.phone.path || state.phone.root,
+                state.phone.rootLabel || '내부 저장소', state.phone.root);
         }
-        container.innerHTML = crumbs.map(function (crumb, index) {
-            var last = index === crumbs.length - 1;
-            return '<button class="crumb' + (last ? ' last' : '') + '" data-path="'
-                + esc(crumb.path) + '">' + esc(crumb.label) + '</button>';
-        }).join('');
-        container.querySelectorAll('.crumb').forEach(function (button) {
-            button.onclick = function () {
-                var path = button.dataset.path;
-                if (!path) {
-                    return;
-                }
-                navigate(path);
-            };
-        });
-        var disabled = state.tab === 'fav' || isAtRoot();
-        $('btnUp').disabled = disabled;
-        $('btnReload').onclick = function () {
-            reload(false);
+        var html = '';
+        for (var i = 0; i < crumbs.length; i++) {
+            var last = i === crumbs.length - 1;
+            var crumb = crumbs[i];
+            html += '<button class="crumb' + (last ? ' last' : '') + '" data-nav="'
+                + esc(crumb.path) + '">' + (i > 0 ? '<span class="sep">/</span>' : '')
+                + esc(crumb.label) + '</button>';
+        }
+        container.innerHTML = html;
+        container.onclick = function (event) {
+            var target = closestAttr(event.target, 'data-nav');
+            if (target) {
+                navigate(target.getAttribute('data-nav'));
+            }
         };
-        $('btnFav').textContent = isCurrentFavourite() ? '★' : '☆';
     }
 
-    function isAtRoot() {
-        if (state.tab === 'phone') {
-            return C.normalizePath(state.phone.path) === C.normalizePath(state.phoneRoot);
+    function renderFavbar() {
+        var bar = $('favbar');
+        var chips = [];
+        var rootPath = isNas() ? '/' : (state.phone.root || '');
+        chips.push({label: '홈', path: rootPath, icon: 'home', root: true});
+
+        if (!isNas()) {
+            each(state.phone.quick, function (item) {
+                chips.push({label: item.label, path: item.path, icon: 'folder'});
+            });
         }
-        if (state.tab === 'nas') {
-            return C.normalizePath(state.nas.path) === '/';
-        }
-        return true;
+        each(state.favs, function (fav) {
+            if (fav && fav.side === state.side) {
+                chips.push({label: fav.label || C.nameOf(fav.path), path: fav.path, icon: 'star'});
+            }
+        });
+
+        var here = C.normalizePath(currentPath());
+        var html = '';
+        each(chips, function (chip) {
+            var on = C.normalizePath(chip.path) === here;
+            html += '<button class="favchip' + (on ? ' on' : '') + '" data-nav="' + esc(chip.path) + '">'
+                + ic(chip.icon) + '<span>' + esc(chip.label) + '</span></button>';
+        });
+        bar.innerHTML = html;
+        bar.onclick = function (event) {
+            var target = closestAttr(event.target, 'data-nav');
+            if (target) {
+                navigate(target.getAttribute('data-nav'));
+            }
+        };
     }
 
-    function renderQuick() {
-        var container = $('quick');
-        if (state.tab !== 'phone' || !state.phone.quick || !state.phone.quick.length) {
-            container.innerHTML = '';
-            container.classList.add('hidden');
+    function renderStatus() {
+        var line = $('countText');
+        if (!line) {
             return;
         }
-        container.classList.remove('hidden');
-        container.innerHTML = state.phone.quick.map(function (item) {
-            return '<button class="chip" data-path="' + esc(item.path) + '">'
-                + esc(item.label) + '</button>';
-        }).join('');
-        container.querySelectorAll('.chip').forEach(function (button) {
-            button.onclick = function () {
-                navigate(button.dataset.path);
-            };
-        });
+        if (state.nativeMissing) {
+            line.textContent = '앱에서 열어 주세요';
+            return;
+        }
+        if (state.loading) {
+            line.textContent = '불러오는 중...';
+            return;
+        }
+        if (isNas() && !state.connected) {
+            line.textContent = '시놀로지를 연결해 주세요';
+            return;
+        }
+        var parts = [];
+        var summary = C.summary(entries());
+        parts.push(summary || '항목 없음');
+        if (state.selecting) {
+            parts.push(selectionCount() + '개 선택');
+        }
+        if (state.query) {
+            parts.push('"' + state.query + '" 검색');
+        }
+        line.textContent = parts.join(' · ');
     }
 
     function renderList() {
-        var container = $('list');
-        var entries;
-        if (state.tab === 'fav') {
-            entries = state.favs.map(function (fav) {
-                return {
-                    name: fav.label,
-                    path: fav.path,
-                    isDir: true,
-                    kind: 'folder',
-                    isFav: true,
-                    side: fav.side
-                };
-            });
-        } else {
-            entries = currentEntries();
-        }
-        var filtered = C.filterEntries(entries, state.filter, state.query);
-        var sorted = C.sortEntries(filtered, state.sort, 'asc');
+        var container = $('fileContainer');
+        container.className = 'files' + (state.selecting ? ' selecting' : '');
+        var list = entries();
+        var visible = C.visibleEntries(list, state.filter, state.query, state.sort);
+        var html = '';
 
-        container.className = state.view === 'list' ? 'list' : 'grid';
-        container.classList.toggle('selecting', state.selecting);
-        container.innerHTML = sorted.map(function (entry, index) {
-            return cellHtml(entry, index);
-        }).join('');
-
-        var countLine = $('countText');
-        if (state.selecting && state.selection.length) {
-            countLine.innerHTML = '<span class="sel">' + state.selection.length + '개 선택</span> · '
-                + esc(C.summary(entries) || '항목 없음');
-        } else if (state.tab === 'fav') {
-            countLine.textContent = state.favs.length + '개의 즐겨찾기';
-        } else {
-            var summary = C.summary(entries);
-            countLine.textContent = (summary || '항목 없음')
-                + (state.query ? ' · "' + state.query + '" 검색' : '');
-        }
-
-        renderEmpty(sorted.length, entries);
-        attachCellHandlers(sorted);
-    }
-
-    function cellHtml(entry, index) {
-        var isNas = entry.side ? entry.side === 'nas' : isNasSide();
-        var selected = state.selection.some(function (item) {
-            return item.path === entry.path && item.name === entry.name;
-        });
-        var glyph = '📄';
-        var thumb = '';
-        if (entry.isFav) {
-            glyph = entry.side === 'nas' ? '🖥️' : '📱';
-        } else if (entry.isDir) {
-            glyph = '📁';
-        } else if (C.isImage(entry.name)) {
-            glyph = '🖼️';
-            var src = FM.mediaUrl(entry.path, isNas, true, isNas ? 'medium' : 320);
-            if (src) {
-                thumb = '<img loading="lazy" src="' + esc(src) + '" alt="" '
-                    + 'onerror="this.remove()">';
-            }
-        } else if (C.isVideo(entry.name)) {
-            glyph = '🎬';
-            var vsrc = FM.mediaUrl(entry.path, isNas, true, isNas ? 'medium' : 320);
-            if (vsrc) {
-                thumb = '<img loading="lazy" src="' + esc(vsrc) + '" alt="" '
-                    + 'onerror="this.remove()">';
-            }
-        } else if (C.isAudio(entry.name)) {
-            glyph = '🎵';
-        } else {
-            var ext = C.extOf(entry.name);
-            glyph = ext === 'pdf' ? '📕' : (ext === 'zip' || ext === 'tar' || ext === 'gz' ? '🗜️' : '📄');
-        }
-
-        var meta = entry.isFav
-            ? '<span>' + esc(pathLabel(entry)) + '</span>'
-            : '<span>' + (entry.isDir ? '폴더' : C.formatSize(entry.size)) + '</span>'
-            + '<span>·</span><span>' + esc(C.formatDate(entry.mtime)) + '</span>';
-
-        var tag = '';
-        if (!entry.isDir && C.isVideo(entry.name)) {
-            tag = '<div class="tag">▶ 영상</div>';
-        } else if (!entry.isDir && C.isImage(entry.name)) {
-            tag = '<div class="tag">사진</div>';
-        }
-
-        return '<div class="cell' + (selected ? ' selected' : '') + '" data-index="' + index + '">'
-            + '<div class="thumb"><span class="glyph">' + glyph + '</span>' + thumb + tag + '</div>'
-            + '<div class="check">✓</div>'
-            + '<div class="info"><div class="name">' + esc(entry.name) + '</div>'
-            + '<div class="meta">' + meta + '</div></div>'
-            + '</div>';
-    }
-
-    function pathLabel(entry) {
-        if (entry.side === 'nas') {
-            return entry.path;
-        }
-        return C.displayPath(entry.path, state.phoneRoot);
-    }
-
-    function attachCellHandlers(sorted) {
-        var container = $('list');
-        var pressTimer = null;
-        var longPressed = false;
-
-        container.querySelectorAll('.cell').forEach(function (node) {
-            var entry = sorted[Number(node.dataset.index)];
-            if (!entry) {
-                return;
-            }
-            node.addEventListener('pointerdown', function () {
-                longPressed = false;
-                pressTimer = setTimeout(function () {
-                    longPressed = true;
-                    if (!state.selecting) {
-                        state.selecting = true;
-                        node.classList.add('selected');
-                        state.selection = [entry];
-                        renderList();
-                        renderSelbar();
-                    }
-                }, 430);
-            });
-            var cancel = function () {
-                if (pressTimer) {
-                    clearTimeout(pressTimer);
-                    pressTimer = null;
-                }
-            };
-            node.addEventListener('pointerup', cancel);
-            node.addEventListener('pointercancel', cancel);
-            node.addEventListener('pointermove', cancel);
-            node.addEventListener('click', function () {
-                if (longPressed) {
-                    longPressed = false;
-                    return;
-                }
-                handleCellTap(entry);
-            });
-        });
-    }
-
-    function handleCellTap(entry) {
-        if (state.selecting) {
-            toggleSelect(entry);
+        if (state.nativeMissing) {
+            html += noticeCard('smartphone', '앱에서 열어 주세요',
+                '이 화면은 SynoFile Pro 앱 안에서만 폰 저장소와 시놀로지에 접근할 수 있습니다.');
+            container.innerHTML = html;
+            setEmpty(false);
+            applyIcons(container);
             return;
         }
-        if (state.tab === 'fav' || entry.isFav) {
-            openFavourite(entry);
+
+        if (isNas() && !state.connected) {
+            html += connectCard();
+            container.innerHTML = html;
+            setEmpty(false);
+            applyIcons(container);
+            bindListEvents();
+            return;
+        }
+
+        if (!isNas() && state.local && state.local.allFiles === false && state.phone.path) {
+            html += '<div class="permcard"><div class="top">' + ic('alert-triangle')
+                + '<p>Android 11부터는 ‘모든 파일 접근’을 허용해야 폰의 모든 폴더를 읽고 쓸 수 있습니다.<br>'
+                + '허용하지 않으면 DCIM·Download 같은 일부 폴더만 보입니다.</p></div>'
+                + '<button class="ghostbtn" data-act="permission">' + ic('lock') + '<span>모든 파일 접근 허용</span></button></div>';
+        }
+
+        var folders = [];
+        var media = [];
+        each(visible, function (entry) {
+            if (entry.isDir) {
+                folders.push(entry);
+            } else {
+                media.push(entry);
+            }
+        });
+
+        if (folders.length) {
+            html += '<div class="section-title">폴더 ' + folders.length + '</div><div class="folderlist">';
+            each(folders, function (entry) {
+                html += folderRowHtml(entry);
+            });
+            html += '</div>';
+        }
+
+        if (media.length) {
+            html += '<div class="section-title">' + (isNas() ? '시놀로지 파일' : '사진 · 영상 · 파일')
+                + ' ' + media.length + '</div>';
+            if (state.view === 'grid') {
+                html += '<div class="mediaGrid">';
+                each(media, function (entry) {
+                    html += tileHtml(entry);
+                });
+                html += '</div>';
+            } else {
+                html += '<div class="folderlist">';
+                each(media, function (entry) {
+                    html += rowItemHtml(entry);
+                });
+                html += '</div>';
+            }
+        }
+
+        container.innerHTML = html;
+        applyIcons(container);
+        bindListEvents();
+
+        var showEmpty = visible.length === 0;
+        setEmpty(showEmpty);
+        if (showEmpty) {
+            var title = $('emptyTitle');
+            var hint = $('emptyHint');
+            var action = $('emptyAction');
+            action.classList.add('hide');
+            action.onclick = null;
+            if (state.query) {
+                title.textContent = '조건에 맞는 파일이 없습니다';
+                hint.textContent = '검색어를 지우거나 필터를 ‘전체’로 바꿔 보세요.';
+            } else if (state.filter !== 'all') {
+                title.textContent = '이 종류의 파일이 없습니다';
+                hint.textContent = '필터를 ‘전체’로 바꾸면 모든 항목이 보입니다.';
+            } else if (isNas() && C.normalizePath(state.nas.path) === '/') {
+                title.textContent = '공유 폴더가 없습니다';
+                hint.textContent = 'DSM에서 공유 폴더를 만들면 여기에 나타납니다.';
+            } else {
+                title.textContent = '폴더가 비어 있습니다';
+                hint.textContent = '사진이나 영상을 올리면 여기에 보입니다.';
+            }
+        }
+    }
+
+    function setEmpty(on) {
+        var empty = $('emptyState');
+        empty.classList.toggle('on', !!on);
+        // An empty folder hands the whole body to the empty state instead of leaving a
+        // half-height blank list above it.
+        $('fileContainer').classList.toggle('blank', !!on);
+    }
+
+    function noticeCard(icon, title, text) {
+        return '<div class="noticecard"><div class="big">' + ic(icon) + '</div>'
+            + '<h3>' + esc(title) + '</h3><p>' + esc(text) + '</p></div>';
+    }
+
+    function connectCard() {
+        var info = state.nasStatus || {};
+        var servers = info.servers || [];
+        var html = noticeCard('cloud', '서버를 연결해 주세요',
+            '시놀로지 DSM 계정으로 로그인하면 File Station의 공유 폴더를 그대로 탐색하고, '
+            + '폰 사진을 바로 올리거나 내려받을 수 있습니다.');
+        html += '<div class="savedcards" style="align-items:center;">'
+            + '<button class="primarybtn" data-act="openServer">' + ic('server')
+            + '<span>서버 설정 열기</span></button></div>';
+
+        if (servers.length) {
+            html += '<div class="savedcards">';
+            each(servers, function (server) {
+                html += '<button class="savedcard" data-act="useServer" data-url="' + esc(server.url)
+                    + '" data-account="' + esc(server.account || '') + '">'
+                    + '<span style="color:#60A5FA;">' + ic('server') + '</span>'
+                    + '<span class="grow"><span class="u">' + esc(server.url) + '</span>'
+                    + '<span class="a">' + esc(server.account || '계정 없음') + '</span></span>'
+                    + '<span class="go">로그인</span></button>';
+            });
+            html += '</div>';
+        }
+        return html;
+    }
+
+    function folderRowHtml(entry) {
+        var selected = isSelected(entry.path);
+        return '<div class="folderrow' + (selected ? ' sel' : '') + '" data-path="' + esc(entry.path)
+            + '" data-kind="folder">'
+            + '<span class="mark' + (selected ? ' on' : '') + '">' + (selected ? ic('check') : '') + '</span>'
+            + '<div class="folderic">' + ic('folder') + '</div>'
+            + '<div class="foldertext"><p class="name">' + esc(entry.name) + '</p>'
+            + '<p class="meta">폴더' + (entry.mtime ? ' · ' + esc(C.formatDay(entry.mtime)) : '') + '</p></div>'
+            + '<button class="rowbtn" data-act="menu" data-path="' + esc(entry.path) + '">'
+            + ic('more-vertical') + '</button></div>';
+    }
+
+    function thumbHtml(entry, big) {
+        var src = FM.mediaUrl(entry.path, isNas(), true, isNas() ? 'medium' : (big ? 320 : 160));
+        var isVideo = C.isVideo(entry.name);
+        var isImage = C.isImage(entry.name);
+        var html = '';
+        if ((isImage || isVideo) && src) {
+            html += '<img src="' + esc(src) + '" alt="" loading="lazy" '
+                + 'onerror="this.style.display=\'none\'">';
+        }
+        if (!isImage && !isVideo) {
+            html += '<span class="ph">' + ic(isVideo ? 'video' : (C.isAudio(entry.name) ? 'music' : 'file')) + '</span>';
+        } else if (!src) {
+            html += '<span class="ph">' + ic(isVideo ? 'video' : 'image') + '</span>';
+        }
+        return html;
+    }
+
+    function tileHtml(entry) {
+        var selected = isSelected(entry.path);
+        var isVideo = C.isVideo(entry.name);
+        var meta = C.formatSize(entry.size) + ' · ' + C.kindLabel(entry.name);
+        return '<div class="tile' + (selected ? ' sel' : '') + '" data-path="' + esc(entry.path)
+            + '" data-kind="' + esc(C.kindOf(entry.name)) + '">'
+            + '<div class="thumb">' + thumbHtml(entry, true)
+            + '<div class="shade"></div>'
+            + '<span class="badge">' + esc(C.badgeOf(entry.name)) + '</span>'
+            + (isVideo ? '<span class="playbtn">' + ic('play') + '</span>' : '')
+            + '<span class="mark' + (selected ? ' on' : '') + '">' + (selected ? ic('check') : '') + '</span>'
+            + '</div>'
+            + '<div class="tileinfo"><div class="text"><p class="name">' + esc(entry.name) + '</p>'
+            + '<p class="meta">' + esc(meta) + '</p></div>'
+            + '<button class="quicktrans" data-act="transfer" data-path="' + esc(entry.path) + '">'
+            + ic(isNas() ? 'download' : 'upload') + '</button></div></div>';
+    }
+
+    function rowItemHtml(entry) {
+        var selected = isSelected(entry.path);
+        var isVideo = C.isVideo(entry.name);
+        var meta = C.formatSize(entry.size) + ' · ' + esc(C.formatDay(entry.mtime));
+        return '<div class="rowitem' + (selected ? ' sel' : '') + '" data-path="' + esc(entry.path)
+            + '" data-kind="' + esc(C.kindOf(entry.name)) + '">'
+            + '<span class="mark' + (selected ? ' on' : '') + '">' + (selected ? ic('check') : '') + '</span>'
+            + '<div class="rowthumb">' + thumbHtml(entry, false)
+            + (isVideo ? '<span class="vbadge">' + ic('play') + '</span>' : '') + '</div>'
+            + '<div class="rowtext"><p class="name">' + esc(entry.name) + '</p>'
+            + '<p class="meta">' + esc(meta) + '</p></div>'
+            + '<button class="rowbtn" data-act="transfer" data-path="' + esc(entry.path) + '">'
+            + ic(isNas() ? 'download' : 'upload') + '</button></div>';
+    }
+
+    function bindListEvents() {
+        var container = $('fileContainer');
+        container.onclick = function (event) {
+            var actEl = closestAttr(event.target, 'data-act');
+            if (actEl) {
+                handleAction(actEl.getAttribute('data-act'), actEl);
+                return;
+            }
+            var rowEl = closestAttr(event.target, 'data-path');
+            if (!rowEl) {
+                return;
+            }
+            if (state.suppressClick) {
+                state.suppressClick = false;
+                return;
+            }
+            handleOpen(rowEl.getAttribute('data-path'));
+        };
+
+        // Long press enters multi-select, the way a gallery does.
+        if (state.listTouchBound) {
+            return;
+        }
+        state.listTouchBound = true;
+        container.addEventListener('touchstart', function (event) {
+            var rowEl = closestAttr(event.target, 'data-path');
+            if (!rowEl || event.touches.length !== 1) {
+                return;
+            }
+            var path = rowEl.getAttribute('data-path');
+            if (state.pressTimer) {
+                clearTimeout(state.pressTimer);
+            }
+            state.pressTimer = setTimeout(function () {
+                state.pressTimer = null;
+                state.suppressClick = true;
+                var entry = findEntry(path);
+                if (entry && !state.selecting) {
+                    state.selecting = true;
+                    state.selected[entry.path] = entry;
+                    renderSelection();
+                    renderList();
+                }
+            }, 450);
+        }, {passive: true});
+
+        var cancelPress = function () {
+            if (state.pressTimer) {
+                clearTimeout(state.pressTimer);
+                state.pressTimer = null;
+            }
+        };
+        container.addEventListener('touchend', cancelPress, {passive: true});
+        container.addEventListener('touchcancel', cancelPress, {passive: true});
+        container.addEventListener('touchmove', cancelPress, {passive: true});
+    }
+
+    function handleAction(act, node) {
+        var path = node.getAttribute('data-path') || '';
+        switch (act) {
+            case 'permission':
+                FM.allowAllFiles();
+                break;
+            case 'openServer':
+                openServerModal();
+                break;
+            case 'useServer':
+                openServerModal({
+                    url: node.getAttribute('data-url') || '',
+                    account: node.getAttribute('data-account') || ''
+                });
+                break;
+            case 'menu': {
+                var entry = findEntry(path);
+                if (entry) {
+                    openItemSheet(entry);
+                }
+                break;
+            }
+            case 'transfer': {
+                var item = findEntry(path);
+                if (item) {
+                    quickTransfer(item);
+                }
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    function handleOpen(path) {
+        var entry = findEntry(path);
+        if (!entry) {
+            return;
+        }
+        if (state.selecting) {
+            toggleSelect(entry);
             return;
         }
         if (entry.isDir) {
             navigate(entry.path);
             return;
         }
-        openItem(entry);
+        openViewer(entry);
     }
 
-    function openFavourite(entry) {
-        var side = entry.side || 'phone';
-        state.tab = side;
-        state.filter = 'all';
-        state.query = '';
-        if (side === 'nas') {
-            if (!state.connected) {
-                render();
-                toast('시놀로지에 먼저 연결해 주세요.');
-                return;
+    // ------------------------------------------------------------- selection
+
+    function selectionList() {
+        var out = [];
+        for (var key in state.selected) {
+            if (Object.prototype.hasOwnProperty.call(state.selected, key)) {
+                out.push(state.selected[key]);
             }
-            loadNas(entry.path);
-        } else {
-            loadPhone(entry.path);
         }
+        return out;
+    }
+
+    function selectionCount() {
+        return selectionList().length;
+    }
+
+    function isSelected(path) {
+        return !!state.selected[path];
     }
 
     function toggleSelect(entry) {
-        var index = -1;
-        state.selection.forEach(function (item, i) {
-            if (item.path === entry.path && item.name === entry.name) {
-                index = i;
-            }
-        });
-        if (index >= 0) {
-            state.selection.splice(index, 1);
+        if (!entry) {
+            return;
+        }
+        if (state.selected[entry.path]) {
+            delete state.selected[entry.path];
         } else {
-            state.selection.push(entry);
+            state.selected[entry.path] = entry;
+            state.selecting = true;
         }
-        if (!state.selection.length) {
-            state.selecting = false;
-        }
-        state.selecting = state.selecting || state.selection.length > 0;
+        renderSelection();
         renderList();
-        renderSelbar();
     }
 
     function clearSelection(rerender) {
-        state.selection = [];
+        state.selected = {};
         state.selecting = false;
         if (rerender !== false) {
+            renderSelection();
             renderList();
-            renderSelbar();
         }
     }
 
-    function renderEmpty(visibleCount, allEntries) {
-        var empty = $('empty');
-        var list = $('list');
-        if (state.tab === 'settings') {
-            empty.classList.remove('on');
-            return;
-        }
-        if (visibleCount > 0) {
-            empty.classList.remove('on');
-            list.classList.remove('hidden');
-            return;
-        }
-        empty.classList.add('on');
-        list.classList.add('hidden');
-        var title = $('emptyTitle');
-        var hint = $('emptyHint');
-        var action = $('emptyAction');
-        action.style.display = 'none';
-        action.onclick = null;
-
-        if (state.tab === 'fav') {
-            title.textContent = '즐겨찾기가 없습니다';
-            hint.textContent = '폴더를 열고 상단의 ☆를 누르면 이곳에 바로가기가 생깁니다.';
-            return;
-        }
-        if (state.query || state.filter !== 'all') {
-            title.textContent = '조건에 맞는 파일이 없습니다';
-            hint.textContent = '검색어를 지우거나 필터를 ‘전체’로 바꿔 보세요.';
-            return;
-        }
-        if (state.tab === 'phone' && state.local && state.local.allFiles === false) {
-            title.textContent = '폰 파일에 접근할 수 없습니다';
-            hint.textContent = 'Android 11부터는 ‘모든 파일 접근’을 허용해야 폴더를 읽을 수 있습니다.';
-            action.style.display = '';
-            action.textContent = '모든 파일 접근 허용';
-            action.onclick = function () {
-                FM.allowAllFiles();
-            };
-            return;
-        }
-        title.textContent = '폴더가 비어 있습니다';
-        hint.textContent = (allEntries && allEntries.length)
-            ? '필터를 바꾸면 다른 파일이 보입니다.'
-            : (state.tab === 'nas'
-                ? '시놀로지 폴더에 파일을 올리면 여기에 보입니다.'
-                : '사진이나 영상을 옮기면 여기에 보입니다.');
-    }
-
-    function renderSelbar() {
-        var bar = $('selbar');
-        if (!state.selecting || !state.selection.length) {
-            bar.classList.remove('on');
-            bar.innerHTML = '';
-            return;
-        }
-        var hasFile = state.selection.some(function (entry) {
-            return !entry.isDir;
+    function selectAll() {
+        var visible = C.visibleEntries(entries(), state.filter, state.query, state.sort);
+        each(visible, function (entry) {
+            state.selected[entry.path] = entry;
         });
-        var single = state.selection.length === 1;
-        var actions = [];
-        if (state.tab === 'fav') {
-            actions.push({act: 'unfav', icon: '★', label: '즐겨찾기 해제', danger: true});
-            actions.push({act: 'close', icon: '✕', label: '선택 해제'});
-        } else if (isNasSide()) {
-            actions.push({act: 'download', icon: '⬇️', label: '내 폰에 저장', primary: true});
-            actions.push({act: 'copy', icon: '📋', label: '복사'});
-            actions.push({act: 'move', icon: '📦', label: '이동'});
-            actions.push({act: 'rename', icon: '✏️', label: '이름변경', disabled: !single});
-            actions.push({act: 'open', icon: '↗️', label: '열기', disabled: !single});
-            actions.push({act: 'delete', icon: '🗑️', label: '삭제', danger: true});
-        } else {
-            actions.push({act: 'upload', icon: '☁️', label: '시놀로지로', primary: true, disabled: !hasFile});
-            actions.push({act: 'copy', icon: '📋', label: '복사'});
-            actions.push({act: 'move', icon: '📦', label: '이동'});
-            actions.push({act: 'rename', icon: '✏️', label: '이름변경', disabled: !single});
-            actions.push({act: 'share', icon: '📤', label: '공유', disabled: !hasFile});
-            actions.push({act: 'details', icon: 'ℹ️', label: '정보', disabled: !single});
-            actions.push({act: 'delete', icon: '🗑️', label: '삭제', danger: true});
-        }
-        actions.push({act: 'close', icon: '✕', label: '선택 해제'});
-
-        bar.innerHTML = actions.map(function (item) {
-            return '<button class="act' + (item.primary ? ' primary' : '')
-                + (item.danger ? ' danger' : '') + '" data-act="' + item.act + '"'
-                + (item.disabled ? ' disabled' : '') + '>'
-                + '<span class="ic">' + item.icon + '</span><span>' + item.label + '</span></button>';
-        }).join('');
-        bar.classList.add('on');
-        bar.querySelectorAll('.act').forEach(function (button) {
-            button.onclick = function () {
-                runAction(button.dataset.act);
-            };
-        });
+        state.selecting = selectionCount() > 0;
+        renderSelection();
+        renderList();
     }
 
-    // -------------------------------------------------------------- navigation
-
-    function navigate(path) {
-        if (state.tab === 'fav') {
+    function renderSelection() {
+        var bar = $('selectionBar');
+        var count = selectionCount();
+        if (!state.selecting) {
+            bar.classList.add('hide');
+            $('selectModeBtn').classList.remove('on');
             return;
         }
-        if (state.tab === 'nas') {
-            loadNas(path);
+        bar.classList.remove('hide');
+        $('selectModeBtn').classList.add('on');
+        $('selCount').textContent = count + '개 선택됨';
+
+        var primaryLabel = $('primaryTransferLabel');
+        var primaryIcon = $('primaryTransferIcon');
+        if (isNas()) {
+            primaryLabel.textContent = '내 폰으로 다운로드';
+            primaryIcon.innerHTML = ic('download');
         } else {
-            loadPhone(path);
+            primaryLabel.textContent = '시놀로지로 업로드';
+            primaryIcon.innerHTML = ic('upload');
+        }
+
+        // With nothing picked the bar stays up (that is where 전체선택 lives) but the
+        // actions that need a selection are disabled.
+        var single = count === 1;
+        $('btnPrimaryTransfer').disabled = count === 0;
+        $('btnMove').disabled = count === 0;
+        $('btnCopy').disabled = count === 0;
+        $('btnDelete').disabled = count === 0;
+        $('btnRename').disabled = !single;
+        $('btnInfo').disabled = !single;
+        var shareBtn = $('btnShare');
+        shareBtn.disabled = isNas() ? !single : C.fileCount(selectionList()) === 0;
+        $('btnShareLabel').textContent = isNas() ? '열기' : '공유';
+    }
+
+    // --------------------------------------------------------------- device
+
+    function nearestDir(side) {
+        if (side === 'nas') {
+            return state.nas.path && state.nas.path !== '/' ? state.nas.path : '';
+        }
+        return state.phone.path || state.phone.root || '';
+    }
+
+    function quickTransfer(entry) {
+        if (entry.isDir) {
+            toast('폴더 전송은 지원하지 않습니다. 파일을 선택해 주세요.');
+            return;
+        }
+        if (isNas()) {
+            downloadEntries([entry], nearestDir('phone'));
+            return;
+        }
+        uploadEntries([entry], nearestDir('nas'));
+    }
+
+    function applyPrimaryTransfer() {
+        var picked = selectionList();
+        if (!picked.length) {
+            return;
+        }
+        if (isNas()) {
+            downloadEntries(picked, nearestDir('phone'));
+        } else {
+            uploadEntries(picked, nearestDir('nas'));
         }
     }
 
-    function switchTab(tab) {
-        if (state.tab === tab) {
-            return;
+    // ------------------------------------------------------------- transfers
+
+    function startTransfer(name, direction, size) {
+        var t = {
+            id: 'tr' + (++state.transferSeq),
+            name: name,
+            direction: direction,
+            size: Number(size) || 0,
+            percent: 0,
+            status: 'running',
+            note: ''
+        };
+        state.transfers.unshift(t);
+        if (state.transfers.length > 40) {
+            state.transfers.length = 40;
         }
-        state.tab = tab;
-        state.filter = 'all';
-        state.query = '';
-        state.searching = false;
-        clearSelection(false);
-        applyViewChrome();
-        renderChrome();
+        renderTransfers();
         renderHeader();
-        if (tab === 'settings') {
-            renderSettings();
-            return;
-        }
-        if (tab === 'fav') {
-            render();
-            return;
-        }
-        if (tab === 'nas' && !state.connected) {
-            renderConnect();
-            return;
-        }
-        if (tab === 'phone' && !state.phone.path) {
-            loadPhone(state.phoneRoot);
-            return;
-        }
-        if (tab === 'nas' && !state.nas.entries.length) {
-            loadNas(state.nas.path);
-            return;
-        }
-        render();
+        renderMini();
+        return t;
     }
 
-    // -------------------------------------------------------------- item action
-
-    function openItem(entry) {
-        if (C.isImage(entry.name)) {
-            openViewer(entry);
-        } else if (C.isVideo(entry.name)) {
-            openPlayer(entry);
-        } else if (C.isAudio(entry.name)) {
-            openExternal(entry);
-        } else {
-            detailsDialog(entry);
+    function updateTransfer(t, percent, note) {
+        if (!t || t.status !== 'running') {
+            return;
         }
+        var pct = Number(percent);
+        if (isFinite(pct) && pct >= 0) {
+            t.percent = C.clampPercent(pct);
+        }
+        if (note) {
+            t.note = note;
+        }
+        renderTransfers();
+        renderMini();
     }
 
-    function openExternal(entry) {
-        if (isNasSide()) {
-            if (!state.connected) {
-                toast('시놀로지에 먼저 연결해 주세요.');
-                return;
+    function endTransfer(t, ok, note) {
+        if (!t) {
+            return;
+        }
+        t.status = ok ? 'done' : 'failed';
+        if (ok) {
+            t.percent = 100;
+        }
+        if (note) {
+            t.note = note;
+        }
+        renderTransfers();
+        renderHeader();
+        renderMini();
+    }
+
+    function renderTransfers() {
+        var list = $('transferList');
+        if (!list) {
+            return;
+        }
+        var summary = C.transferLine(state.transfers);
+        $('transferSummary').textContent = summary;
+        if (!state.transfers.length) {
+            list.innerHTML = '<p style="font-size:11.5px;color:#64748B;text-align:center;padding:26px 0;">'
+                + '진행 중이거나 완료된 전송 내역이 없습니다.</p>';
+            return;
+        }
+        var html = '';
+        each(state.transfers, function (t) {
+            var cls = t.status === 'done' ? 'done' : (t.status === 'failed' ? 'fail' : 'run');
+            var label = t.status === 'done' ? '완료' : (t.status === 'failed' ? '실패' : t.percent + '%');
+            var detail = t.direction + (t.size ? ' · ' + C.formatSize(t.size) : '')
+                + (t.note ? ' · ' + esc(t.note) : '');
+            html += '<div class="transferitem"><div class="top">'
+                + '<div class="grow"><p class="n">' + esc(t.name) + '</p>'
+                + '<p class="d">' + detail + '</p></div>'
+                + '<span class="st ' + cls + '">' + esc(label) + '</span></div>'
+                + '<div class="track"><div class="bar ' + (t.status === 'done' ? 'done' : (t.status === 'failed' ? 'fail' : ''))
+                + '" style="width:' + C.clampPercent(t.percent) + '%"></div></div></div>';
+        });
+        list.innerHTML = html;
+    }
+
+    function renderMini() {
+        var box = $('miniToast');
+        if (!box) {
+            return;
+        }
+        var running = null;
+        each(state.transfers, function (t) {
+            if (!running && t.status === 'running') {
+                running = t;
             }
-            var progress = progressDialog('외부 앱으로 여는 중');
-            progress.update(-1, '파일을 내려받는 중...');
-            FM.nas('openExternal', {path: entry.path}).then(function () {
-                progress.close();
-            }).catch(function (error) {
-                progress.close();
-                toast(error.message || '파일을 열지 못했습니다.');
-            });
-        } else {
-            FM.local('open', {path: entry.path}).catch(function (error) {
-                toast(error.message || '파일을 열지 못했습니다.');
-            });
-        }
-    }
-
-    function detailsDialog(entry) {
-        var rows = [
-            ['이름', entry.name],
-            ['위치', isNasSide() ? C.parentOf(entry.path) : C.parentOf(entry.path)],
-            ['종류', entry.isDir ? '폴더' : (C.isImage(entry.name) ? '사진'
-                : C.isVideo(entry.name) ? '동영상' : (C.extOf(entry.name).toUpperCase() || '파일'))],
-            ['크기', entry.isDir ? '-' : C.formatSize(entry.size)],
-            ['수정한 날짜', C.formatDate(entry.mtime)]
-        ];
-        openModal(
-            '<h3>' + esc(entry.name) + '</h3>'
-            + '<div class="body">' + rows.map(function (row) {
-                return '<div class="stat-row"><span>' + esc(row[0]) + '</span><b>'
-                    + esc(row[1] || '-') + '</b></div>';
-            }).join('') + '</div>'
-            + '<div class="foot"><button class="btn ghost" id="dlgCancel">닫기</button></div>'
-        );
-        $('dlgCancel').onclick = closeModal;
-    }
-
-    // ------------------------------------------------------------ action bar
-
-    function runAction(action) {
-        switch (action) {
-            case 'upload':
-                uploadToNas();
-                break;
-            case 'download':
-                downloadToPhone();
-                break;
-            case 'copy':
-                copyOrMove(false);
-                break;
-            case 'move':
-                copyOrMove(true);
-                break;
-            case 'rename':
-                renameSelection();
-                break;
-            case 'delete':
-                deleteSelection();
-                break;
-            case 'share':
-                shareSelection();
-                break;
-            case 'open':
-                if (state.selection.length === 1) {
-                    openItem(state.selection[0]);
-                }
-                break;
-            case 'details':
-                if (state.selection.length === 1) {
-                    detailsDialog(state.selection[0]);
-                }
-                break;
-            case 'unfav':
-                state.selection.slice().forEach(removeFavourite);
-                clearSelection(false);
-                render();
-                toast('즐겨찾기에서 뺐습니다.');
-                break;
-            case 'close':
-                clearSelection();
-                break;
-            default:
-                break;
-        }
-    }
-
-    function uploadToNas() {
-        if (!state.connected) {
-            toast('시놀로지에 먼저 연결해 주세요.');
-            switchTab('nas');
+        });
+        if (!running) {
+            box.classList.add('hide');
             return;
         }
-        var files = state.selection.filter(function (entry) {
-            return !entry.isDir;
+        box.classList.remove('hide');
+        $('miniTitle').textContent = running.name;
+        $('miniSub').textContent = running.direction + (running.note ? ' · ' + running.note : '');
+        $('miniPercent').textContent = running.percent + '%';
+    }
+
+    function uploadEntries(picked, destDir) {
+        var files = [];
+        each(picked, function (entry) {
+            if (entry && !entry.isDir) {
+                files.push(entry);
+            }
         });
         if (!files.length) {
-            toast('업로드할 파일을 선택해 주세요. (폴더는 아직 지원하지 않습니다)');
+            toast('업로드할 파일을 선택해 주세요. 폴더는 아직 올릴 수 없습니다.');
             return;
         }
-        pickFolder('nas', state.nas.path || '/', '올릴 시놀로지 폴더 선택').then(function (dest) {
+        if (!state.connected) {
+            toast('시놀로지에 먼저 연결해 주세요.');
+            openServerModal();
+            return;
+        }
+        var go = function (dest) {
             if (!dest) {
                 return;
             }
-            var progress = progressDialog('시놀로지로 올리는 중');
-            progress.update(0, '시작...');
+            var total = 0;
+            each(files, function (entry) {
+                total += Number(entry.size) || 0;
+            });
+            var name = files.length === 1 ? files[0].name : files.length + '개 파일';
+            var t = startTransfer(name, '내 폰 → 시놀로지 NAS', total);
+            var paths = [];
+            each(files, function (entry) {
+                paths.push(entry.path);
+            });
             FM.nas('upload', {
-                localPaths: files.map(function (entry) {
-                    return entry.path;
-                }),
+                localPaths: paths,
                 destDir: dest,
                 overwrite: false
             }, function (percent, message) {
-                progress.update(percent, message);
+                updateTransfer(t, percent, message);
             }).then(function (res) {
-                progress.close();
-                var failed = (res.failed || []).length;
-                if (failed) {
-                    toast(res.count + '개 완료, ' + failed + '개 실패');
-                } else {
-                    toast(res.count + '개를 ' + dest + '에 올렸습니다.');
-                }
+                var done = res && res.count ? res.count : files.length;
+                endTransfer(t, true, done + '개 완료');
+                toast(done + '개를 ' + dest + '에 올렸습니다.');
                 clearSelection(false);
-                if (state.tab === 'nas') {
+                if (isNas() && C.normalizePath(state.nas.path) === C.normalizePath(dest)) {
                     loadNas(dest);
                 } else {
-                    reload(false);
-                }
-                if (res.count && !failed) {
-                    // 업로드는 복사다. 이동으로 마무리할지는 사용자가 정한다.
-                    confirmDialog('폰 원본도 지울까요?',
-                        res.count + '개를 시놀로지에 올렸습니다.\n'
-                        + '폰의 원본을 지우면 ‘이동’과 같습니다.', '원본도 지우기', true)
-                        .then(function (yes) {
-                            if (!yes) {
-                                return;
-                            }
-                            FM.local('delete', {
-                                paths: files.map(function (entry) {
-                                    return entry.path;
-                                })
-                            }).then(function () {
-                                toast('폰 원본을 지웠습니다.');
-                                if (state.tab === 'phone') {
-                                    loadPhone(state.phone.path);
-                                }
-                            }).catch(function (error) {
-                                toast(error.message || '원본을 지우지 못했습니다.');
-                            });
-                        });
+                    render();
                 }
             }).catch(function (error) {
-                progress.close();
-                toast(error.message || '업로드에 실패했습니다.');
+                var data = error.data || {};
+                var failedCount = (data.failed || []).length;
+                var note = '';
+                if (data.count !== undefined) {
+                    note = data.count + '개 완료' + (failedCount ? ', ' + failedCount + '개 실패' : '');
+                }
+                endTransfer(t, false, note || error.message);
+                toast(note || error.message || '업로드에 실패했습니다.');
+                render();
             });
-        });
-    }
+        };
 
-    function downloadToPhone() {
-        if (!state.selection.length) {
+        if (!destDir) {
+            pickFolder('nas', state.nas.path || '/', '올릴 시놀로지 폴더 선택').then(go);
             return;
         }
-        var start = state.phone.path || state.phoneRoot;
-        pickFolder('phone', start, '저장할 폰 폴더 선택').then(function (dest) {
+        go(destDir);
+    }
+
+    function downloadEntries(picked, destDir) {
+        var files = [];
+        each(picked, function (entry) {
+            if (entry && !entry.isDir) {
+                files.push(entry);
+            }
+        });
+        if (!files.length) {
+            toast('다운로드할 파일을 선택해 주세요.');
+            return;
+        }
+        if (!state.connected) {
+            toast('시놀로지에 먼저 연결해 주세요.');
+            openServerModal();
+            return;
+        }
+        var go = function (dest) {
             if (!dest) {
                 return;
             }
-            var items = state.selection.slice();
-            var progress = progressDialog('내 폰으로 내려받는 중');
-            progress.update(0, '시작...');
             var index = 0;
             var saved = 0;
             var failed = 0;
 
             function next() {
-                if (index >= items.length) {
-                    progress.close();
-                    toast(saved + '개를 ' + dest + '에 저장했습니다.'
-                        + (failed ? ' (' + failed + '개 실패)' : ''));
+                if (index >= files.length) {
+                    toast(saved + '개를 ' + dest + '에 저장했습니다.' + (failed ? ' (' + failed + '개 실패)' : ''));
                     clearSelection(false);
-                    if (state.tab === 'phone') {
+                    if (!isNas() && C.normalizePath(state.phone.path) === C.normalizePath(dest)) {
                         loadPhone(dest);
                     } else {
                         render();
                     }
                     return;
                 }
-                var entry = items[index++];
-                progress.update(0, entry.name + ' (' + index + '/' + items.length + ')');
+                var entry = files[index++];
+                var t = startTransfer(entry.name, '시놀로지 NAS → 내 폰', entry.size);
                 FM.nas('download', {path: entry.path, destDir: dest}, function (percent, message) {
-                    progress.update(percent, entry.name + ' · ' + (message || ''));
-                }).then(function () {
+                    updateTransfer(t, percent, message);
+                }).then(function (res) {
                     saved++;
+                    endTransfer(t, true, res && res.name ? res.name : '');
                     next();
-                }).catch(function () {
+                }).catch(function (error) {
                     failed++;
+                    endTransfer(t, false, error.message);
                     next();
                 });
             }
 
             next();
-        });
-    }
+        };
 
-    function copyOrMove(move) {
-        if (!state.selection.length) {
+        if (!destDir) {
+            pickFolder('phone', state.phone.path || state.phone.root
+                || '/storage/emulated/0', '저장할 폰 폴더 선택').then(go);
             return;
         }
-        var label = move ? '이동' : '복사';
-        pickFolder(state.tab, currentPath(), label + '할 위치 선택').then(function (dest) {
-            if (!dest) {
-                return;
-            }
-            var paths = state.selection.map(function (entry) {
-                return entry.path;
+        go(destDir);
+    }
+
+    // ------------------------------------------------------------- file ops
+
+    function newFolder() {
+        if (isNas() && !state.connected) {
+            toast('시놀로지에 먼저 연결해 주세요.');
+            openServerModal();
+            return;
+        }
+        var base = currentPath();
+        promptDialog('새 폴더', displayOf(base, state.side) + ' 안에 만들 폴더 이름', '새 폴더', '만들기')
+            .then(function (value) {
+                if (value === null) {
+                    return;
+                }
+                var name = C.sanitizeName(value);
+                if (!name) {
+                    return;
+                }
+                var target = C.joinPath(base, name);
+                var request = isNas() ? FM.nas('mkdir', {path: target}) : FM.local('mkdir', {path: target});
+                request.then(function () {
+                    toast('폴더를 만들었습니다.');
+                    reload(false);
+                }).catch(function (error) {
+                    toast(error.message || '폴더를 만들지 못했습니다.');
+                });
             });
-            if (state.tab === 'nas') {
-                var progress = progressDialog(label + '하는 중');
-                progress.update(-1, '시놀로지에서 처리 중...');
-                FM.nas('copyMove', {
-                    paths: paths,
-                    destDir: dest,
-                    move: move,
-                    overwrite: false
-                }, function (percent, message) {
-                    progress.update(percent, message);
-                }).then(function () {
-                    progress.close();
-                    toast(label + ' 완료: ' + dest);
-                    clearSelection(false);
-                    loadNas(dest);
-                }).catch(function (error) {
-                    progress.close();
-                    toast(error.message || label + '하지 못했습니다.');
-                });
-            } else {
-                FM.local('copyMove', {
-                    paths: paths,
-                    destDir: dest,
-                    move: move,
-                    overwrite: false
-                }).then(function (res) {
-                    var failed = (res.failed || []).length;
-                    toast(failed ? (res.count + '개 완료, ' + failed + '개 실패')
-                        : (res.count + '개 ' + label + ' 완료'));
-                    clearSelection(false);
-                    loadPhone(dest);
-                }).catch(function (error) {
-                    toast(error.message || label + '하지 못했습니다.');
-                });
-            }
-        });
     }
 
-    function renameSelection() {
-        if (state.selection.length !== 1) {
+    function renameEntry(entry) {
+        if (!entry) {
             return;
         }
-        var entry = state.selection[0];
-        promptDialog({
-            title: '이름 변경',
-            value: entry.name,
-            okText: '변경'
-        }).then(function (value) {
+        promptDialog('이름 변경', '새 이름을 입력하세요.', entry.name, '변경').then(function (value) {
             if (value === null) {
                 return;
             }
@@ -1163,64 +1321,132 @@
             if (!name || name === entry.name) {
                 return;
             }
-            var target = C.joinPath(C.parentOf(entry.path), name);
-            if (state.tab === 'nas') {
-                FM.nas('rename', {path: entry.path, newName: name}).then(function () {
-                    toast('이름을 바꿨습니다.');
-                    clearSelection(false);
-                    loadNas(state.nas.path);
-                }).catch(function (error) {
-                    toast(error.message || '이름을 바꾸지 못했습니다.');
-                });
-            } else {
-                FM.local('rename', {path: entry.path, newName: name}).then(function () {
-                    toast('이름을 바꿨습니다.');
-                    clearSelection(false);
-                    loadPhone(state.phone.path);
-                }).catch(function (error) {
-                    toast(error.message || '이름을 바꾸지 못했습니다.');
-                });
-            }
-            void target;
+            var request = isNas()
+                ? FM.nas('rename', {path: entry.path, newName: name})
+                : FM.local('rename', {path: entry.path, newName: name});
+            request.then(function () {
+                toast('이름을 바꿨습니다.');
+                clearSelection(false);
+                reload(false);
+            }).catch(function (error) {
+                toast(error.message || '이름을 바꾸지 못했습니다.');
+            });
         });
     }
 
-    function deleteSelection() {
-        if (!state.selection.length) {
+    function deleteEntries(picked) {
+        var list = [];
+        each(picked, function (entry) {
+            if (entry) {
+                list.push(entry);
+            }
+        });
+        if (!list.length) {
             return;
         }
-        var count = state.selection.length;
-        var names = state.selection.slice(0, 3).map(function (entry) {
-            return entry.name;
-        }).join(', ') + (count > 3 ? ' 외 ' + (count - 3) + '개' : '');
-        confirmDialog('삭제할까요?', names + '\n\n삭제한 파일은 휴지통 없이 바로 지워집니다.', '삭제', true)
-            .then(function (yes) {
-                if (!yes) {
-                    return;
-                }
-                var paths = state.selection.map(function (entry) {
-                    return entry.path;
-                });
-                var request = state.tab === 'nas'
-                    ? FM.nas('delete', {paths: paths})
-                    : FM.local('delete', {paths: paths});
-                request.then(function (res) {
-                    var failed = (res.failed || []).length;
-                    toast(failed ? (count - failed) + '개 삭제, ' + failed + '개 실패'
-                        : count + '개를 삭제했습니다.');
-                    clearSelection(false);
-                    reload(false);
-                }).catch(function (error) {
-                    toast(error.message || '삭제하지 못했습니다.');
-                });
+        var names = [];
+        each(list.slice(0, 3), function (entry) {
+            names.push(entry.name);
+        });
+        var label = names.join(', ') + (list.length > 3 ? ' 외 ' + (list.length - 3) + '개' : '');
+        confirmDialog('삭제할까요?', label + '\n\n삭제한 파일은 휴지통 없이 바로 지워집니다.',
+            '삭제', true).then(function (yes) {
+            if (!yes) {
+                return;
+            }
+            var paths = [];
+            each(list, function (entry) {
+                paths.push(entry.path);
             });
+            var request = isNas() ? FM.nas('delete', {paths: paths}) : FM.local('delete', {paths: paths});
+            request.then(function () {
+                toast(list.length + '개를 삭제했습니다.');
+                each(list, function (entry) {
+                    delete state.selected[entry.path];
+                    removeFavourite(entry.path, state.side);
+                });
+                clearSelection(false);
+                reload(false);
+            }).catch(function (error) {
+                toast(error.message || '삭제하지 못했습니다.');
+            });
+        });
     }
 
-    function shareSelection() {
-        var paths = state.selection.filter(function (entry) {
-            return !entry.isDir;
-        }).map(function (entry) {
-            return entry.path;
+    function copyMoveEntries(picked, move) {
+        var list = [];
+        each(picked, function (entry) {
+            if (entry) {
+                list.push(entry);
+            }
+        });
+        if (!list.length) {
+            return;
+        }
+        if (isNas() && !state.connected) {
+            toast('시놀로지에 먼저 연결해 주세요.');
+            return;
+        }
+        var label = move ? '이동' : '복사';
+        pickFolder(state.side, currentPath(), label + '할 위치 선택').then(function (dest) {
+            if (!dest) {
+                return;
+            }
+            var paths = [];
+            each(list, function (entry) {
+                paths.push(entry.path);
+            });
+            if (isNas()) {
+                FM.nas('copyMove', {paths: paths, destDir: dest, move: move, overwrite: false},
+                    function (percent, message) {
+                        if (message) {
+                            toast(message);
+                        }
+                    }).then(function () {
+                    toast(label + ' 완료: ' + dest);
+                    clearSelection(false);
+                    loadNas(dest);
+                }).catch(function (error) {
+                    toast(error.message || label + '하지 못했습니다.');
+                });
+                return;
+            }
+            FM.local('copyMove', {paths: paths, destDir: dest, move: move, overwrite: false})
+                .then(function (res) {
+                    var failed = (res && res.failed) ? res.failed.length : 0;
+                    var count = (res && res.count) || list.length;
+                    toast(failed ? (count + '개 완료, ' + failed + '개 실패') : (count + '개 ' + label + ' 완료'));
+                    clearSelection(false);
+                    loadPhone(dest);
+                }).catch(function (error) {
+                    toast(error.message || label + '하지 못했습니다.');
+                });
+        });
+    }
+
+    function shareOrOpen(picked) {
+        var list = [];
+        each(picked, function (entry) {
+            if (entry) {
+                list.push(entry);
+            }
+        });
+        if (!list.length) {
+            return;
+        }
+        if (isNas()) {
+            if (list.length !== 1) {
+                toast('시놀로지 파일은 한 번에 하나씩 열 수 있습니다.');
+                return;
+            }
+            openExternal(list[0]);
+            return;
+        }
+        var paths = [];
+        each(list, function (entry) {
+            if (!entry.isDir) {
+                paths.push(entry.path);
+            }
         });
         if (!paths.length) {
             toast('공유할 파일을 선택해 주세요.');
@@ -1231,215 +1457,462 @@
         });
     }
 
-    function newFolder() {
-        promptDialog({
-            title: '새 폴더',
-            value: '새 폴더',
-            okText: '만들기'
-        }).then(function (value) {
-            if (value === null) {
+    function openExternal(entry) {
+        if (isNas()) {
+            if (!state.connected) {
+                toast('시놀로지에 먼저 연결해 주세요.');
                 return;
             }
-            var name = C.sanitizeName(value);
-            if (!name) {
+            toast('파일을 내려받아 외부 앱으로 엽니다...');
+            FM.nas('openExternal', {path: entry.path}).catch(function (error) {
+                toast(error.message || '파일을 열지 못했습니다.');
+            });
+            return;
+        }
+        FM.local('open', {path: entry.path}).catch(function (error) {
+            toast(error.message || '파일을 열지 못했습니다.');
+        });
+    }
+
+    function infoDialog(entry) {
+        if (!entry) {
+            return;
+        }
+        var rows = [
+            ['이름', entry.name],
+            ['위치', C.parentOf(entry.path)],
+            ['종류', entry.isDir ? '폴더' : C.kindLabel(entry.name)],
+            ['크기', entry.isDir ? '-' : C.formatSize(entry.size)],
+            ['수정한 날짜', C.formatDay(entry.mtime)],
+            ['저장 위치', isNas() ? '시놀로지 NAS' : '내 폰']
+        ];
+        var html = '';
+        each(rows, function (row) {
+            html += '<div class="inforow"><span>' + esc(row[0]) + '</span><b>'
+                + esc(row[1] || '-') + '</b></div>';
+        });
+        showDialog({
+            title: entry.name,
+            mode: 'info',
+            html: html,
+            okText: '닫기',
+            hideCancel: true
+        });
+    }
+
+    function openItemSheet(entry) {
+        var actions = [];
+        if (entry.isDir) {
+            actions.push({act: 'open', icon: 'folder-open', label: '열기'});
+        } else {
+            actions.push({act: 'open', icon: 'eye', label: '보기'});
+        }
+        if (isNas()) {
+            actions.push({act: 'download', icon: 'download', label: '내 폰으로 다운로드'});
+        } else {
+            actions.push({act: 'upload', icon: 'upload', label: '시놀로지로 업로드'});
+        }
+        actions.push({act: 'rename', icon: 'edit-3', label: '이름 변경'});
+        actions.push({act: 'copy', icon: 'copy', label: '복사'});
+        actions.push({act: 'move', icon: 'folder-input', label: '이동'});
+        if (!isNas() && !entry.isDir) {
+            actions.push({act: 'share', icon: 'share-2', label: '공유'});
+        }
+        if (isNas() && !entry.isDir) {
+            actions.push({act: 'external', icon: 'external-link', label: '외부 앱으로 열기'});
+        }
+        actions.push({act: 'info', icon: 'info', label: '정보'});
+        actions.push({act: 'delete', icon: 'trash-2', label: '삭제', danger: true});
+
+        var html = '';
+        each(actions, function (item) {
+            html += '<button class="menuitem" data-act="' + item.act + '">'
+                + ic(item.icon) + '<span class="grow"' + (item.danger ? ' style="color:#FB7185;"' : '')
+                + '>' + esc(item.label) + '</span></button>';
+        });
+
+        showDialog({
+            title: entry.name,
+            desc: (entry.isDir ? '폴더' : C.kindLabel(entry.name))
+                + (entry.isDir ? '' : ' · ' + C.formatSize(entry.size)),
+            mode: 'actions',
+            html: html,
+            hideOk: true,
+            cancelText: '닫기',
+            onAct: function (act) {
+                switch (act) {
+                    case 'open':
+                        if (entry.isDir) {
+                            navigate(entry.path);
+                        } else {
+                            openViewer(entry);
+                        }
+                        break;
+                    case 'download':
+                    case 'upload':
+                        quickTransfer(entry);
+                        break;
+                    case 'rename':
+                        renameEntry(entry);
+                        break;
+                    case 'copy':
+                        copyMoveEntries([entry], false);
+                        break;
+                    case 'move':
+                        copyMoveEntries([entry], true);
+                        break;
+                    case 'share':
+                        shareOrOpen([entry]);
+                        break;
+                    case 'external':
+                        openExternal(entry);
+                        break;
+                    case 'info':
+                        infoDialog(entry);
+                        break;
+                    case 'delete':
+                        deleteEntries([entry]);
+                        break;
+                    default:
+                        break;
+                }
+            }
+        });
+    }
+
+    // ---------------------------------------------------------------- dialog
+
+    function showDialog(cfg) {
+        state.dialogCfg = cfg;
+        $('dlgTitle').textContent = cfg.title || '';
+        var desc = $('dlgDesc');
+        if (cfg.desc) {
+            desc.textContent = cfg.desc;
+            desc.classList.remove('hide');
+        } else {
+            desc.textContent = '';
+            desc.classList.add('hide');
+        }
+
+        $('dlgInputWrap').classList.add('hide');
+        $('dlgSelectWrap').classList.add('hide');
+        $('dlgBody').classList.add('hide');
+        $('dlgBody').innerHTML = '';
+
+        if (cfg.mode === 'input') {
+            $('dlgInputWrap').classList.remove('hide');
+            $('dlgInput').value = cfg.value || '';
+        } else if (cfg.mode === 'select') {
+            $('dlgSelectWrap').classList.remove('hide');
+            var options = '';
+            each(cfg.options || [], function (option) {
+                options += '<option value="' + esc(option.value) + '">' + esc(option.label) + '</option>';
+            });
+            $('dlgSelect').innerHTML = options;
+        } else if (cfg.mode === 'info' || cfg.mode === 'actions') {
+            $('dlgBody').classList.remove('hide');
+            $('dlgBody').innerHTML = cfg.html || '';
+            applyIcons($('dlgBody'));
+        }
+
+        var ok = $('dlgOk');
+        ok.textContent = cfg.okText || '확인';
+        ok.classList.toggle('danger', !!cfg.danger);
+        ok.classList.toggle('hide', !!cfg.hideOk);
+        ok.onclick = function () {
+            var value = null;
+            if (cfg.mode === 'input') {
+                value = $('dlgInput').value;
+            } else if (cfg.mode === 'select') {
+                value = $('dlgSelect').value;
+            }
+            closeDialog();
+            if (cfg.onOk) {
+                cfg.onOk(value);
+            }
+        };
+
+        var cancel = $('dlgCancel');
+        cancel.textContent = cfg.cancelText || '취소';
+        cancel.classList.toggle('hide', !!cfg.hideCancel);
+        cancel.onclick = function () {
+            closeDialog();
+            if (cfg.onCancel) {
+                cfg.onCancel();
+            }
+        };
+
+        $('dlgBody').onclick = function (event) {
+            var target = closestAttr(event.target, 'data-act');
+            if (!target) {
                 return;
             }
-            var target = C.joinPath(currentPath(), name);
-            var request = state.tab === 'nas'
-                ? FM.nas('mkdir', {path: target})
-                : FM.local('mkdir', {path: target});
-            request.then(function () {
-                toast('폴더를 만들었습니다.');
-                reload(false);
-            }).catch(function (error) {
-                toast(error.message || '폴더를 만들지 못했습니다.');
+            var act = target.getAttribute('data-act');
+            closeDialog();
+            if (cfg.onAct) {
+                cfg.onAct(act);
+            }
+        };
+
+        $('dialog').classList.remove('hide');
+        if (cfg.mode === 'input') {
+            setTimeout(function () {
+                var input = $('dlgInput');
+                input.focus();
+                try {
+                    input.setSelectionRange(0, String(input.value || '').length);
+                } catch (e) {
+                    // selection is cosmetic
+                }
+            }, 60);
+        }
+    }
+
+    function closeDialog() {
+        $('dialog').classList.add('hide');
+        state.dialogCfg = null;
+    }
+
+    function promptDialog(title, desc, value, okText) {
+        return new Promise(function (resolve) {
+            showDialog({
+                title: title,
+                desc: desc,
+                mode: 'input',
+                value: value || '',
+                okText: okText || '확인',
+                onOk: function (v) {
+                    resolve(v === null ? null : String(v));
+                },
+                onCancel: function () {
+                    resolve(null);
+                }
             });
         });
     }
 
-    // ------------------------------------------------------------ folder picker
+    function confirmDialog(title, desc, okText, danger) {
+        return new Promise(function (resolve) {
+            showDialog({
+                title: title,
+                desc: desc,
+                mode: 'confirm',
+                okText: okText || '확인',
+                danger: !!danger,
+                onOk: function () {
+                    resolve(true);
+                },
+                onCancel: function () {
+                    resolve(false);
+                }
+            });
+        });
+    }
+
+    // ---------------------------------------------------------------- picker
 
     function pickFolder(side, startPath, title) {
         return new Promise(function (resolve) {
-            var current = C.normalizePath(startPath || (side === 'nas' ? '/'
-                : (state.phoneRoot || '/')));
-            var listing = [];
-
-            function draw() {
-                openModal(
-                    '<h3>' + esc(title || '폴더 선택') + '</h3>'
-                    + '<div class="body" id="pickPath" style="font-size:12.5px">'
-                    + esc(displayOf(current, side)) + '</div>'
-                    + '<div class="pick-list" id="pickList"><div class="pick-item">불러오는 중...</div></div>'
-                    + '<div class="foot"><button class="btn ghost" id="pickCancel">취소</button>'
-                    + '<button class="btn" id="pickChoose">이 폴더 선택</button></div>'
-                );
-                $('pickCancel').onclick = function () {
-                    closeModal();
-                    resolve(null);
-                };
-                $('pickChoose').onclick = function () {
-                    closeModal();
-                    resolve(current);
-                };
-                list(current);
-            }
-
-            function displayOf(path, sideName) {
-                if (sideName === 'nas') {
-                    return path;
-                }
-                return C.displayPath(path, state.phoneRoot);
-            }
-
-            function list(path) {
-                var request = side === 'nas'
-                    ? FM.nas('list', {path: path})
-                    : FM.local('list', {path: path});
-                request.then(function (res) {
-                    current = res.path || path;
-                    $('pickPath').textContent = displayOf(current, side);
-                    var dirs = (res.entries || []).filter(function (entry) {
-                        return entry.isDir;
-                    }).sort(function (a, b) {
-                        return a.name.localeCompare(b.name, 'ko', {numeric: true});
-                    });
-                    var parent = C.parentOf(current);
-                    var html = '';
-                    if (parent !== current && (side === 'nas' || !isPhoneRoot(current))) {
-                        html += '<div class="pick-item" data-path="' + esc(parent)
-                            + '"><span class="glyph">↩️</span><span class="grow">상위 폴더</span></div>';
-                    }
-                    html += dirs.map(function (dir) {
-                        return '<div class="pick-item" data-path="' + esc(dir.path)
-                            + '"><span class="glyph">📁</span><span class="grow">'
-                            + esc(dir.name) + '</span><span style="color:#9AA6B8">›</span></div>';
-                    }).join('');
-                    if (!html) {
-                        html = '<div class="pick-item"><span class="grow" style="color:#9AA6B8">'
-                            + '하위 폴더가 없습니다</span></div>';
-                    }
-                    $('pickList').innerHTML = html;
-                    $('pickList').querySelectorAll('.pick-item[data-path]').forEach(function (node) {
-                        node.onclick = function () {
-                            list(node.dataset.path);
-                        };
-                    });
-                }).catch(function (error) {
-                    $('pickList').innerHTML = '<div class="pick-item"><span class="grow" style="color:#E5484D">'
-                        + esc(error.message || '폴더를 열지 못했습니다.') + '</span></div>';
-                });
-            }
-
-            function isPhoneRoot(path) {
-                return C.normalizePath(path) === C.normalizePath(state.phoneRoot);
-            }
-
-            draw();
+            state.picker = {
+                side: side,
+                path: C.normalizePath(startPath || (side === 'nas' ? '/'
+                    : (state.phone.root || '/storage/emulated/0'))),
+                resolve: resolve,
+                done: false
+            };
+            $('pickerTitle').textContent = title || '폴더 선택';
+            $('pickerModal').classList.remove('hide');
+            loadPicker(state.picker.path);
         });
     }
 
-    // ----------------------------------------------------------------- viewers
+    function finishPicker(value) {
+        var picker = state.picker;
+        state.picker = null;
+        $('pickerModal').classList.add('hide');
+        if (picker && !picker.done) {
+            picker.done = true;
+            picker.resolve(value);
+        }
+    }
+
+    function loadPicker(path) {
+        var picker = state.picker;
+        if (!picker) {
+            return;
+        }
+        $('pickerPath').textContent = displayOf(path, picker.side);
+        $('pickerList').innerHTML = '<div class="pickeritem"><span class="grow" style="color:#64748B;">'
+            + '불러오는 중...</span></div>';
+        var request = picker.side === 'nas'
+            ? FM.nas('list', {path: path})
+            : FM.local('list', {path: path});
+        request.then(function (res) {
+            if (!state.picker) {
+                return;
+            }
+            picker.path = res.path || path;
+            $('pickerPath').textContent = displayOf(picker.path, picker.side);
+            var dirs = [];
+            each(res.entries || [], function (entry) {
+                if (entry && entry.isDir) {
+                    dirs.push(entry);
+                }
+            });
+            dirs.sort(function (a, b) {
+                return String(a.name).localeCompare(String(b.name), 'ko', {numeric: true});
+            });
+            var html = '';
+            var parent = C.parentOf(picker.path);
+            var atRoot = C.normalizePath(picker.path) === C.normalizePath(picker.side === 'nas'
+                ? '/' : (state.phone.root || picker.path));
+            if (!atRoot && parent !== picker.path) {
+                html += '<div class="pickeritem up" data-nav="' + esc(parent) + '">'
+                    + ic('chevron-left') + '<span class="grow">상위 폴더</span></div>';
+            }
+            each(dirs, function (dir) {
+                html += '<div class="pickeritem" data-nav="' + esc(dir.path) + '">'
+                    + ic('folder') + '<span class="grow">' + esc(dir.name) + '</span>'
+                    + '<span style="color:#64748B;">›</span></div>';
+            });
+            if (!html) {
+                html = '<div class="pickeritem"><span class="grow" style="color:#64748B;">'
+                    + '하위 폴더가 없습니다</span></div>';
+            }
+            var list = $('pickerList');
+            list.innerHTML = html;
+            applyIcons(list);
+            list.onclick = function (event) {
+                var target = closestAttr(event.target, 'data-nav');
+                if (target) {
+                    loadPicker(target.getAttribute('data-nav'));
+                }
+            };
+        }).catch(function (error) {
+            if (!state.picker) {
+                return;
+            }
+            $('pickerList').innerHTML = '<div class="pickeritem"><span class="grow" '
+                + 'style="color:#FB7185;">' + esc(error.message || '폴더를 열지 못했습니다.') + '</span></div>';
+        });
+    }
+
+    // ---------------------------------------------------------------- viewer
+
+    function viewerItems() {
+        var filter = state.filter === 'folder' ? 'all' : state.filter;
+        var list = C.visibleEntries(entries(), filter, state.query, state.sort);
+        var out = [];
+        each(list, function (entry) {
+            if (entry && !entry.isDir
+                && (C.isImage(entry.name) || C.isVideo(entry.name))) {
+                out.push(entry);
+            }
+        });
+        return out;
+    }
 
     function openViewer(entry) {
-        var side = isNasSide();
-        var images = C.filterEntries(currentEntries(), 'image', '');
-        var items = C.sortEntries(images, state.sort, 'asc');
-        var index = items.findIndex(function (item) {
-            return item.path === entry.path;
+        var list = viewerItems();
+        var index = -1;
+        each(list, function (item, i) {
+            if (item.path === entry.path) {
+                index = i;
+            }
         });
         if (index < 0) {
-            items = [entry];
+            list = [entry];
             index = 0;
         }
-        state.viewer.items = items;
-        state.viewer.side = side;
+        state.viewer.items = list;
+        state.viewer.side = state.side;
         state.viewer.index = index;
-        $('viewer').classList.add('on');
-        $('vSave').style.display = side ? '' : 'none';
-        showImage(index);
+        $('viewerModal').classList.remove('hide');
+        showViewer(index);
     }
 
-    function showImage(index) {
+    function showViewer(index) {
         var items = state.viewer.items;
         if (!items.length) {
             return;
         }
+        var count = items.length;
         if (index < 0) {
-            index = 0;
+            index = count - 1;
         }
-        if (index >= items.length) {
-            index = items.length - 1;
+        if (index >= count) {
+            index = 0;
         }
         state.viewer.index = index;
         var entry = items[index];
-        var url = FM.mediaUrl(entry.path, state.viewer.side, false);
-        var img = $('vImg');
+        var nas = state.viewer.side === 'nas';
+        var img = $('viewerImg');
+        var video = $('viewerVideo');
+
         resetZoom();
-        img.src = url;
-        $('vTitle').textContent = entry.name;
-        $('vCount').textContent = (index + 1) + ' / ' + items.length;
-        $('vPrev').disabled = index <= 0;
-        $('vNext').disabled = index >= items.length - 1;
+        if (C.isVideo(entry.name)) {
+            img.classList.add('hide');
+            img.removeAttribute('src');
+            video.classList.remove('hide');
+            $('viewerZoom').classList.add('hide');
+            playInViewer(entry, nas);
+        } else {
+            try {
+                video.pause();
+            } catch (e) {
+                // nothing playing
+            }
+            video.removeAttribute('src');
+            video.classList.add('hide');
+            img.classList.remove('hide');
+            $('viewerZoom').classList.remove('hide');
+            img.src = FM.mediaUrl(entry.path, nas, false);
+        }
+
+        $('viewerTitle').textContent = entry.name;
+        $('viewerMeta').textContent = C.formatSize(entry.size) + ' · ' + C.kindLabel(entry.name)
+            + ' · ' + (nas ? '시놀로지 NAS' : '내 폰');
+        $('viewerCount').textContent = (index + 1) + ' / ' + count;
+        $('viewerPrev').disabled = count < 2;
+        $('viewerNext').disabled = count < 2;
+        $('viewerSaveLabel').textContent = nas ? '폰에 저장' : 'NAS로 올리기';
     }
 
-    function resetZoom() {
-        state.viewer.scale = 1;
-        state.viewer.tx = 0;
-        state.viewer.ty = 0;
-        applyTransform();
-    }
+    function playInViewer(entry, nas) {
+        var video = $('viewerVideo');
+        video.oncanplay = function () {
+            video.play().catch(function () {
+                // the user can press play
+            });
+        };
+        video.onerror = function () {
+            toast('재생할 수 없는 형식입니다. 외부 플레이어로 열어 보세요.');
+        };
 
-    function applyTransform() {
-        var img = $('vImg');
-        img.style.transform = 'translate(' + state.viewer.tx + 'px,' + state.viewer.ty
-            + 'px) scale(' + state.viewer.scale + ')';
-        $('vZoom').textContent = state.viewer.scale.toFixed(1) + 'x';
-    }
-
-    function closeViewer() {
-        $('viewer').classList.remove('on');
-        $('vImg').removeAttribute('src');
-        resetZoom();
-    }
-
-    function openPlayer(entry) {
-        state.player.entry = entry;
-        state.player.side = isNasSide();
-        $('pTitle').textContent = entry.name;
-        $('pSave').style.display = state.player.side ? '' : 'none';
-        $('player').classList.add('on');
-        $('pLoading').textContent = '불러오는 중...';
-        $('pLoading').style.display = '';
-        var video = $('playerVideo');
-        video.pause();
-        video.removeAttribute('src');
-        video.load();
-
-        if (!state.player.side) {
-            playUrl(FM.mediaUrl(entry.path, false, false));
+        if (!nas) {
+            video.src = FM.mediaUrl(entry.path, false, false);
+            video.load();
             return;
         }
         // DSM's Download API has no Range support, so a NAS video is cached once and then
-        // played from the phone: seeking works, and re-opening is instant.
+        // played from the phone: seeking works and re-opening is instant.
         var cacheDir = (state.local && state.local.videoCacheDir) || '';
         findCached(cacheDir, entry).then(function (cached) {
             if (cached) {
-                playUrl(FM.mediaUrl(cached, false, false));
+                video.src = FM.mediaUrl(cached, false, false);
+                video.load();
                 return;
             }
-            var progress = progressDialog('동영상 준비 중');
-            progress.update(0, '시놀로지에서 내려받는 중...');
+            var t = startTransfer(entry.name, '시놀로지 NAS → 재생 캐시', entry.size);
             FM.nas('download', {path: entry.path, destDir: cacheDir}, function (percent, message) {
-                progress.update(percent, message);
+                updateTransfer(t, percent, message);
             }).then(function (res) {
-                progress.close();
-                if ($('player').classList.contains('on')) {
-                    playUrl(FM.mediaUrl(res.savedPath, false, false));
-                }
+                endTransfer(t, true, '재생 준비 완료');
+                video.src = FM.mediaUrl(res.savedPath, false, false);
+                video.load();
             }).catch(function (error) {
-                progress.close();
-                $('pLoading').textContent = error.message || '동영상을 열지 못했습니다.';
+                endTransfer(t, false, error.message);
+                toast(error.message || '동영상을 열지 못했습니다.');
             });
         });
     }
@@ -1449,632 +1922,734 @@
             return Promise.resolve('');
         }
         return FM.local('list', {path: dir}).then(function (res) {
-            var hit = (res.entries || []).filter(function (item) {
-                return item.name === entry.name && Math.abs(item.size - entry.size) < 1024;
-            })[0];
-            return hit ? hit.path : '';
+            var hit = '';
+            each(res.entries || [], function (item) {
+                if (!hit && item.name === entry.name && Math.abs(item.size - entry.size) < 1024) {
+                    hit = item.path;
+                }
+            });
+            return hit;
         }).catch(function () {
             return '';
         });
     }
 
-    function playUrl(url) {
-        var video = $('playerVideo');
-        $('pLoading').style.display = '';
-        video.oncanplay = function () {
-            $('pLoading').style.display = 'none';
-            video.play().catch(function () {
-                // user can press play
-            });
-        };
-        video.onerror = function () {
-            $('pLoading').textContent = '재생할 수 없는 형식입니다. ↗ 버튼으로 외부 플레이어에서 열어 보세요.';
-        };
-        video.src = url;
-        video.load();
+    function navigateViewer(step) {
+        var items = state.viewer.items;
+        if (!items.length) {
+            return;
+        }
+        showViewer(state.viewer.index + step);
     }
 
-    function closePlayer() {
-        var video = $('playerVideo');
+    function resetZoom() {
+        state.viewer.scale = 1;
+        state.viewer.tx = 0;
+        state.viewer.ty = 0;
+        applyZoom();
+    }
+
+    function applyZoom() {
+        var img = $('viewerImg');
+        if (!img) {
+            return;
+        }
+        img.style.transform = 'translate(' + state.viewer.tx + 'px,' + state.viewer.ty
+            + 'px) scale(' + state.viewer.scale + ')';
+    }
+
+    function toggleZoom() {
+        if (state.viewer.scale > 1) {
+            resetZoom();
+        } else {
+            state.viewer.scale = 2.5;
+            state.viewer.tx = 0;
+            state.viewer.ty = 0;
+            applyZoom();
+        }
+    }
+
+    function closeViewer() {
+        var video = $('viewerVideo');
         try {
             video.pause();
-            video.removeAttribute('src');
-            video.load();
         } catch (e) {
-            // already detached
+            // nothing playing
         }
-        $('player').classList.remove('on');
+        video.removeAttribute('src');
+        $('viewerImg').removeAttribute('src');
+        $('viewerModal').classList.add('hide');
+        resetZoom();
     }
 
-    // --------------------------------------------------------------- favourites
-
-    function isCurrentFavourite() {
-        if (state.tab === 'fav') {
-            return false;
+    function viewerEntry() {
+        var items = state.viewer.items;
+        if (!items.length) {
+            return null;
         }
-        var path = C.normalizePath(currentPath());
-        return state.favs.some(function (fav) {
-            return fav.side === state.tab && C.normalizePath(fav.path) === path;
+        return items[state.viewer.index] || null;
+    }
+
+    // ----------------------------------------------------------------- login
+
+    function sameServer(url) {
+        var saved = C.splitServerUrl((state.nasStatus || {}).lastUrl || '');
+        var typed = C.splitServerUrl(url);
+        return !!typed.host && typed.host === saved.host && String(typed.port) === String(saved.port);
+    }
+
+    function openServerModal(prefill) {
+        var info = state.nasStatus || {};
+        var url = (prefill && prefill.url) || info.lastUrl || '';
+        var parts = C.splitServerUrl(url);
+        $('cfgHost').value = parts.host || '';
+        $('cfgPort').value = parts.port || '5001';
+        $('cfgUser').value = (prefill && prefill.account) || info.lastAccount || '';
+        $('cfgPass').value = '';
+        $('cfgOtp').value = '';
+        $('cfgSsl').classList.toggle('on', state.settings.ignoreSsl);
+        $('cfgAuto').classList.toggle('on', state.settings.autoLogin);
+        $('cfgState').value = state.connected ? '연결됨' : (info.hasSavedPassword
+            ? '저장된 비밀번호 있음' : '연결 안 됨');
+        $('cfgPass').placeholder = info.hasSavedPassword && sameServer(url)
+            ? '저장된 비밀번호 사용' : '비밀번호';
+
+        var servers = info.servers || [];
+        var savedBox = $('savedServers');
+        if (servers.length) {
+            var html = '<label style="font-size:10.5px;font-weight:700;color:#94A3B8;">저장된 서버</label>';
+            each(servers, function (server) {
+                html += '<button class="savedcard" data-act="useServer" data-url="' + esc(server.url)
+                    + '" data-account="' + esc(server.account || '') + '">'
+                    + '<span style="color:#60A5FA;">' + ic('server') + '</span>'
+                    + '<span class="grow"><span class="u">' + esc(server.url) + '</span>'
+                    + '<span class="a">' + esc(server.account || '') + '</span></span>'
+                    + '<span class="go">불러오기</span></button>';
+            });
+            savedBox.innerHTML = html;
+            applyIcons(savedBox);
+            savedBox.onclick = function (event) {
+                var target = closestAttr(event.target, 'data-act');
+                if (target && target.getAttribute('data-act') === 'useServer') {
+                    openServerModal({
+                        url: target.getAttribute('data-url') || '',
+                        account: target.getAttribute('data-account') || ''
+                    });
+                }
+            };
+        } else {
+            savedBox.innerHTML = '<p style="font-size:10.5px;color:#64748B;">'
+                + '저장된 서버가 없습니다. 주소와 계정을 입력해 주세요.</p>';
+        }
+
+        updatePermissionLine();
+        $('serverModal').classList.remove('hide');
+    }
+
+    function closeServerModal() {
+        $('serverModal').classList.add('hide');
+        var btn = $('btnConnect');
+        btn.disabled = false;
+        btn.textContent = '저장 및 서버 접속';
+    }
+
+    function updatePermissionLine() {
+        var local = state.local || {};
+        var allFiles = local.allFiles !== false;
+        var line = $('permLine');
+        line.classList.toggle('warn', !allFiles);
+        $('permTitle').textContent = allFiles
+            ? '폰 저장소 모든 파일 접근 허용됨'
+            : '폰 저장소 권한이 필요합니다';
+        $('permText').textContent = allFiles
+            ? 'DCIM · Download · Movies 폴더를 그대로 읽고 쓸 수 있습니다.'
+            : 'Android 11부터는 설정에서 ‘모든 파일 접근’을 허용해야 전체 폴더를 다룰 수 있습니다.';
+        $('permText').textContent += ' (Android ' + (local.sdk || '-') + ')';
+    }
+
+    function connectServer() {
+        var host = $('cfgHost').value.trim();
+        var port = $('cfgPort').value.trim();
+        var user = $('cfgUser').value.trim();
+        var pass = $('cfgPass').value;
+        var otp = ($('cfgOtp').value || '').trim();
+        var url = C.serverUrl(host, port);
+
+        if (!url || !user) {
+            toast('서버 주소와 아이디를 입력해 주세요.');
+            return;
+        }
+        var info = state.nasStatus || {};
+        var useSaved = !pass && info.hasSavedPassword && sameServer(url);
+        if (!pass && !useSaved) {
+            toast('비밀번호를 입력해 주세요.');
+            $('cfgPass').focus();
+            return;
+        }
+
+        state.settings.ignoreSsl = $('cfgSsl').classList.contains('on');
+        state.settings.autoLogin = $('cfgAuto').classList.contains('on');
+        saveSettings();
+
+        var btn = $('btnConnect');
+        btn.disabled = true;
+        btn.textContent = '연결 중...';
+        $('cfgState').value = '연결 중...';
+
+        var request = useSaved
+            ? FM.nas('autoLogin')
+            : FM.nas('login', {
+                url: url,
+                username: user,
+                password: pass,
+                otp: otp,
+                ignoreSsl: state.settings.ignoreSsl,
+                save: true,
+                autoLogin: state.settings.autoLogin
+            });
+
+        request.then(function (res) {
+            state.connected = true;
+            state.nasStatus = res || {};
+            $('cfgState').value = '연결됨';
+            closeServerModal();
+            toast('시놀로지에 연결되었습니다.');
+            state.side = 'nas';
+            state.query = '';
+            clearSelection(false);
+            loadNas('/');
+        }).catch(function (error) {
+            btn.disabled = false;
+            btn.textContent = '저장 및 서버 접속';
+            var message = error.message || '로그인하지 못했습니다.';
+            if (error.code === 403 || error.code === 404 || error.code === 406) {
+                message = '2단계 인증 번호가 필요합니다. OTP 6자리를 입력해 주세요.';
+            }
+            $('cfgState').value = '연결 실패';
+            toast(message);
         });
+    }
+
+    // --------------------------------------------------------------- favs
+
+    function favouriteIndex(path, side) {
+        var target = C.normalizePath(path);
+        for (var i = 0; i < state.favs.length; i++) {
+            var fav = state.favs[i];
+            if (fav && fav.side === side && C.normalizePath(fav.path) === target) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    function isFavourite() {
+        return favouriteIndex(currentPath(), state.side) >= 0;
     }
 
     function toggleFavourite() {
-        if (state.tab === 'fav') {
+        var path = currentPath();
+        if (!path) {
             return;
         }
-        var path = C.normalizePath(currentPath());
-        var side = state.tab;
-        var existing = state.favs.findIndex(function (fav) {
-            return fav.side === side && C.normalizePath(fav.path) === path;
-        });
-        if (existing >= 0) {
-            state.favs.splice(existing, 1);
+        var index = favouriteIndex(path, state.side);
+        if (index >= 0) {
+            state.favs.splice(index, 1);
             toast('즐겨찾기에서 뺐습니다.');
         } else {
             var label = C.nameOf(path);
-            if (!label || (state.tab === 'phone'
-                && C.normalizePath(path) === C.normalizePath(state.phoneRoot))) {
-                label = (state.tab === 'phone' && state.local && state.local.roots
-                    && state.local.roots[0] && state.local.roots[0].label)
-                    || (state.tab === 'nas' ? '공유 폴더' : '내부 저장소');
+            if (!label || (isNas() ? C.normalizePath(path) === '/'
+                : C.normalizePath(path) === C.normalizePath(state.phone.root))) {
+                label = isNas() ? 'NAS' : (state.phone.rootLabel || '내부 저장소');
             }
-            state.favs.push({side: side, path: path, label: label});
+            state.favs.push({side: state.side, path: C.normalizePath(path), label: label});
             toast('즐겨찾기에 넣었습니다.');
         }
-        writeFavs();
-        renderCrumbs();
-        if (state.tab === 'fav') {
-            render();
+        write(LS.favs, JSON.stringify(state.favs));
+        renderFavbar();
+        renderToolbar();
+    }
+
+    function removeFavourite(path, side) {
+        var index = favouriteIndex(path, side);
+        if (index >= 0) {
+            state.favs.splice(index, 1);
+            write(LS.favs, JSON.stringify(state.favs));
         }
     }
 
-    function removeFavourite(entry) {
-        state.favs = state.favs.filter(function (fav) {
-            return !(fav.path === entry.path && fav.side === entry.side);
-        });
-        writeFavs();
-        render();
+    // ----------------------------------------------------------------- menu
+
+    function openMenu() {
+        $('menuFilterValue').textContent = C.filterLabel(state.filter);
+        $('menuHiddenValue').textContent = state.settings.showHidden ? '켜짐' : '꺼짐';
+        $('menuServerValue').textContent = state.connected ? '연결됨' : '연결 안 됨';
+        $('menuCacheValue').textContent = C.formatSize(FM.phoneCacheSize() + FM.nasCacheSize());
+        $('menuSheet').classList.remove('hide');
     }
 
-    // ---------------------------------------------------------------- settings
-
-    function renderConnect() {
-        $('connect').classList.remove('hidden');
-        $('pathbar').classList.add('hidden');
-        $('quick').classList.add('hidden');
-        $('toolbar').classList.add('hidden');
-        $('list').classList.add('hidden');
-        $('empty').classList.remove('on');
-        $('selbar').classList.remove('on');
-        var last = state.nasStatus || {};
-        $('connect').innerHTML =
-            '<div class="card">'
-            + '<h2>🖥️ 시놀로지 NAS 연결</h2>'
-            + '<div class="desc">DSM 계정으로 로그인하면 File Station의 공유 폴더를 그대로 탐색하고, '
-            + '폰 사진을 바로 올릴 수 있습니다.</div>'
-            + '<div class="field"><label>서버 주소</label><input id="cUrl" inputmode="url" '
-            + 'placeholder="https://mynas.synology.me:5001" value="' + esc(last.lastUrl || '') + '"></div>'
-            + '<div class="field"><label>아이디</label><input id="cId" autocomplete="username" '
-            + 'value="' + esc(last.lastAccount || '') + '"></div>'
-            + '<div class="field"><label>비밀번호</label>'
-            + '<input id="cPw" type="password" autocomplete="current-password"></div>'
-            + '<div class="field"><label>OTP 6자리 (2단계 인증을 쓰는 경우)</label>'
-            + '<input id="cOtp" inputmode="numeric" maxlength="6" placeholder="123456"></div>'
-            + '<div class="switch"><div>자체 서명 인증서 허용'
-            + '<small>시놀로지 기본 인증서(https)일 때 켜 주세요.</small></div>'
-            + '<div class="toggle ' + (state.settings.ignoreSsl ? 'on' : '') + '" id="cSsl"></div></div>'
-            + '<div class="switch"><div>다음에 자동 로그인'
-            + '<small>비밀번호는 폰 안의 보안 키로만 풀립니다.</small></div>'
-            + '<div class="toggle ' + (state.settings.autoLogin ? 'on' : '') + '" id="cAuto"></div></div>'
-            + '<div class="row" style="margin-top:14px">'
-            + '<button class="btn" id="cLogin">로그인</button>'
-            + '<button class="btn ghost" id="cSettings">설정 열기</button></div>'
-            + '</div>';
-        var sslOn = state.settings.ignoreSsl;
-        var autoOn = state.settings.autoLogin;
-        $('cSsl').onclick = function () {
-            sslOn = !sslOn;
-            $('cSsl').classList.toggle('on', sslOn);
-            state.settings.ignoreSsl = sslOn;
-            writeSettings();
-        };
-        $('cAuto').onclick = function () {
-            autoOn = !autoOn;
-            $('cAuto').classList.toggle('on', autoOn);
-            state.settings.autoLogin = autoOn;
-            writeSettings();
-        };
-        $('cSettings').onclick = function () {
-            switchTab('settings');
-        };
-        $('cLogin').onclick = function () {
-            var url = $('cUrl').value.trim();
-            var id = $('cId').value.trim();
-            var pw = $('cPw').value;
-            var otp = ($('cOtp').value || '').trim();
-            if (!url || !id) {
-                toast('서버 주소와 아이디를 입력해 주세요.');
-                return;
-            }
-            doLogin(url, id, pw, otp, sslOn, autoOn).catch(function () {
-                // doLogin already showed the reason
-            });
-        };
+    function closeMenu() {
+        $('menuSheet').classList.add('hide');
     }
 
-    function doLogin(url, id, pw, otp, ssl, auto) {
-        var progress = progressDialog('시놀로지에 로그인하는 중');
-        progress.update(-1, url);
-        return FM.nas('login', {
-            url: url,
-            username: id,
-            password: pw,
-            otp: otp,
-            ignoreSsl: ssl,
-            save: true,
-            autoLogin: auto
-        }).then(function (res) {
-            progress.close();
-            state.connected = true;
-            state.nasStatus = res;
-            state.nas.path = '/';
-            toast('연결되었습니다.');
-            renderHeader();
-            loadNas('/');
-            return res;
-        }).catch(function (error) {
-            progress.close();
-            if (error.code === 403 || error.code === 404 || error.code === 406) {
-                toast('2단계 인증 번호가 필요합니다. OTP 6자리를 입력해 주세요.');
-            } else {
-                toast(error.message || '로그인하지 못했습니다.');
-            }
-            throw error;
-        });
-    }
-
-    function renderSettings() {
-        var local = state.local || {};
-        var connected = state.connected;
-        var sdk = local.sdk || 0;
-        var s = state.settings;
-        var phoneCache = FM.phoneCacheSize();
-        var nasCache = FM.nasCacheSize();
-        var servers = (state.nasStatus && state.nasStatus.servers) || [];
-
-        var html = '';
-        html += '<div class="card">'
-            + '<h2>🖥️ 시놀로지 NAS</h2>'
-            + '<div class="desc">' + (connected
-                ? '지금 연결됨 · ' + esc((state.nasStatus && state.nasStatus.baseUrl) || '')
-                + (state.nasStatus && state.nasStatus.account ? ' · ' + esc(state.nasStatus.account) : '')
-                : 'DSM File Station 계정으로 로그인하세요.') + '</div>'
-            + (servers.length ? servers.map(function (server) {
-                return '<div class="server-chip"><span>🖥️</span><div class="grow">'
-                    + esc(server.url) + '<small>' + esc(server.account || '') + '</small></div>'
-                    + '<button class="btn ghost" style="height:32px;font-size:12px" data-use="'
-                    + esc(server.url) + '" data-account="' + esc(server.account || '') + '">사용</button>'
-                    + '</div>';
-            }).join('') : '')
-            + (connected
-                ? '<div class="row"><button class="btn ghost" id="setReconnect">다시 연결</button>'
-                + '<button class="btn danger" id="setLogout">로그아웃</button></div>'
-                : '<div class="row"><button class="btn" id="setConnect">연결 화면 열기</button></div>')
-            + '<div class="row" style="margin-top:8px">'
-            + '<button class="btn line" id="setAutoLogin">자동 로그인 ' + (s.autoLogin ? '켜짐' : '꺼짐') + '</button>'
-            + '<button class="btn line" id="setSsl">인증서 무시 ' + (s.ignoreSsl ? '켜짐' : '꺼짐') + '</button>'
-            + '</div></div>';
-
-        html += '<div class="card">'
-            + '<h2>📱 폰 저장소</h2>'
-            + '<div class="desc">Android ' + sdk + ' · '
-            + (local.allFiles ? '모든 파일 접근 허용됨' : '모든 파일 접근이 필요합니다') + '</div>'
-            + (local.storage
-                ? '<div class="stat-row"><span>내부 저장소</span><b>'
-                + esc(C.formatSize(local.storage.free)) + ' 남음 / '
-                + esc(C.formatSize(local.storage.total)) + '</b></div>'
-                : '')
-            + '<div class="row" style="margin-top:12px">'
-            + '<button class="btn ' + (local.allFiles ? 'ghost' : '') + '" id="setAllow">모든 파일 접근 허용</button>'
-            + '<button class="btn line" id="setMediaPerm">사진/영상 권한</button>'
-            + '</div></div>';
-
-        html += '<div class="card">'
-            + '<h2>👀 보기 설정</h2>'
-            + '<div class="switch"><div>기본 보기<small>그리드(갤러리) 또는 목록</small></div>'
-            + '<div class="seg"><button data-view="grid" class="' + (state.view === 'grid' ? 'on' : '')
-            + '">▦ 그리드</button><button data-view="list" class="'
-            + (state.view === 'list' ? 'on' : '') + '">☰ 목록</button></div></div>'
-            + '<div class="switch"><div>숨김 파일 보기<small>이름이 . 으로 시작하는 파일</small></div>'
-            + '<div class="toggle ' + (s.showHidden ? 'on' : '') + '" id="setHidden"></div></div>'
-            + '</div>';
-
-        html += '<div class="card">'
-            + '<h2>🗄️ 캐시</h2>'
-            + '<div class="desc">썸네일은 폰 안에만 저장됩니다. 지워도 사진은 그대로입니다.</div>'
-            + '<div class="stat-row"><span>폰 썸네일</span><b>' + esc(C.formatSize(phoneCache)) + '</b></div>'
-            + '<div class="stat-row"><span>시놀로지 썸네일</span><b>' + esc(C.formatSize(nasCache)) + '</b></div>'
-            + '<button class="btn ghost" id="setClearCache" style="margin-top:12px;width:100%">썸네일 캐시 비우기</button>'
-            + '</div>';
-
-        html += '<div class="card">'
-            + '<h2>ℹ️ 앱 정보</h2>'
-            + '<div class="stat-row"><span>버전</span><b>1.0</b></div>'
-            + '<div class="stat-row"><span>패키지</span><b>com.choi.filemanager</b></div>'
-            + '<div class="desc" style="margin-top:10px">시놀로지 NAS와 내 폰의 사진·영상을 한 화면에서 '
-            + '보고 정리하는 앱입니다. 폰 ↔ 시놀로지 양방향 복사/이동을 지원합니다.</div>'
-            + '</div>';
-
-        $('settingsBody').innerHTML = html;
-
-        var useButtons = $('settingsBody').querySelectorAll('[data-use]');
-        useButtons.forEach(function (button) {
-            button.onclick = function () {
-                switchTab('nas');
-                renderConnect();
-                $('cUrl').value = button.dataset.use;
-                $('cId').value = button.dataset.account || '';
-                $('cPw').focus();
-            };
-        });
-        var viewButtons = $('settingsBody').querySelectorAll('[data-view]');
-        viewButtons.forEach(function (button) {
-            button.onclick = function () {
-                state.view = button.dataset.view;
-                localStorage.setItem(LS.view, state.view);
-                applyViewChrome();
-                renderSettings();
-            };
-        });
-        $('setConnect') && ($('setConnect').onclick = function () {
-            switchTab('nas');
-        });
-        $('setReconnect') && ($('setReconnect').onclick = function () {
-            switchTab('nas');
-            renderConnect();
-        });
-        $('setLogout') && ($('setLogout').onclick = function () {
-            FM.nas('logout').then(function () {
-                state.connected = false;
-                state.nas.entries = [];
-                renderHeader();
-                renderSettings();
-                toast('로그아웃했습니다.');
-            }).catch(function () {
-                toast('로그아웃하지 못했습니다.');
-            });
-        });
-        $('setAutoLogin').onclick = function () {
-            state.settings.autoLogin = !state.settings.autoLogin;
-            writeSettings();
-            renderSettings();
-        };
-        $('setSsl').onclick = function () {
-            state.settings.ignoreSsl = !state.settings.ignoreSsl;
-            writeSettings();
-            renderSettings();
-        };
-        $('setAllow').onclick = function () {
-            FM.allowAllFiles();
-        };
-        $('setMediaPerm').onclick = function () {
-            FM.requestMedia();
-        };
-        $('setHidden').onclick = function () {
-            state.settings.showHidden = !state.settings.showHidden;
-            writeSettings();
-            renderSettings();
-            if (state.tab === 'phone' && state.phone.path) {
-                loadPhone(state.phone.path);
-            }
-        };
-        $('setClearCache').onclick = function () {
-            FM.clearCaches();
-            toast('썸네일 캐시를 비웠습니다.');
-            setTimeout(renderSettings, 400);
-        };
-    }
-
-    // -------------------------------------------------------------- chrome bind
+    // ---------------------------------------------------------------- chrome
 
     function bindChrome() {
-        document.querySelectorAll('.tab').forEach(function (button) {
-            button.onclick = function () {
-                switchTab(button.dataset.tab);
-            };
-        });
-        $('btnUp').onclick = function () {
-            if (state.tab === 'fav') {
-                return;
-            }
-            var parent = C.parentOf(currentPath());
-            if (state.tab === 'phone' && C.normalizePath(parent).length
-                < C.normalizePath(state.phoneRoot).length) {
-                parent = state.phoneRoot;
-            }
-            navigate(parent);
+        $('tab-nas').onclick = function () {
+            switchSide('nas');
+        };
+        $('tab-phone').onclick = function () {
+            switchSide('phone');
+        };
+
+        $('btnUp').onclick = goUp;
+        $('btnReload').onclick = function () {
+            reload(false);
         };
         $('btnFav').onclick = toggleFavourite;
-        $('btnView').onclick = function () {
-            state.view = state.view === 'grid' ? 'list' : 'grid';
-            localStorage.setItem(LS.view, state.view);
-            applyViewChrome();
-            renderList();
-        };
         $('btnNewFolder').onclick = newFolder;
-        $('btnSearch').onclick = function () {
-            state.searching = !state.searching;
-            if (!state.searching) {
-                state.query = '';
+        $('btnUpload').onclick = function () {
+            var picked = selectionList();
+            if (!picked.length) {
+                toast('폰 저장소에서 파일을 선택한 뒤 올릴 수 있습니다.');
+                switchSide('phone');
+                return;
             }
-            applyViewChrome();
-            if (state.searching) {
-                setTimeout(function () {
-                    $('search').focus();
-                }, 50);
+            if (!state.connected) {
+                openServerModal();
+                return;
             }
+            uploadEntries(picked, nearestDir('nas'));
+        };
+
+        $('sortBtn').onclick = function () {
+            state.sort = C.nextSort(state.sort);
+            write(LS.sort, state.sort);
+            $('sortLabel').textContent = C.sortLabel(state.sort);
+            renderList();
+            renderStatus();
+            toast('정렬: ' + C.sortLabel(state.sort));
+        };
+
+        $('viewToggle').onclick = function () {
+            state.view = state.view === 'grid' ? 'list' : 'grid';
+            write(LS.view, state.view);
+            renderToolbar();
             renderList();
         };
-        $('search').addEventListener('input', function () {
-            state.query = $('search').value;
-            renderList();
-        });
-        $('sort').onchange = function () {
-            state.sort = $('sort').value;
-            localStorage.setItem(LS.sort, state.sort);
-            renderList();
-        };
-        $('filters').querySelectorAll('button').forEach(function (button) {
-            button.onclick = function () {
-                state.filter = button.dataset.filter;
-                $('filters').querySelectorAll('button').forEach(function (other) {
-                    other.classList.toggle('on', other === button);
-                });
+
+        $('selectModeBtn').onclick = function () {
+            if (state.selecting) {
+                clearSelection();
+            } else {
+                state.selecting = true;
+                renderSelection();
                 renderList();
-            };
-        });
-        bindViewer();
-        bindPlayer();
-        $('modal').onclick = function (event) {
-            if (event.target === $('modal')) {
-                closeModal();
             }
+        };
+
+        $('searchInput').addEventListener('input', function () {
+            state.query = $('searchInput').value || '';
+            var clear = $('clearSearch');
+            clear.classList.toggle('hide', !state.query);
+            renderList();
+            renderStatus();
+        });
+
+        $('clearSearch').onclick = function () {
+            state.query = '';
+            $('searchInput').value = '';
+            $('clearSearch').classList.add('hide');
+            renderList();
+            renderStatus();
+        };
+
+        $('btnSelectAll').onclick = selectAll;
+        $('btnExitSelect').onclick = function () {
+            clearSelection();
+        };
+        $('btnPrimaryTransfer').onclick = applyPrimaryTransfer;
+        $('btnMove').onclick = function () {
+            copyMoveEntries(selectionList(), true);
+        };
+        $('btnCopy').onclick = function () {
+            copyMoveEntries(selectionList(), false);
+        };
+        $('btnRename').onclick = function () {
+            var picked = selectionList();
+            if (picked.length === 1) {
+                renameEntry(picked[0]);
+            }
+        };
+        $('btnShare').onclick = function () {
+            shareOrOpen(selectionList());
+        };
+        $('btnInfo').onclick = function () {
+            var picked = selectionList();
+            if (picked.length === 1) {
+                infoDialog(picked[0]);
+            }
+        };
+        $('btnDelete').onclick = function () {
+            deleteEntries(selectionList());
+        };
+
+        $('btnTransfers').onclick = function () {
+            renderTransfers();
+            $('transferDrawer').classList.remove('hide');
+        };
+        $('btnCloseTransfers').onclick = function () {
+            $('transferDrawer').classList.add('hide');
+        };
+        $('btnClearTransfers').onclick = function () {
+            var kept = [];
+            each(state.transfers, function (t) {
+                if (t.status === 'running') {
+                    kept.push(t);
+                }
+            });
+            state.transfers = kept;
+            renderTransfers();
+            renderHeader();
+        };
+        $('miniToast').onclick = function () {
+            renderTransfers();
+            $('transferDrawer').classList.remove('hide');
+        };
+
+        $('btnServerSettings').onclick = function () {
+            openServerModal();
+        };
+        $('btnCloseServer').onclick = closeServerModal;
+        $('btnConnect').onclick = connectServer;
+        $('btnPermAction').onclick = function () {
+            FM.allowAllFiles();
+        };
+        $('cfgSsl').onclick = function () {
+            var on = !$('cfgSsl').classList.contains('on');
+            $('cfgSsl').classList.toggle('on', on);
+            state.settings.ignoreSsl = on;
+            saveSettings();
+        };
+        $('cfgAuto').onclick = function () {
+            var on = !$('cfgAuto').classList.contains('on');
+            $('cfgAuto').classList.toggle('on', on);
+            state.settings.autoLogin = on;
+            saveSettings();
+        };
+
+        $('btnCloseMenu').onclick = closeMenu;
+        $('menuFilter').onclick = function () {
+            state.filter = C.nextFilter(state.filter);
+            write(LS.filter, state.filter);
+            $('menuFilterValue').textContent = C.filterLabel(state.filter);
+            clearSelection(false);
+            renderList();
+            renderToolbar();
+            renderStatus();
+        };
+        $('menuHidden').onclick = function () {
+            state.settings.showHidden = !state.settings.showHidden;
+            saveSettings();
+            $('menuHiddenValue').textContent = state.settings.showHidden ? '켜짐' : '꺼짐';
+            reload(false);
+        };
+        $('menuServer').onclick = function () {
+            closeMenu();
+            openServerModal();
+        };
+        $('menuCache').onclick = function () {
+            FM.clearCaches();
+            toast('썸네일 캐시를 비웠습니다.');
+            $('menuCacheValue').textContent = '0 B';
+            setTimeout(reload, 400);
+        };
+        $('menuLogout').onclick = function () {
+            closeMenu();
+            confirmDialog('로그아웃할까요?', '저장된 세션을 지웁니다. 비밀번호는 폰에 남아 있지 않습니다.',
+                '로그아웃', true).then(function (yes) {
+                if (!yes) {
+                    return;
+                }
+                FM.nas('logout').then(function (res) {
+                    state.connected = false;
+                    state.nasStatus = res || {};
+                    state.nas.entries = [];
+                    state.nas.path = '/';
+                    toast('로그아웃했습니다.');
+                    render();
+                }).catch(function () {
+                    toast('로그아웃하지 못했습니다.');
+                });
+            });
+        };
+        $('menuAbout').onclick = function () {
+            closeMenu();
+            var rows = [
+                ['앱', 'SynoFile Pro'],
+                ['버전', VERSION],
+                ['패키지', PACKAGE],
+                ['시놀로지', 'DSM File Station API (SYNO.API.Auth / List / Upload / Download)'],
+                ['폰 저장소', 'Android ' + ((state.local && state.local.sdk) || '-')]
+            ];
+            var html = '';
+            each(rows, function (row) {
+                html += '<div class="inforow"><span>' + esc(row[0]) + '</span><b>'
+                    + esc(row[1]) + '</b></div>';
+            });
+            showDialog({title: '앱 정보', mode: 'info', html: html, okText: '닫기', hideCancel: true});
+        };
+
+        $('btnClosePicker').onclick = function () {
+            finishPicker(null);
+        };
+        $('btnPickerCancel').onclick = function () {
+            finishPicker(null);
+        };
+        $('btnPickerChoose').onclick = function () {
+            finishPicker(state.picker ? state.picker.path : null);
+        };
+
+        bindViewer();
+
+        $('serverModal').onclick = function (event) {
+            if (event.target === $('serverModal')) {
+                closeServerModal();
+            }
+        };
+        $('transferDrawer').onclick = function (event) {
+            if (event.target === $('transferDrawer')) {
+                $('transferDrawer').classList.add('hide');
+            }
+        };
+        $('menuSheet').onclick = function (event) {
+            if (event.target === $('menuSheet')) {
+                closeMenu();
+            }
+        };
+        $('pickerModal').onclick = function (event) {
+            if (event.target === $('pickerModal')) {
+                finishPicker(null);
+            }
+        };
+        $('dialog').onclick = function (event) {
+            var cfg = state.dialogCfg;
+            if (event.target === $('dialog') && cfg) {
+                closeDialog();
+                if (cfg.onCancel) {
+                    cfg.onCancel();
+                }
+            }
+        };
+        $('emptyAction').onclick = function () {
+            FM.allowAllFiles();
         };
     }
 
     function bindViewer() {
-        $('vClose').onclick = closeViewer;
-        $('vPrev').onclick = function () {
-            showImage(state.viewer.index - 1);
+        $('viewerClose').onclick = closeViewer;
+        $('viewerPrev').onclick = function () {
+            navigateViewer(-1);
         };
-        $('vNext').onclick = function () {
-            showImage(state.viewer.index + 1);
+        $('viewerNext').onclick = function () {
+            navigateViewer(1);
         };
-        $('vZoom').onclick = function () {
-            state.viewer.scale = state.viewer.scale > 1 ? 1 : 2.5;
-            state.viewer.tx = 0;
-            state.viewer.ty = 0;
-            applyTransform();
-        };
-        $('vExternal').onclick = function () {
-            var entry = state.viewer.items[state.viewer.index];
+        $('viewerZoom').onclick = toggleZoom;
+
+        $('viewerSave').onclick = function () {
+            var entry = viewerEntry();
             if (!entry) {
                 return;
             }
-            if (state.viewer.side) {
-                openExternal(entry);
+            if (state.viewer.side === 'nas') {
+                downloadEntries([entry], nearestDir('phone'));
             } else {
-                FM.local('open', {path: entry.path}).catch(function (error) {
-                    toast(error.message || '열지 못했습니다.');
-                });
+                uploadEntries([entry], nearestDir('nas'));
             }
         };
-        $('vSave').onclick = function () {
-            var entry = state.viewer.items[state.viewer.index];
-            if (!entry || !state.viewer.side) {
+
+        $('viewerDownload').onclick = function () {
+            $('viewerSave').onclick();
+        };
+
+        $('viewerRename').onclick = function () {
+            var entry = viewerEntry();
+            if (!entry) {
                 return;
             }
-            pickFolder('phone', state.phone.path || state.phoneRoot, '저장할 폰 폴더').then(function (dest) {
-                if (!dest) {
+            closeViewer();
+            renameEntry(entry);
+        };
+
+        $('viewerDelete').onclick = function () {
+            var entry = viewerEntry();
+            if (!entry) {
+                return;
+            }
+            confirmDialog('삭제할까요?', entry.name + '\n\n삭제한 파일은 휴지통 없이 바로 지워집니다.',
+                '삭제', true).then(function (yes) {
+                if (!yes) {
                     return;
                 }
-                var progress = progressDialog('사진 저장 중');
-                FM.nas('download', {path: entry.path, destDir: dest}, function (percent, message) {
-                    progress.update(percent, message);
-                }).then(function (res) {
-                    progress.close();
-                    toast(res.name + ' 저장 완료');
+                var request = state.viewer.side === 'nas'
+                    ? FM.nas('delete', {paths: [entry.path]})
+                    : FM.local('delete', {paths: [entry.path]});
+                request.then(function () {
+                    toast('삭제했습니다.');
+                    state.viewer.items = state.viewer.items.filter(function (item) {
+                        return item.path !== entry.path;
+                    });
+                    if (!state.viewer.items.length) {
+                        closeViewer();
+                    } else {
+                        showViewer(Math.min(state.viewer.index, state.viewer.items.length - 1));
+                    }
+                    reload(false);
                 }).catch(function (error) {
-                    progress.close();
-                    toast(error.message || '저장하지 못했습니다.');
+                    toast(error.message || '삭제하지 못했습니다.');
                 });
             });
         };
 
-        var stage = $('vStage');
-        var startX = 0;
-        var startY = 0;
-        var startTime = 0;
-        var startDistance = 0;
-        var startScale = 1;
-        var startTx = 0;
-        var startTy = 0;
-        var lastTap = 0;
+        var stage = $('viewerStage');
+        var gesture = {
+            startX: 0,
+            startY: 0,
+            startTime: 0,
+            startDistance: 0,
+            startScale: 1,
+            startTx: 0,
+            startTy: 0,
+            lastTap: 0,
+            pinching: false
+        };
+
+        function distance(touches) {
+            var dx = touches[0].clientX - touches[1].clientX;
+            var dy = touches[0].clientY - touches[1].clientY;
+            return Math.sqrt(dx * dx + dy * dy) || 1;
+        }
 
         stage.addEventListener('touchstart', function (event) {
             if (event.touches.length === 2) {
-                startDistance = distance(event.touches);
-                startScale = state.viewer.scale;
-                startTx = state.viewer.tx;
-                startTy = state.viewer.ty;
-            } else if (event.touches.length === 1) {
-                startX = event.touches[0].clientX;
-                startY = event.touches[0].clientY;
-                startTime = Date.now();
-                startTx = state.viewer.tx;
-                startTy = state.viewer.ty;
-                var now = Date.now();
-                if (now - lastTap < 280) {
-                    state.viewer.scale = state.viewer.scale > 1 ? 1 : 2.5;
-                    state.viewer.tx = 0;
-                    state.viewer.ty = 0;
-                    applyTransform();
-                    lastTap = 0;
-                } else {
-                    lastTap = now;
-                }
+                gesture.pinching = true;
+                gesture.startDistance = distance(event.touches);
+                gesture.startScale = state.viewer.scale;
+                return;
+            }
+            if (event.touches.length !== 1) {
+                return;
+            }
+            gesture.pinching = false;
+            gesture.startX = event.touches[0].clientX;
+            gesture.startY = event.touches[0].clientY;
+            gesture.startTime = Date.now();
+            gesture.startTx = state.viewer.tx;
+            gesture.startTy = state.viewer.ty;
+            var now = Date.now();
+            if (now - gesture.lastTap < 280) {
+                toggleZoom();
+                gesture.lastTap = 0;
+            } else {
+                gesture.lastTap = now;
             }
         }, {passive: true});
 
         stage.addEventListener('touchmove', function (event) {
             if (event.touches.length === 2) {
-                event.preventDefault();
-                var ratio = distance(event.touches) / (startDistance || 1);
-                state.viewer.scale = Math.max(1, Math.min(5, startScale * ratio));
-                applyTransform();
-            } else if (event.touches.length === 1 && state.viewer.scale > 1) {
-                event.preventDefault();
-                var dx = event.touches[0].clientX - startX;
-                var dy = event.touches[0].clientY - startY;
-                state.viewer.tx = startTx + dx;
-                state.viewer.ty = startTy + dy;
-                applyTransform();
+                if (event.preventDefault) {
+                    event.preventDefault();
+                }
+                var ratio = distance(event.touches) / gesture.startDistance;
+                state.viewer.scale = Math.max(1, Math.min(5, gesture.startScale * ratio));
+                applyZoom();
+                return;
+            }
+            if (event.touches.length === 1 && state.viewer.scale > 1) {
+                if (event.preventDefault) {
+                    event.preventDefault();
+                }
+                var dx = event.touches[0].clientX - gesture.startX;
+                var dy = event.touches[0].clientY - gesture.startY;
+                state.viewer.tx = gesture.startTx + dx;
+                state.viewer.ty = gesture.startTy + dy;
+                applyZoom();
             }
         }, {passive: false});
 
         stage.addEventListener('touchend', function (event) {
-            if (event.touches.length > 0) {
+            if (event.touches && event.touches.length > 0) {
                 return;
             }
-            if (state.viewer.scale > 1) {
+            if (gesture.pinching || state.viewer.scale > 1) {
+                gesture.pinching = false;
                 return;
             }
-            var dx = (event.changedTouches[0].clientX - startX);
-            var dy = (event.changedTouches[0].clientY - startY);
-            var elapsed = Date.now() - startTime;
+            var touch = event.changedTouches && event.changedTouches[0];
+            if (!touch) {
+                return;
+            }
+            var dx = touch.clientX - gesture.startX;
+            var dy = touch.clientY - gesture.startY;
+            var elapsed = Date.now() - gesture.startTime;
             if (Math.abs(dx) > 60 && Math.abs(dy) < 90 && elapsed < 700) {
-                if (dx < 0) {
-                    showImage(state.viewer.index + 1);
-                } else {
-                    showImage(state.viewer.index - 1);
-                }
+                navigateViewer(dx < 0 ? 1 : -1);
             }
         }, {passive: true});
-
-        function distance(touches) {
-            var dx = touches[0].clientX - touches[1].clientX;
-            var dy = touches[0].clientY - touches[1].clientY;
-            return Math.sqrt(dx * dx + dy * dy);
-        }
     }
 
-    function bindPlayer() {
-        $('pClose').onclick = closePlayer;
-        $('pExternal').onclick = function () {
-            var entry = state.player.entry;
-            if (!entry) {
-                return;
-            }
-            openExternal(entry);
-        };
-        $('pSave').onclick = function () {
-            var entry = state.player.entry;
-            if (!entry || !state.player.side) {
-                return;
-            }
-            pickFolder('phone', state.phone.path || state.phoneRoot, '저장할 폰 폴더').then(function (dest) {
-                if (!dest) {
-                    return;
-                }
-                var progress = progressDialog('동영상 저장 중');
-                FM.nas('download', {path: entry.path, destDir: dest}, function (percent, message) {
-                    progress.update(percent, message);
-                }).then(function (res) {
-                    progress.close();
-                    toast(res.name + ' 저장 완료');
-                }).catch(function (error) {
-                    progress.close();
-                    toast(error.message || '저장하지 못했습니다.');
-                });
-            });
-        };
-    }
-
-    // -------------------------------------------------------------- back button
+    // ------------------------------------------------------------- back key
 
     window.fmHandleBack = function () {
-        if ($('player').classList.contains('on')) {
-            closePlayer();
-            return true;
-        }
-        if ($('viewer').classList.contains('on')) {
+        if (!$('viewerModal').classList.contains('hide')) {
             closeViewer();
             return true;
         }
-        if ($('progress').classList.contains('on')) {
+        if (!$('dialog').classList.contains('hide')) {
+            var cfg = state.dialogCfg;
+            closeDialog();
+            if (cfg && cfg.onCancel) {
+                cfg.onCancel();
+            }
             return true;
         }
-        if ($('modal').classList.contains('on')) {
-            closeModal();
+        if (!$('pickerModal').classList.contains('hide')) {
+            finishPicker(null);
+            return true;
+        }
+        if (!$('serverModal').classList.contains('hide')) {
+            closeServerModal();
+            return true;
+        }
+        if (!$('transferDrawer').classList.contains('hide')) {
+            $('transferDrawer').classList.add('hide');
+            return true;
+        }
+        if (!$('menuSheet').classList.contains('hide')) {
+            closeMenu();
             return true;
         }
         if (state.selecting) {
             clearSelection();
             return true;
         }
-        if (state.tab === 'settings') {
-            switchTab('phone');
+        var root = isNas() ? '/' : C.normalizePath(state.phone.root || state.phone.path);
+        if (C.normalizePath(currentPath()) !== root) {
+            goUp();
             return true;
         }
-        if (state.tab === 'fav') {
-            switchTab('phone');
-            return true;
-        }
-        if (state.tab === 'nas' && !state.connected) {
-            switchTab('phone');
-            return true;
-        }
-        if (!isAtRoot()) {
-            var parent = C.parentOf(currentPath());
-            if (state.tab === 'phone' && C.normalizePath(parent).length
-                < C.normalizePath(state.phoneRoot).length) {
-                parent = state.phoneRoot;
-            }
-            navigate(parent);
+        if (isNas()) {
+            switchSide('phone');
             return true;
         }
         return false;
     };
 
-    function renderBadBrowser() {
-        $('view-browse').classList.add('active');
-        $('pathbar').classList.add('hidden');
-        $('quick').classList.add('hidden');
-        $('toolbar').classList.add('hidden');
-        $('list').classList.add('hidden');
-        $('empty').classList.add('on');
-        $('emptyTitle').textContent = '앱에서 열어 주세요';
-        $('emptyHint').textContent = '이 화면은 NAS 파일매니저 앱 안에서만 폰 저장소와 시놀로지에 접근할 수 있습니다.';
-    }
+    // ------------------------------------------------------------ start up
 
-    // A page opened before the native layer reported itself still boots on DOM ready.
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', function () {
-            if (FM.hasNative) {
-                boot();
-            } else {
-                bindChrome();
-                applyViewChrome();
-                renderBadBrowser();
-                state.booted = true;
-            }
-        });
-    } else if (FM.hasNative) {
-        boot();
+        document.addEventListener('DOMContentLoaded', start);
     } else {
-        bindChrome();
-        applyViewChrome();
-        renderBadBrowser();
-        state.booted = true;
+        start();
     }
 })();

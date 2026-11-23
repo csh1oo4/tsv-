@@ -32,7 +32,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * 「NAS 파일매니저」 shell.
+ * 「SynoFile Pro」 shell.
  *
  * The whole screen is one WebView loading assets/index.html from file:///android_asset/.
  * Everything a WebView cannot do itself is handed to two Java bridges the page calls:
@@ -79,9 +79,9 @@ public class MainActivity extends Activity {
         server.setNasSource(nasBridge);
 
         FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(0xFFF6F8FB);
+        root.setBackgroundColor(0xFF0B0F19);
         webView = new WebView(this);
-        webView.setBackgroundColor(0xFFF6F8FB);
+        webView.setBackgroundColor(0xFF0B0F19);
         root.addView(webView, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(root);

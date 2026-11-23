@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="app_background">#FFF6F8FB</color>
-    <color name="ic_launcher_background">#FFEAF1FF</color>
+    <!-- The whole screen is the dark SynoFile Pro UI; the window behind the WebView matches
+         it so neither the cold start nor a rotation flashes white. -->
+    <color name="app_background">#FF0B0F19</color>
+    <color name="ic_launcher_background">#FF131A2A</color>
 </resources>

@@ -1,9 +1,9 @@
 /*
- * core.js — pure logic of 「NAS 파일매니저」: path handling, file typing, sorting,
- * filtering, size/date formatting and the loopback stream URLs. No DOM, no bridge.
+ * core.js — pure logic of 「SynoFile Pro」: path handling, file typing, sorting, filtering,
+ * size/date formatting, the loopback stream URLs, the server-address fields and the transfer
+ * bookkeeping. No DOM, no bridge: everything here is testable without a phone.
  *
- * It is loaded first in the app and is also what tools/tests/core.test.js runs under
- * Node, so every rule here is checked without a phone.
+ * Loaded first in the app, and also what tools/tests/suite.js checks under Node or V8.
  */
 (function (root) {
     'use strict';
@@ -13,6 +13,11 @@
     var VIDEO_EXT = ['mp4', 'm4v', 'mkv', 'mov', 'webm', 'avi', '3gp', '3gpp', 'ts', 'mts',
         'm2ts', 'mpg', 'mpeg', 'wmv', 'flv', 'asf', 'rm', 'rmvb', 'ogv'];
     var AUDIO_EXT = ['mp3', 'm4a', 'aac', 'flac', 'wav', 'ogg', 'opus', 'amr', 'wma'];
+
+    var SORT_KEYS = ['date', 'name', 'size'];
+    var SORT_LABELS = {date: '날짜순', name: '이름순', size: '크기순'};
+    var FILTER_KEYS = ['all', 'image', 'video', 'folder'];
+    var FILTER_LABELS = {all: '전체', image: '사진', video: '영상', folder: '폴더'};
 
     function normalizePath(path) {
         if (path === null || path === undefined) {
@@ -65,11 +70,12 @@
         if (!name) {
             return '';
         }
-        var dot = String(name).lastIndexOf('.');
-        if (dot < 0 || dot === String(name).length - 1) {
+        var text = String(name);
+        var dot = text.lastIndexOf('.');
+        if (dot < 0 || dot === text.length - 1) {
             return '';
         }
-        return String(name).substring(dot + 1).toLowerCase();
+        return text.substring(dot + 1).toLowerCase();
     }
 
     function hasExt(list, ext) {
@@ -99,6 +105,22 @@
             return 'audio';
         }
         return 'file';
+    }
+
+    /** '사진' / '영상' / '파일' — what the tile badges and the info sheet show. */
+    function kindLabel(name) {
+        var kind = kindOf(name);
+        return kind === 'image' ? '사진' : (kind === 'video' ? '영상'
+            : (kind === 'audio' ? '음악' : '파일'));
+    }
+
+    /** The short badge printed over a thumbnail: JPG, MP4, PDF … ('' for folders). */
+    function badgeOf(name) {
+        var ext = extOf(name);
+        if (ext) {
+            return ext.length > 4 ? ext.substring(0, 4).toUpperCase() : ext.toUpperCase();
+        }
+        return 'FILE';
     }
 
     function formatSize(bytes) {
@@ -144,6 +166,16 @@
             return (d.getMonth() + 1) + '월 ' + d.getDate() + '일';
         }
         return d.getFullYear() + '.' + (d.getMonth() + 1) + '.' + d.getDate();
+    }
+
+    /** "2026-11-24" for the folder subtitle. */
+    function formatDay(ms) {
+        var t = Number(ms);
+        if (!isFinite(t) || t <= 0) {
+            return '';
+        }
+        var d = new Date(t);
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
     }
 
     function compareText(a, b) {
@@ -209,6 +241,11 @@
         return out;
     }
 
+    /** The list as the screen draws it: filtered, then sorted. */
+    function visibleEntries(entries, filter, query, sortKey) {
+        return sortEntries(filterEntries(entries, filter, query), sortKey || 'date', 'asc');
+    }
+
     function countByKind(entries) {
         var counts = {image: 0, video: 0, folder: 0, file: 0};
         (entries || []).forEach(function (entry) {
@@ -228,12 +265,23 @@
         return counts;
     }
 
+    /** Files only — what a transfer can actually move. */
+    function fileCount(entries) {
+        var n = 0;
+        (entries || []).forEach(function (entry) {
+            if (entry && !entry.isDir) {
+                n++;
+            }
+        });
+        return n;
+    }
+
     function sanitizeName(raw) {
         var name = raw === null || raw === undefined ? '' : String(raw).trim();
         if (!name) {
             return '';
         }
-        name = name.replace(/[\\/:*?"<>|\r\n\t]/g, '_').replace(/\s+/g, ' ').trim();
+        name = name.replace(/[\\/:*?"<>\r\n\t]/g, '_').replace(/\s+/g, ' ').trim();
         if (name.length > 120) {
             var ext = extOf(name);
             var dot = name.lastIndexOf('.');
@@ -264,18 +312,56 @@
         return stem + '-' + Date.now() + (ext ? '.' + ext : '');
     }
 
+    /** UTF-8 bytes without TextEncoder (old WebViews, V8 in a test harness). */
+    function utf8Encode(value) {
+        var bytes = [];
+        for (var i = 0; i < value.length; i++) {
+            var code = value.charCodeAt(i);
+            if (code < 0x80) {
+                bytes.push(code);
+            } else if (code < 0x800) {
+                bytes.push(0xC0 | (code >> 6), 0x80 | (code & 0x3F));
+            } else if (code >= 0xD800 && code <= 0xDBFF && i + 1 < value.length
+                && value.charCodeAt(i + 1) >= 0xDC00 && value.charCodeAt(i + 1) <= 0xDFFF) {
+                var next = value.charCodeAt(i + 1);
+                var cp = 0x10000 + ((code - 0xD800) << 10) + (next - 0xDC00);
+                bytes.push(0xF0 | (cp >> 18), 0x80 | ((cp >> 12) & 0x3F),
+                    0x80 | ((cp >> 6) & 0x3F), 0x80 | (cp & 0x3F));
+                i++;
+            } else {
+                bytes.push(0xE0 | (code >> 12), 0x80 | ((code >> 6) & 0x3F), 0x80 | (code & 0x3F));
+            }
+        }
+        return bytes;
+    }
+
+    /** The other direction, for the same reason. */
+    function utf8Decode(bytes) {
+        var out = '';
+        for (var i = 0; i < bytes.length; i++) {
+            var b = bytes[i] & 0xFF;
+            if (b < 0x80) {
+                out += String.fromCharCode(b);
+            } else if (b >= 0xC0 && b < 0xE0 && i + 1 < bytes.length) {
+                out += String.fromCharCode(((b & 0x1F) << 6) | (bytes[++i] & 0x3F));
+            } else if (b >= 0xE0 && b < 0xF0 && i + 2 < bytes.length) {
+                out += String.fromCharCode(((b & 0x0F) << 12) | ((bytes[++i] & 0x3F) << 6)
+                    | (bytes[++i] & 0x3F));
+            } else if (b >= 0xF0 && i + 3 < bytes.length) {
+                var cp = ((b & 0x07) << 18) | ((bytes[++i] & 0x3F) << 12)
+                    | ((bytes[++i] & 0x3F) << 6) | (bytes[++i] & 0x3F);
+                cp -= 0x10000;
+                out += String.fromCharCode(0xD800 + (cp >> 10), 0xDC00 + (cp & 0x3FF));
+            }
+        }
+        return out;
+    }
+
     /** UTF-8 safe base64url for the loopback server's ?p= parameter. */
     function b64url(text) {
         var value = text === null || text === undefined ? '' : String(text);
-        var bytes;
-        if (typeof TextEncoder !== 'undefined') {
-            bytes = new TextEncoder().encode(value);
-        } else {
-            bytes = [];
-            for (var i = 0; i < value.length; i++) {
-                bytes.push(value.charCodeAt(i) & 0xff);
-            }
-        }
+        var bytes = typeof TextEncoder !== 'undefined'
+            ? new TextEncoder().encode(value) : utf8Encode(value);
         var binary = '';
         for (var j = 0; j < bytes.length; j++) {
             binary += String.fromCharCode(bytes[j]);
@@ -304,7 +390,11 @@
                 }
                 return new TextDecoder().decode(bytes);
             }
-            return binary;
+            var plain = [];
+            for (var j = 0; j < binary.length; j++) {
+                plain.push(binary.charCodeAt(j));
+            }
+            return utf8Decode(plain);
         } catch (e) {
             return '';
         }
@@ -368,7 +458,7 @@
             parts.push('사진 ' + counts.image);
         }
         if (counts.video) {
-            parts.push('동영상 ' + counts.video);
+            parts.push('영상 ' + counts.video);
         }
         if (counts.file) {
             parts.push('파일 ' + counts.file);
@@ -376,7 +466,118 @@
         return parts.join(' · ');
     }
 
+    // ------------------------------------------------------------ sort / filter
+
+    function sortLabel(key) {
+        return SORT_LABELS[key] || SORT_LABELS.date;
+    }
+
+    function nextSort(key) {
+        var i = SORT_KEYS.indexOf(key);
+        return SORT_KEYS[(i + 1) % SORT_KEYS.length];
+    }
+
+    function filterLabel(key) {
+        return FILTER_LABELS[key] || FILTER_LABELS.all;
+    }
+
+    function nextFilter(key) {
+        var i = FILTER_KEYS.indexOf(key);
+        return FILTER_KEYS[(i + 1) % FILTER_KEYS.length];
+    }
+
+    // ------------------------------------------------------------ server fields
+
+    /**
+     * The 주소 / 포트 boxes become one URL: "192.168.0.7" + "5001" -> https://192.168.0.7:5001.
+     * A host that already carries a scheme (or a path, as QuickConnect does) is left as typed.
+     */
+    function serverUrl(host, port) {
+        var h = host === null || host === undefined ? '' : String(host).trim();
+        if (!h) {
+            return '';
+        }
+        if (/^https?:\/\//i.test(h)) {
+            return h.replace(/\/+$/, '');
+        }
+        var p = port === null || port === undefined ? '' : String(port).trim().replace(/[^0-9]/g, '');
+        var secure = p !== '5000';
+        return (secure ? 'https://' : 'http://') + h.replace(/\/+$/, '') + (p ? ':' + p : '');
+    }
+
+    /** The other direction, so the settings form can open filled in from the saved server. */
+    function splitServerUrl(url) {
+        var raw = url === null || url === undefined ? '' : String(url).trim();
+        var out = {host: raw, port: '5001', secure: true};
+        if (!raw) {
+            out.host = '';
+            return out;
+        }
+        var match = /^(https?):\/\/([^/:]+)(?::(\d+))?/i.exec(raw);
+        if (!match) {
+            var bare = /^([^/:]+)(?::(\d+))?$/.exec(raw);
+            if (bare) {
+                out.host = bare[1];
+                out.port = bare[2] || '5001';
+                out.secure = out.port !== '5000';
+            }
+            return out;
+        }
+        out.host = match[2];
+        out.secure = match[1].toLowerCase() === 'https';
+        out.port = match[3] || (out.secure ? '5001' : '5000');
+        return out;
+    }
+
+    // --------------------------------------------------------------- transfers
+
+    function clampPercent(value) {
+        var n = Number(value);
+        if (!isFinite(n) || n < 0) {
+            return 0;
+        }
+        return Math.min(100, Math.round(n));
+    }
+
+    /** {running, done, failed} for the header badge and the drawer's summary line. */
+    function transferSummary(transfers) {
+        var out = {running: 0, done: 0, failed: 0};
+        (transfers || []).forEach(function (t) {
+            if (!t) {
+                return;
+            }
+            if (t.status === 'running') {
+                out.running++;
+            } else if (t.status === 'failed') {
+                out.failed++;
+            } else {
+                out.done++;
+            }
+        });
+        return out;
+    }
+
+    /** "동영상 12 · 사진 3" style line above the list. */
+    function transferLine(transfers) {
+        var s = transferSummary(transfers);
+        var parts = [];
+        if (s.running) {
+            parts.push('전송 중 ' + s.running);
+        }
+        if (s.done) {
+            parts.push('완료 ' + s.done);
+        }
+        if (s.failed) {
+            parts.push('실패 ' + s.failed);
+        }
+        return parts.join(' · ') || '전송 내역 없음';
+    }
+
     var API = {
+        IMAGE_EXT: IMAGE_EXT,
+        VIDEO_EXT: VIDEO_EXT,
+        SORT_KEYS: SORT_KEYS,
+        FILTER_KEYS: FILTER_KEYS,
         normalizePath: normalizePath,
         joinPath: joinPath,
         parentOf: parentOf,
@@ -386,11 +587,16 @@
         isVideo: isVideo,
         isAudio: isAudio,
         kindOf: kindOf,
+        kindLabel: kindLabel,
+        badgeOf: badgeOf,
         formatSize: formatSize,
         formatDate: formatDate,
+        formatDay: formatDay,
         sortEntries: sortEntries,
         filterEntries: filterEntries,
+        visibleEntries: visibleEntries,
         countByKind: countByKind,
+        fileCount: fileCount,
         sanitizeName: sanitizeName,
         uniqueName: uniqueName,
         b64url: b64url,
@@ -398,7 +604,16 @@
         streamUrl: streamUrl,
         breadcrumbs: breadcrumbs,
         displayPath: displayPath,
-        summary: summary
+        summary: summary,
+        sortLabel: sortLabel,
+        nextSort: nextSort,
+        filterLabel: filterLabel,
+        nextFilter: nextFilter,
+        serverUrl: serverUrl,
+        splitServerUrl: splitServerUrl,
+        clampPercent: clampPercent,
+        transferSummary: transferSummary,
+        transferLine: transferLine
     };
 
     root.FMCore = API;

@@ -10,8 +10,8 @@ android {
         applicationId "com.choi.filemanager"
         minSdk 26
         targetSdk 34
-        versionCode 1
-        versionName "1.0"
+        versionCode 2
+        versionName "1.1"
     }
 
     // Fixed key: the certificate is identical in every build, so v1.1 / v1.2 install as an
@@ -113,7 +113,11 @@ tasks.register('verifyApkSignature') {
         if (!text.contains('CN=NAS FileManager')) {
             throw new GradleException('APK is not signed with the fixed NAS FileManager key')
         }
-        println 'APK signed with the fixed NAS FileManager key'
+        // The v1.0 certificate, byte for byte: v1.1 installs over it as an update.
+        if (!text.toLowerCase().contains('42297011297aed34a76fd5325267f9f30c52258da96835f1d15179475f494623')) {
+            throw new GradleException('APK certificate fingerprint does not match v1.0')
+        }
+        println 'APK signed with the fixed NAS FileManager key (sha256 42297011…)'
     }
 }
 

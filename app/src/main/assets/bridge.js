@@ -3,7 +3,11 @@
  *
  * Native code answers a bridge call asynchronously through window.fmCallback(reqId, ok, json);
  * this file turns that into promises so app.js can simply `await FM.nas('list', {path})`.
- * Transfers report window.fmProgress(reqId, percent, message).
+ * Transfers report window.fmProgress(reqId, percent, message); percent -1 means "unknown".
+ *
+ * Two shapes come back from Java: the phone bridge answers flat ({path, entries…}) while the
+ * NAS bridge wraps the same object as {success, data:{…}}. unwrap() flattens both, so the page
+ * only ever deals with one shape.
  *
  * When the page is opened in a plain browser (no bridge), FM.hasNative stays false and the
  * app shows the "앱에서 열어 주세요" notice instead of failing on every tap.
@@ -14,6 +18,31 @@
     var pending = {};
     var progressHandlers = {};
     var seq = 0;
+
+    /** Flattens {success, data:{a,b}} into {success, a, b}; leaves flat payloads alone. */
+    function unwrap(data) {
+        if (!data || typeof data !== 'object' || Array.isArray(data)) {
+            return {};
+        }
+        var inner = data.data;
+        if (!inner || typeof inner !== 'object' || Array.isArray(inner)) {
+            return data;
+        }
+        var out = {};
+        var key;
+        for (key in data) {
+            if (Object.prototype.hasOwnProperty.call(data, key) && key !== 'data') {
+                out[key] = data[key];
+            }
+        }
+        for (key in inner) {
+            if (Object.prototype.hasOwnProperty.call(inner, key)) {
+                out[key] = inner[key];
+            }
+        }
+        out.success = data.success !== false;
+        return out;
+    }
 
     window.fmCallback = function (reqId, ok, json) {
         var entry = pending[reqId];
@@ -28,6 +57,7 @@
         } catch (e) {
             data = {};
         }
+        data = unwrap(data);
         if (ok && data.success !== false) {
             entry.resolve(data);
         } else {
@@ -97,10 +127,12 @@
         });
     }
 
+    /** DSM File Station: login, status, list, mkdir, rename, delete, copyMove, upload… */
     FM.nas = function (action, params, onProgress) {
         return request('NasBridge', action, params, onProgress);
     };
 
+    /** Phone storage: status, list, mkdir, rename, delete, copyMove, open, share… */
     FM.local = function (action, params) {
         return request('LocalFileBridge', action, params);
     };
@@ -155,7 +187,12 @@
         }
     };
 
-    /** Loopback URL for <img>/<video>: route 'f'/'lt' for the phone, 's'/'nt' for the NAS. */
+    /**
+     * Loopback URL for <img>/<video>.
+     * route 'f'/'lt' is the phone (LocalServer reads the file itself), 's'/'nt' is the NAS
+     * (LocalServer proxies with the DSM session). size: a pixel width for phone thumbs,
+     * 'small'|'medium'|'large' for DSM thumbs.
+     */
     FM.mediaUrl = function (path, isNas, thumbnail, size) {
         var base = window.fmServerBase || '';
         var token = window.fmServerToken || '';
