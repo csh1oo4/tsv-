@@ -190,7 +190,7 @@ public class AlarmService extends Service {
 
     /**
      * Builds a looping-capable player for one sound spec:
-     * {soundType: builtin|device|default, soundId: arcade|trumpet|cuckoo|aurora, soundUri: content://..}
+     * {soundType: builtin|device|default, soundId: arcade|trumpet|cuckoo|aurora|reveille, soundUri: content://..}
      */
     private static MediaPlayer openPlayer(Context context, JSONObject spec) {
         String type = spec.optString("soundType", "builtin");
@@ -218,7 +218,8 @@ public class AlarmService extends Service {
     private static Uri builtinUri(Context context, String soundId) {
         String name = "aurora";
         if ("arcade".equals(soundId) || "trumpet".equals(soundId)
-                || "cuckoo".equals(soundId) || "aurora".equals(soundId)) {
+                || "cuckoo".equals(soundId) || "aurora".equals(soundId)
+                || "reveille".equals(soundId)) {
             name = soundId;
         }
         int resId = context.getResources().getIdentifier("alarm_" + name, "raw",
