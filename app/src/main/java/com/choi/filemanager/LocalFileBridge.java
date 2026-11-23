@@ -207,7 +207,6 @@ public final class LocalFileBridge {
                 {"Movies", "동영상"},
                 {"Music", "음악"},
                 {"Documents", "문서"},
-                {"Screenshots", "스크린샷"},
                 {"Pictures/Screenshots", "스크린샷"},
                 {"Android/media", "앱 미디어"},
         };

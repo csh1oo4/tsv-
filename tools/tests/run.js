@@ -237,11 +237,23 @@ check('app.js does not use XMLHttpRequest', appJs.indexOf('XMLHttpRequest') < 0)
 
 // ---------------------------------------------------------------- summary
 
-const total = passed + failures.length;
-if (failures.length === 0) {
-    console.log('PASS ' + total + ' checks');
-    process.exit(0);
+function finish() {
+    const total = passed + failures.length;
+    if (failures.length === 0) {
+        console.log('PASS ' + total + ' checks');
+        process.exit(0);
+    }
+    console.log('FAIL ' + failures.length + ' of ' + total + ' checks');
+    failures.forEach((failure) => console.log('  ✗ ' + failure));
+    process.exit(1);
 }
-console.log('FAIL ' + failures.length + ' of ' + total + ' checks');
-failures.forEach((failure) => console.log('  ✗ ' + failure));
-process.exit(1);
+
+const {renderSmoke} = require('./dom.js');
+
+renderSmoke().then((results) => {
+    results.forEach((result) => check(result.name, result.ok, result.detail));
+    finish();
+}).catch((error) => {
+    check('render smoke test ran', false, error && error.message ? error.message : String(error));
+    finish();
+});
