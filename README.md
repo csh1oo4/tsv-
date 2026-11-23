@@ -135,6 +135,39 @@ time** (no `text/babel`, no Babel at runtime), so the app still starts with no n
   `localStorage` (`todaywork_v33_sound`) plus 톡톡/슉슉/띠링 preview buttons.
 - versionCode 12 / versionName 2.1, same fixed signing key.
 
+## v2.5.1 — 기상나팔 실제 음원 · 키패드 시/분 개별 편집 · 설정 탭 정리
+
+`versionCode 21`, `versionName 2.5.1`. 승현 님 스크린샷 피드백 3건을 반영했다.
+
+- **🎺 기상나팔 알람음을 실제 녹음 MP3로 교체** — 합성 WAV(`res/raw/alarm_reveille.wav`, 생성
+  스크립트 `tools/generate_alarm_reveille.py`)를 지우고, 보내 주신
+  `군대 기상나팔.mp3`(MPEG-1 Layer III, 128kbps, 44.1kHz, 모노, 562,573 bytes ≈ 35초)를
+  `res/raw/alarm_reveille.mp3`로 넣었다. 리소스 이름(`alarm_reveille`)이 같아
+  `AlarmService.builtinUri()`의 `getIdentifier("alarm_" + "reveille", "raw", ...)` 경로와
+  미리듣기가 그대로 이 MP3를 재생한다(Java 수정 없음).
+- **⌨️ 알람 시간 키패드 — 시/분 개별 포커스 + 첫 숫자 덮어쓰기** — 알람 설정의 시 숫자를
+  누르면 `hour` 포커스로, 분 숫자를 누르면 `minute` 포커스로 키패드가 열린다
+  (`openAlarmTimePad(alarm, focus)`). 키패드 안에서도 시(`06`)·분(`15`) 숫자를 각각 터치해
+  포커스를 바꿀 수 있고, 선택된 칸은 파란 테두리·배경(`border-blue-500 bg-blue-50`)과
+  `시 편집 중`·`분 편집 중` 라벨로 표시된다. 포커스가 잡힌 칸은 **첫 숫자를 누르는 순간 기존
+  값이 지워지고** 새 입력이 시작되므로(`fresh`) `C`를 누를 필요가 없다. 시는 두 자리를 채우거나
+  한 자리로 끝나는 값(`2`~`9`)을 누르면 자동으로 분 칸으로 넘어가고, `0`·`1`로 시작하면 두 번째
+  자리를 기다린다. 예: 시 포커스에서 `6` → `06`(→ 분으로 이동), 분 포커스에서 `1`,`5` → `01`→`15`.
+  `C`(시·분 모두 초기화)·`⌫`(포커스 칸 한 글자 지우기)는 그대로다. 구현은 순수 함수
+  `timePadState()`·`timePadPart()`·`timePadValue()`·`timePadPress()`·`timePadBack()`·
+  `timePadClear()`·`timePadFocusAt()`로 분리해 V8에서 직접 단위 테스트한다.
+- **🧹 설정 탭 정리** — `회사 / 현장명` + `본인 근무조 선택 (알람 연동)` 카드를 설정 탭 최상단의
+  `🔄 앱 업데이트` 카드 **바로 아래**로 옮겼다(실시간 공유 카드보다 위). `🔊 앱 효과음` 카드는
+  제목과 우측 ON/OFF 체크박스만 남기고 설명 문구(`터치하면 톡톡 · …`)와 `[톡톡] [슉슉] [띠링]`
+  미리듣기 버튼 3개를 삭제했다. `근무시간표 설정`(주간·야간·오후 시간) 섹션과 `기기 캘린더 연동`
+  섹션(`연동된 캘린더 N개 · 달력에 일정이 함께 표시됩니다` 목록 포함)을 통째로 삭제했다. 맨 아래
+  `휴대폰 캘린더 연동 및 공유` 카드(내보내기·가져오기·근무표 이미지 저장/카톡 공유)는 그대로 둔다.
+- versionCode 21 / versionName 2.5.1, 고정 서명 키(`app/tsv-duty-fixed.p12`) 그대로라 덮어쓰기
+  설치된다. 웹앱 `APP_VERSION`도 2.5.1.
+- 검증: `tmp/v251/check251.py`가 v2.4 회귀 84종 + v2.5 기능(설비공유·급여기준·기상나팔 브리지)
+  + v2.5.1 신규(키패드 시/분 포커스·덮어쓰기 단위/렌더, 설정 탭 순서·삭제 요소 부재, MP3/WAV
+  리소스)를 전수 통과.
+
 ## v2.5 — 설비공유 메뉴 원격 공개/숨김 · 급여기준 근태요약 · 알람 시간 키패드 · 기상나팔
 
 `versionCode 20`, `versionName 2.5`.
@@ -157,12 +190,14 @@ time** (no `text/babel`, no Babel at runtime), so the app still starts with no n
   1분 단위 입력` 버튼)를 누르면 큰 0~9 키패드 모달이 뜬다. 4자리(`0637` → `06:37`), 3자리
   (`637` → `06:37`), 1~2자리(`7` → `07:00`)를 받고 `⌫`·`C`·확인·취소가 동작한다. 검증은
   시 00~23(오전/오후를 고르면 01~12를 12시간제로 풀어 24시간제로 변환)·분 00~59이며,
-  잘못된 값은 저장 전에 안내만 띄운다(`timePadRead()`).
+  잘못된 값은 저장 전에 안내만 띄운다(`timePadRead()`). (v2.5.1에서 시/분 개별 포커스·첫 숫자
+  덮어쓰기로 개선했다 — 아래 v2.5.1 참고.)
 - **🎺 군대 기상나팔 알람음** — `res/raw/alarm_reveille.wav`(44.1kHz·16bit·모노, 9.0초, 피크
   -1dBFS)를 추가하고 알람음 목록에 `🎺 군대 기상나팔`(id `reveille`)을 넣었다. 음원은
   `tools/generate_alarm_reveille.py`가 뷰글 음역(C4·E4·G4·C5·E5·G5)만으로 기상나팔 선율을
   합성한다(배음 6개·어택 스쿱·긴 음 비브라토·짧은 홀 리버브). `AlarmService.builtinUri()`가
   `reveille`를 `alarm_reveille`로 매핑하므로 실제 알람·미리듣기 모두 같은 경로로 재생된다.
+  (v2.5.1에서 이 합성 WAV를 승현 님이 보내신 실제 기상나팔 MP3로 교체했다 — 아래 v2.5.1 참고.)
 - versionCode 20 / versionName 2.5, 고정 서명 키(`app/tsv-duty-fixed.p12`) 그대로라 덮어쓰기
   설치된다. 웹앱 `APP_VERSION`도 2.5.
 - 검증: `tmp/v25/check25.py`가 v2.4 회귀 84종 + v2.5 신규(메뉴 공개/숨김 렌더, 마스터 토글

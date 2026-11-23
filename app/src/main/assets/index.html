@@ -531,7 +531,7 @@ const {
   useRef,
   useMemo
 } = React;
-const APP_VERSION = "2.5";
+const APP_VERSION = "2.5.1";
 
 // 🔊 앱 효과음 — 외부 오디오 파일 없이 Web Audio API로 만드는 짧은 소리
 const SFX_STORAGE_KEY = "todaywork_v33_sound";
@@ -1347,6 +1347,77 @@ const timePadRead = (digits, pm) => {
     error
   };
 };
+/* ---------------------------------------------------------------- v2.5.1 알람 시간 키패드
+   시/분을 각각 따로 편집한다. 숫자를 누르면 그 칸의 기존 값이 지워지고 새로 입력되며(fresh),
+   한 자리로 끝나는 시(2~9)나 두 자리를 채운 시는 자동으로 분 칸으로 넘어간다. */
+const timePadState = (time, focus) => {
+  const parts = String(time || "07:00").split(":");
+  const hh = Math.max(0, Math.min(23, parseInt(parts[0], 10) || 0));
+  const mm = Math.max(0, Math.min(59, parseInt(parts[1], 10) || 0));
+  return {
+    open: true,
+    focus: focus === "minute" ? "minute" : "hour",
+    fresh: true,
+    hour: "",
+    minute: "",
+    baseHour: String(hh % 12 === 0 ? 12 : hh % 12).padStart(2, "0"),
+    baseMinute: String(mm).padStart(2, "0"),
+    pm: hh >= 12
+  };
+};
+const timePadPart = (buf, base) => {
+  const raw = String(buf == null ? "" : buf).replace(/[^0-9]/g, "").slice(0, 2);
+  if (!raw) return String(base == null ? "00" : base).padStart(2, "0");
+  return raw.padStart(2, "0");
+};
+const timePadValue = st => {
+  const base = st || {};
+  return timePadPart(base.hour, base.baseHour) + timePadPart(base.minute, base.baseMinute);
+};
+const timePadFocusAt = (st, focus) => Object.assign({}, st, {
+  focus: focus === "minute" ? "minute" : "hour",
+  fresh: true
+});
+const timePadPress = (st, digit) => {
+  const base = st || {};
+  const d = String(digit == null ? "" : digit).replace(/[^0-9]/g, "").slice(-1);
+  if (!d) return Object.assign({}, base);
+  if ((base.focus || "hour") === "hour") {
+    const typed = (base.fresh ? "" : String(base.hour || "")) + d;
+    const buf = typed.slice(0, 2);
+    const hourDone = buf.length >= 2 || d !== "0" && d !== "1";
+    return Object.assign({}, base, {
+      hour: buf,
+      fresh: hourDone,
+      focus: hourDone ? "minute" : "hour"
+    });
+  }
+  const typed = (base.fresh ? "" : String(base.minute || "")) + d;
+  return Object.assign({}, base, {
+    minute: typed.slice(0, 2),
+    fresh: false
+  });
+};
+const timePadBack = st => {
+  const base = st || {};
+  if ((base.focus || "hour") === "hour") {
+    const buf = String(base.hour || "").slice(0, -1);
+    return Object.assign({}, base, {
+      hour: buf,
+      fresh: !buf
+    });
+  }
+  const buf = String(base.minute || "").slice(0, -1);
+  return Object.assign({}, base, {
+    minute: buf,
+    fresh: !buf
+  });
+};
+const timePadClear = st => Object.assign({}, st || {}, {
+  hour: "",
+  minute: "",
+  fresh: true
+});
 
 // 메인 근무 스타일 (주 / 야 / 오 / 휴)
 const SHIFT_META = {
@@ -2203,10 +2274,10 @@ function App() {
   const [masterCodeInput, setMasterCodeInput] = useState("");
   // v2.5 — 설비공유 메뉴 공개 여부 (마스터가 전체에 켜고 끈다. 기본값 공개)
   const [equipmentMenuOpen, setEquipmentMenuOpen] = useState(() => loadState("equipmentMenuOpen", true));
-  // v2.5 — 알람 시간 숫자 키패드
-  const [timePadOpen, setTimePadOpen] = useState(false);
-  const [timePadDigits, setTimePadDigits] = useState("");
-  const [timePadPM, setTimePadPM] = useState(false);
+  // v2.5.1 — 알람 시간 숫자 키패드 (시/분 개별 포커스 · 첫 숫자 덮어쓰기)
+  const [timePad, setTimePad] = useState(() => Object.assign(timePadState("07:00", "hour"), {
+    open: false
+  }));
 
   // 로컬 스토리지 동기화
   useEffect(() => {
@@ -2489,16 +2560,14 @@ function App() {
   }, [equipmentMenuOpen, activeTab]);
   // 알람 설정 창을 닫으면 숫자 키패드도 함께 닫는다.
   useEffect(() => {
-    if (!alarmModalOpen) setTimePadOpen(false);
+    if (!alarmModalOpen) setTimePad(prev => prev && prev.open ? Object.assign({}, prev, {
+      open: false
+    }) : prev);
   }, [alarmModalOpen]);
-  const openAlarmTimePad = alarm => {
+  // 시 숫자를 누르면 시부터, 분 숫자를 누르면 분부터 바로 편집한다.
+  const openAlarmTimePad = (alarm, focus) => {
     const a = normalizeAlarm(alarm || {});
-    const parts = String(a.time || "07:00").split(":");
-    const hh = String(parseInt(parts[0], 10) || 0).padStart(2, "0");
-    const mm = String(parseInt(parts[1], 10) || 0).padStart(2, "0");
-    setTimePadDigits(hh + mm);
-    setTimePadPM(parseInt(parts[0], 10) >= 12);
-    setTimePadOpen(true);
+    setTimePad(timePadState(a.time, focus));
     playSfx("tap");
   };
 
@@ -5102,6 +5171,97 @@ function App() {
     className: "w-full py-2.5 rounded-xl bg-blue-500 text-white text-xs font-extrabold"
   }, "\uC9C0\uAE08 \uC5C5\uB370\uC774\uD2B8 (v", updateState.latest.version, ")")), /*#__PURE__*/React.createElement("section", {
     className: "p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: "text-xs font-bold text-slate-500"
+  }, "\uD68C\uC0AC / \uD604\uC7A5\uBA85"), /*#__PURE__*/React.createElement("input", {
+    type: "text",
+    value: companyName,
+    onChange: e => setCompanyName(e.target.value),
+    className: "mt-1 w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-sm font-bold text-slate-900"
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: "text-xs font-bold text-slate-500 block mb-1.5"
+  }, "\uBCF8\uC778 \uADFC\uBB34\uC870 \uC120\uD0DD (\uC54C\uB78C \uC5F0\uB3D9)"), /*#__PURE__*/React.createElement("div", {
+    className: "space-y-2"
+  }, groups.map((g, idx) => /*#__PURE__*/React.createElement("div", {
+    key: g.id,
+    onClick: () => {
+      setMyGroupId(g.id);
+      playSfx("save");
+      notify(`본인 근무조가 '${g.name}'로 저장되어 알람과 연동되었습니다.`);
+    },
+    className: `p-3 rounded-xl border cursor-pointer transition ${myGroupId === g.id ? "bg-white border-blue-600 ring-2 ring-blue-100" : "bg-white border-slate-200"}`
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between mb-2"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "radio",
+    checked: myGroupId === g.id,
+    onChange: () => setMyGroupId(g.id),
+    className: "accent-blue-600 w-4 h-4"
+  }), /*#__PURE__*/React.createElement("input", {
+    type: "text",
+    value: g.name,
+    onClick: e => e.stopPropagation(),
+    onChange: e => setGroups(prev => prev.map((item, i) => i === idx ? {
+      ...item,
+      name: e.target.value
+    } : item)),
+    className: "w-20 font-extrabold text-sm text-slate-900 bg-transparent border-b border-transparent focus:border-blue-500 focus:outline-none"
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2",
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-[11px] text-slate-400"
+  }, "\uB2EC\uB825 \uC0C9\uC0C1"), /*#__PURE__*/React.createElement("input", {
+    type: "color",
+    value: g.color,
+    onChange: e => setGroups(prev => prev.map((item, i) => i === idx ? {
+      ...item,
+      color: e.target.value
+    } : item)),
+    className: "w-6 h-6 rounded cursor-pointer border-0"
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-3 gap-2 text-xs",
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "col-span-2"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] text-slate-400 block"
+  }, "\uADFC\uBB34\uC790 \uC774\uB984"), /*#__PURE__*/React.createElement("input", {
+    type: "text",
+    value: g.members,
+    onChange: e => setGroups(prev => prev.map((item, i) => i === idx ? {
+      ...item,
+      members: e.target.value
+    } : item)),
+    placeholder: "\uC608: \uD64D\uAE38\uB3D9, \uAE40\uCCA0\uC218",
+    className: "w-full px-2 py-1 rounded bg-slate-50 border border-slate-200 text-xs"
+  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] text-slate-400 block"
+  }, "\uC2DC\uC791 \uC704\uCE58(\uC77C)"), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    value: g.offset,
+    onChange: e => setGroups(prev => prev.map((item, i) => i === idx ? {
+      ...item,
+      offset: Number(e.target.value) || 0
+    } : item)),
+    className: "w-full px-2 py-1 rounded bg-slate-50 border border-slate-200 text-xs text-center font-bold"
+  })))))), /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      const nextNum = groups.length + 1;
+      const label = String.fromCharCode(64 + nextNum) + "조";
+      setGroups(prev => [...prev, {
+        id: "G" + Date.now(),
+        name: label,
+        color: "#8b5cf6",
+        members: "",
+        offset: 0
+      }]);
+    },
+    className: "mt-2 w-full py-2 rounded-xl border border-dashed border-slate-300 text-xs font-bold text-slate-600 hover:bg-white"
+  }, "+ \uADFC\uBB34\uC870 \uCD94\uAC00 (4\uC870 \uC774\uC0C1 \uD655\uC7A5)"))), /*#__PURE__*/React.createElement("section", {
+    className: "p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between"
   }, /*#__PURE__*/React.createElement("h3", {
@@ -5160,9 +5320,7 @@ function App() {
     className: "min-w-0"
   }, /*#__PURE__*/React.createElement("h3", {
     className: "text-xs font-extrabold text-slate-800"
-  }, "\uD83D\uDD0A \uC571 \uD6A8\uACFC\uC74C"), /*#__PURE__*/React.createElement("p", {
-    className: "text-[11px] text-slate-400 mt-0.5"
-  }, "\uD130\uCE58\uD558\uBA74 \uD1A1\uD1A1 \xB7 \uB2EC\uB825 \uB118\uAE30\uBA74 \uC289\uC289 \xB7 \uC800\uC7A5\uD558\uBA74 \uB760\uB9C1")), /*#__PURE__*/React.createElement("input", {
+  }, "\uD83D\uDD0A \uC571 \uD6A8\uACFC\uC74C")), /*#__PURE__*/React.createElement("input", {
     type: "checkbox",
     checked: soundEnabled,
     onChange: e => {
@@ -5172,21 +5330,7 @@ function App() {
     },
     "data-sfx": "none",
     className: "accent-blue-600 w-5 h-5 shrink-0"
-  })), /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center gap-1.5"
-  }, /*#__PURE__*/React.createElement("button", {
-    onClick: () => playAppSound("tap", true),
-    "data-sfx": "none",
-    className: "flex-1 py-1.5 rounded-lg bg-white border border-slate-200 text-[11px] font-bold text-slate-600 active:scale-95 transition"
-  }, "\uD1A1\uD1A1"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => playAppSound("swipe", true),
-    "data-sfx": "none",
-    className: "flex-1 py-1.5 rounded-lg bg-white border border-slate-200 text-[11px] font-bold text-slate-600 active:scale-95 transition"
-  }, "\uC289\uC289"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => playAppSound("save", true),
-    "data-sfx": "none",
-    className: "flex-1 py-1.5 rounded-lg bg-white border border-slate-200 text-[11px] font-bold text-slate-600 active:scale-95 transition"
-  }, "\uB760\uB9C1"))), /*#__PURE__*/React.createElement("div", {
+  }))), /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h2", {
     className: "text-lg font-extrabold text-slate-900"
@@ -5290,97 +5434,6 @@ function App() {
     className: "text-[10px] text-amber-700/70"
   }, "\uC778\uC99D \uC0C1\uD0DC\uB294 \uC774 \uAE30\uAE30\uC5D0\uB9CC \uC800\uC7A5\uB429\uB2C8\uB2E4.")), /*#__PURE__*/React.createElement("section", {
     className: "p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3"
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
-    className: "text-xs font-bold text-slate-500"
-  }, "\uD68C\uC0AC / \uD604\uC7A5\uBA85"), /*#__PURE__*/React.createElement("input", {
-    type: "text",
-    value: companyName,
-    onChange: e => setCompanyName(e.target.value),
-    className: "mt-1 w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-sm font-bold text-slate-900"
-  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
-    className: "text-xs font-bold text-slate-500 block mb-1.5"
-  }, "\uBCF8\uC778 \uADFC\uBB34\uC870 \uC120\uD0DD (\uC54C\uB78C \uC5F0\uB3D9)"), /*#__PURE__*/React.createElement("div", {
-    className: "space-y-2"
-  }, groups.map((g, idx) => /*#__PURE__*/React.createElement("div", {
-    key: g.id,
-    onClick: () => {
-      setMyGroupId(g.id);
-      playSfx("save");
-      notify(`본인 근무조가 '${g.name}'로 저장되어 알람과 연동되었습니다.`);
-    },
-    className: `p-3 rounded-xl border cursor-pointer transition ${myGroupId === g.id ? "bg-white border-blue-600 ring-2 ring-blue-100" : "bg-white border-slate-200"}`
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center justify-between mb-2"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center gap-2"
-  }, /*#__PURE__*/React.createElement("input", {
-    type: "radio",
-    checked: myGroupId === g.id,
-    onChange: () => setMyGroupId(g.id),
-    className: "accent-blue-600 w-4 h-4"
-  }), /*#__PURE__*/React.createElement("input", {
-    type: "text",
-    value: g.name,
-    onClick: e => e.stopPropagation(),
-    onChange: e => setGroups(prev => prev.map((item, i) => i === idx ? {
-      ...item,
-      name: e.target.value
-    } : item)),
-    className: "w-20 font-extrabold text-sm text-slate-900 bg-transparent border-b border-transparent focus:border-blue-500 focus:outline-none"
-  })), /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center gap-2",
-    onClick: e => e.stopPropagation()
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "text-[11px] text-slate-400"
-  }, "\uB2EC\uB825 \uC0C9\uC0C1"), /*#__PURE__*/React.createElement("input", {
-    type: "color",
-    value: g.color,
-    onChange: e => setGroups(prev => prev.map((item, i) => i === idx ? {
-      ...item,
-      color: e.target.value
-    } : item)),
-    className: "w-6 h-6 rounded cursor-pointer border-0"
-  }))), /*#__PURE__*/React.createElement("div", {
-    className: "grid grid-cols-3 gap-2 text-xs",
-    onClick: e => e.stopPropagation()
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "col-span-2"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "text-[10px] text-slate-400 block"
-  }, "\uADFC\uBB34\uC790 \uC774\uB984"), /*#__PURE__*/React.createElement("input", {
-    type: "text",
-    value: g.members,
-    onChange: e => setGroups(prev => prev.map((item, i) => i === idx ? {
-      ...item,
-      members: e.target.value
-    } : item)),
-    placeholder: "\uC608: \uD64D\uAE38\uB3D9, \uAE40\uCCA0\uC218",
-    className: "w-full px-2 py-1 rounded bg-slate-50 border border-slate-200 text-xs"
-  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
-    className: "text-[10px] text-slate-400 block"
-  }, "\uC2DC\uC791 \uC704\uCE58(\uC77C)"), /*#__PURE__*/React.createElement("input", {
-    type: "number",
-    value: g.offset,
-    onChange: e => setGroups(prev => prev.map((item, i) => i === idx ? {
-      ...item,
-      offset: Number(e.target.value) || 0
-    } : item)),
-    className: "w-full px-2 py-1 rounded bg-slate-50 border border-slate-200 text-xs text-center font-bold"
-  })))))), /*#__PURE__*/React.createElement("button", {
-    onClick: () => {
-      const nextNum = groups.length + 1;
-      const label = String.fromCharCode(64 + nextNum) + "조";
-      setGroups(prev => [...prev, {
-        id: "G" + Date.now(),
-        name: label,
-        color: "#8b5cf6",
-        members: "",
-        offset: 0
-      }]);
-    },
-    className: "mt-2 w-full py-2 rounded-xl border border-dashed border-slate-300 text-xs font-bold text-slate-600 hover:bg-white"
-  }, "+ \uADFC\uBB34\uC870 \uCD94\uAC00 (4\uC870 \uC774\uC0C1 \uD655\uC7A5)"))), /*#__PURE__*/React.createElement("section", {
-    className: "p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between"
   }, /*#__PURE__*/React.createElement("h3", {
@@ -5408,70 +5461,6 @@ function App() {
     onClick: () => setPattern(prev => prev.slice(0, -1)),
     className: "w-8 h-8 rounded-full border border-slate-200 text-slate-400 text-xs font-bold"
   }, "-"))), /*#__PURE__*/React.createElement("section", {
-    className: "p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2.5"
-  }, /*#__PURE__*/React.createElement("h3", {
-    className: "text-xs font-extrabold text-slate-800"
-  }, "\uADFC\uBB34\uC2DC\uAC04\uD45C \uC124\uC815"), ["주", "야", "오"].map(code => /*#__PURE__*/React.createElement("div", {
-    key: code,
-    className: "flex items-center justify-between bg-white p-2.5 rounded-xl border border-slate-200"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "text-xs font-extrabold text-slate-800"
-  }, shiftTimes[code].title, " (", code, ")"), /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center gap-1.5 text-xs"
-  }, /*#__PURE__*/React.createElement("input", {
-    type: "time",
-    value: shiftTimes[code].start,
-    onChange: e => setShiftTimes(prev => ({
-      ...prev,
-      [code]: {
-        ...prev[code],
-        start: e.target.value
-      }
-    })),
-    className: "bg-slate-50 border border-slate-200 rounded px-1.5 py-1 font-semibold"
-  }), /*#__PURE__*/React.createElement("span", null, "~"), /*#__PURE__*/React.createElement("input", {
-    type: "time",
-    value: shiftTimes[code].end,
-    onChange: e => setShiftTimes(prev => ({
-      ...prev,
-      [code]: {
-        ...prev[code],
-        end: e.target.value
-      }
-    })),
-    className: "bg-slate-50 border border-slate-200 rounded px-1.5 py-1 font-semibold"
-  }))))), /*#__PURE__*/React.createElement("section", {
-    className: "p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center justify-between"
-  }, /*#__PURE__*/React.createElement("h3", {
-    className: "text-xs font-extrabold text-slate-800"
-  }, "\uAE30\uAE30 \uCE98\uB9B0\uB354 \uC5F0\uB3D9"), /*#__PURE__*/React.createElement("span", {
-    className: "text-[10px] font-bold text-slate-400"
-  }, deviceCalState.status)), deviceCalState.available && !deviceCalState.granted && /*#__PURE__*/React.createElement("button", {
-    onClick: () => {
-      try {
-        window.AndroidCalendar.requestCalendarPermission();
-      } catch (e) {}
-    },
-    className: "w-full py-2.5 rounded-xl bg-blue-600 text-white text-xs font-extrabold"
-  }, "\uCE98\uB9B0\uB354 \uAD8C\uD55C \uD5C8\uC6A9\uD558\uAE30"), deviceCalState.available && deviceCalState.granted && /*#__PURE__*/React.createElement("div", {
-    className: "space-y-1"
-  }, /*#__PURE__*/React.createElement("p", {
-    className: "text-[11px] text-slate-500"
-  }, "\uC5F0\uB3D9\uB41C \uCE98\uB9B0\uB354 ", deviceCalState.calendars.length, "\uAC1C \xB7 \uB2EC\uB825\uC5D0 \uC77C\uC815\uC774 \uD568\uAED8 \uD45C\uC2DC\uB429\uB2C8\uB2E4."), deviceCalState.calendars.map(cal => /*#__PURE__*/React.createElement("div", {
-    key: String(cal.id),
-    className: "flex items-center gap-2"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "w-2 h-2 rounded-full",
-    style: {
-      backgroundColor: cal.color || "#3b82f6"
-    }
-  }), /*#__PURE__*/React.createElement("span", {
-    className: "text-[11px] font-semibold text-slate-700 truncate"
-  }, cal.name)))), !deviceCalState.available && /*#__PURE__*/React.createElement("p", {
-    className: "text-[11px] text-slate-400"
-  }, "\uC6F9 \uBBF8\uB9AC\uBCF4\uAE30 \uD658\uACBD\uC785\uB2C8\uB2E4. APK\uC5D0\uC11C\uB294 \uC0BC\uC131\xB7\uAD6C\uAE00 \uCE98\uB9B0\uB354 \uC77C\uC815\uC774 \uC790\uB3D9\uC73C\uB85C \uD45C\uC2DC\uB429\uB2C8\uB2E4.")), /*#__PURE__*/React.createElement("section", {
     className: "p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2.5"
   }, /*#__PURE__*/React.createElement("h3", {
     className: "text-xs font-extrabold text-slate-800"
@@ -6533,7 +6522,7 @@ function App() {
       onClick: () => writeTime(hour12 === 1 ? 12 : hour12 - 1, minute, isPM),
       className: "w-11 h-11 rounded-xl bg-white border border-slate-200 text-slate-700 text-xl font-extrabold"
     }, "\u2212"), /*#__PURE__*/React.createElement("div", {
-      onClick: () => openAlarmTimePad(draft),
+      onClick: () => openAlarmTimePad(draft, "hour"),
       className: "w-16 text-center cursor-pointer rounded-xl active:bg-blue-50"
     }, /*#__PURE__*/React.createElement("span", {
       className: "text-4xl font-extrabold text-slate-900 tracking-tight"
@@ -6548,7 +6537,7 @@ function App() {
       onClick: () => writeTime(hour12, minute - 5, isPM),
       className: "w-11 h-11 rounded-xl bg-white border border-slate-200 text-slate-700 text-xl font-extrabold"
     }, "\u2212"), /*#__PURE__*/React.createElement("div", {
-      onClick: () => openAlarmTimePad(draft),
+      onClick: () => openAlarmTimePad(draft, "minute"),
       className: "w-16 text-center cursor-pointer rounded-xl active:bg-blue-50"
     }, /*#__PURE__*/React.createElement("span", {
       className: "text-4xl font-extrabold text-slate-900 tracking-tight"
@@ -6564,7 +6553,7 @@ function App() {
       onClick: () => writeTime(hour12, mm, isPM),
       className: `px-2.5 py-1.5 rounded-lg text-[11px] font-bold ${minute === mm ? "bg-blue-600 text-white" : "bg-white text-slate-500 border border-slate-200"}`
     }, String(mm).padStart(2, "0"), "\uBD84"))), /*#__PURE__*/React.createElement("button", {
-      onClick: () => openAlarmTimePad(draft),
+      onClick: () => openAlarmTimePad(draft, "hour"),
       className: "w-full py-2.5 rounded-xl bg-white border border-blue-200 text-[11px] font-extrabold text-blue-700"
     }, "🔢 시간을 눌러 숫자 키패드로 1분 단위 입력")), /*#__PURE__*/React.createElement("input", {
       type: "text",
@@ -6762,27 +6751,46 @@ function App() {
       },
       className: "w-full py-2.5 rounded-xl bg-white border border-blue-200 text-blue-700 text-xs font-extrabold"
     }, "\uD83C\uDFAE \uAC8C\uC784 \uBBF8\uB9AC \uD574\uBCF4\uAE30"))))));
-  })(), alarmModalOpen && timePadOpen && (() => {
-    const pad = timePadRead(timePadDigits, timePadPM);
-    const slotText = (String(timePadDigits || "") + "····").slice(0, 4);
+  })(), alarmModalOpen && timePad.open && (() => {
+    const pad = timePadRead(timePadValue(timePad), timePad.pm);
+    const focus = timePad.focus === "minute" ? "minute" : "hour";
+    const hourText = timePadPart(timePad.hour, timePad.baseHour);
+    const minuteText = timePadPart(timePad.minute, timePad.baseMinute);
     const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
     const press = d => {
-      setTimePadDigits(prev => (String(prev || "") + d).slice(0, 4));
+      setTimePad(prev => timePadPress(prev, d));
       playSfx("tap");
     };
-    const closePad = () => setTimePadOpen(false);
+    const focusAt = target => {
+      setTimePad(prev => timePadFocusAt(prev, target));
+      playSfx("tap");
+    };
+    const closePad = () => setTimePad(prev => Object.assign({}, prev, {
+      open: false
+    }));
     const applyPad = () => {
       if (!pad.ok) {
-        notify(pad.error || "시·분을 4자리로 입력해 주세요");
+        notify(pad.error || "시·분을 다시 확인해 주세요");
         return;
       }
       setEditingAlarm(prev => normalizeAlarm(Object.assign({}, normalizeAlarm(prev), {
         time: pad.text
       })));
-      setTimePadOpen(false);
+      setTimePad(prev => Object.assign({}, prev, {
+        open: false
+      }));
       playSfx("save");
       notify(`${pad.ampm} ${pad.text}로 설정했습니다`);
     };
+    // 시/분 숫자 각각이 편집 버튼이다. 선택된 칸은 파란 테두리·배경으로 표시한다.
+    const segment = (target, text, label) => /*#__PURE__*/React.createElement("button", {
+      onClick: () => focusAt(target),
+      className: `px-2.5 pt-1 pb-0.5 rounded-2xl border-2 transition ${focus === target ? "border-blue-500 bg-blue-50 text-blue-600" : "border-transparent text-slate-900"}`
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "block text-5xl font-extrabold tracking-tight tabular-nums leading-none"
+    }, text), /*#__PURE__*/React.createElement("span", {
+      className: `block mt-1 text-[10px] font-extrabold ${focus === target ? "text-blue-500" : "text-slate-400"}`
+    }, label, focus === target ? " 편집 중" : ""));
     return /*#__PURE__*/React.createElement("div", {
       className: "fixed inset-0 z-[60] flex items-end justify-center bg-slate-900/60"
     }, /*#__PURE__*/React.createElement("div", {
@@ -6800,18 +6808,26 @@ function App() {
     }))), /*#__PURE__*/React.createElement("div", {
       className: "flex items-center justify-center gap-2"
     }, /*#__PURE__*/React.createElement("button", {
-      onClick: () => setTimePadPM(false),
-      className: `px-3 py-1.5 rounded-xl text-xs font-extrabold ${!timePadPM ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-500"}`
+      onClick: () => setTimePad(prev => Object.assign({}, prev, {
+        pm: false
+      })),
+      className: `px-3 py-1.5 rounded-xl text-xs font-extrabold ${!timePad.pm ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-500"}`
     }, "오전"), /*#__PURE__*/React.createElement("button", {
-      onClick: () => setTimePadPM(true),
-      className: `px-3 py-1.5 rounded-xl text-xs font-extrabold ${timePadPM ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-500"}`
+      onClick: () => setTimePad(prev => Object.assign({}, prev, {
+        pm: true
+      })),
+      className: `px-3 py-1.5 rounded-xl text-xs font-extrabold ${timePad.pm ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-500"}`
     }, "오후")), /*#__PURE__*/React.createElement("div", {
       className: "text-center"
-    }, /*#__PURE__*/React.createElement("span", {
-      className: "text-5xl font-extrabold tracking-tight text-slate-900 tabular-nums"
-    }, slotText.slice(0, 2), ":", slotText.slice(2)), /*#__PURE__*/React.createElement("p", {
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex items-start justify-center gap-1"
+    }, segment("hour", hourText, "시"), /*#__PURE__*/React.createElement("span", {
+      className: "pt-3 text-4xl font-extrabold text-slate-300"
+    }, ":"), segment("minute", minuteText, "분")), /*#__PURE__*/React.createElement("p", {
       className: `mt-1.5 text-[11px] font-bold ${pad.ok ? "text-blue-600" : "text-slate-400"}`
-    }, pad.ok ? `→ ${pad.ampm} ${pad.text}` : pad.error || "4자리(예: 0637)를 누르면 06:37로 입력됩니다")), /*#__PURE__*/React.createElement("div", {
+    }, pad.ok ? `→ ${pad.ampm} ${pad.text}` : pad.error || "시·분을 다시 확인해 주세요")), /*#__PURE__*/React.createElement("p", {
+      className: "text-center text-[11px] font-bold text-slate-500"
+    }, focus === "hour" ? "숫자를 누르면 시부터 새로 입력됩니다" : "숫자를 누르면 분부터 새로 입력됩니다", " · 시/분 숫자를 눌러 칸을 바꿀 수 있어요"), /*#__PURE__*/React.createElement("div", {
       className: "grid grid-cols-3 gap-2"
     }, keys.map(d => /*#__PURE__*/React.createElement("button", {
       key: d,
@@ -6819,7 +6835,7 @@ function App() {
       className: "py-3.5 rounded-2xl bg-slate-100 text-2xl font-extrabold text-slate-900 active:scale-95 transition"
     }, d)), /*#__PURE__*/React.createElement("button", {
       onClick: () => {
-        setTimePadDigits("");
+        setTimePad(prev => timePadClear(prev));
         playSfx("tap");
       },
       className: "py-3.5 rounded-2xl bg-rose-50 text-lg font-extrabold text-rose-600 active:scale-95 transition"
@@ -6828,7 +6844,7 @@ function App() {
       className: "py-3.5 rounded-2xl bg-slate-100 text-2xl font-extrabold text-slate-900 active:scale-95 transition"
     }, "0"), /*#__PURE__*/React.createElement("button", {
       onClick: () => {
-        setTimePadDigits(prev => String(prev || "").slice(0, -1));
+        setTimePad(prev => timePadBack(prev));
         playSfx("tap");
       },
       className: "py-3.5 rounded-2xl bg-slate-100 text-2xl font-extrabold text-slate-700 active:scale-95 transition"
