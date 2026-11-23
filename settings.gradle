@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "tsv-secret-schedule"
+rootProject.name = "nas-file-manager"
 include ':app'

@@ -1,7 +1,9 @@
-# Keep JavascriptInterface methods reachable from the WebView bridge.
--keepclassmembers class com.tsvsecret.schedule.MainActivity$* {
-    @android.webkit.JavascriptInterface <methods>;
+# Keep the JS bridge members that the WebView calls by name.
+-keepclassmembers class com.choi.filemanager.MainActivity$NasJs {
+    public *;
 }
--keepclassmembers class com.tsvsecret.schedule.** {
-    @android.webkit.JavascriptInterface <methods>;
+-keepclassmembers class com.choi.filemanager.MainActivity$LocalJs {
+    public *;
 }
+-keep class com.choi.filemanager.NasBridge { *; }
+-keep class com.choi.filemanager.LocalFileBridge { *; }

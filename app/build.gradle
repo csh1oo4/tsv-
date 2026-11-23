@@ -3,26 +3,26 @@ plugins {
 }
 
 android {
-    namespace 'com.tsvsecret.schedule'
+    namespace 'com.choi.filemanager'
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.tsvsecret.schedule"
-        minSdk 24
+        applicationId "com.choi.filemanager"
+        minSdk 26
         targetSdk 34
-        versionCode 3
-        versionName "1.2"
+        versionCode 1
+        versionName "1.0"
     }
 
-    // Fixed debug key: keeps the signing certificate identical across every build so
-    // updates install over the previous version without uninstalling.
+    // Fixed key: the certificate is identical in every build, so v1.1 / v1.2 install as an
+    // update over the previous version instead of needing an uninstall first.
     signingConfigs {
         debug {
-            storeFile file('tsv-fixed-debug.p12')
+            storeFile file('filemanager-fixed.p12')
             storeType 'PKCS12'
-            storePassword 'tsvdebug123'
-            keyAlias 'tsvdebug'
-            keyPassword 'tsvdebug123'
+            storePassword 'fmfixed123'
+            keyAlias 'filemanager'
+            keyPassword 'fmfixed123'
         }
     }
 
@@ -34,6 +34,7 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.debug
         }
     }
 
@@ -45,8 +46,20 @@ android {
     buildFeatures {
         buildConfig false
     }
+
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
 }
 
 dependencies {
-    // Intentionally dependency-free: plain Android WebView + platform APIs only.
+    // androidx.core is here only for FileProvider (handing a file to another app).
+    implementation 'androidx.core:core:1.12.0'
+
+    testImplementation 'junit:junit:4.13.2'
 }

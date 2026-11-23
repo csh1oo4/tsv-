@@ -1,221 +1,172 @@
 /*
- * Native bridge shims for the 「TSV secret 근무표」 Android shell.
- * Injected by MainActivity into file:///android_asset/index.html after load.
- * The web app itself is untouched — everything here only adds native behaviour
- * where the WebView alone would silently do nothing.
+ * bridge.js — the only place that talks to the Android shell.
+ *
+ * Native code answers a bridge call asynchronously through window.fmCallback(reqId, ok, json);
+ * this file turns that into promises so app.js can simply `await FM.nas('list', {path})`.
+ * Transfers report window.fmProgress(reqId, percent, message).
+ *
+ * When the page is opened in a plain browser (no bridge), FM.hasNative stays false and the
+ * app shows the "앱에서 열어 주세요" notice instead of failing on every tap.
  */
-(function () {
-  if (window.__tsvBridgeReady) return;
-  window.__tsvBridgeReady = true;
+(function (window) {
+    'use strict';
 
-  var B = window.AndroidBridge || null;
+    var pending = {};
+    var progressHandlers = {};
+    var seq = 0;
 
-  function safe(fn) {
-    try { fn(); } catch (e) { /* never break the app */ }
-  }
-
-  /* ---------------------------------------------------------------- files */
-
-  // Keep blobs alive so the native side can read them even after the page calls
-  // URL.revokeObjectURL() immediately after the synthetic click.
-  var blobCache = Object.create(null);
-  safe(function () {
-    var origCreate = URL.createObjectURL;
-    URL.createObjectURL = function (obj) {
-      var url = origCreate.call(URL, obj);
-      try { blobCache[url] = obj; } catch (e) {}
-      return url;
-    };
-    var origRevoke = URL.revokeObjectURL;
-    URL.revokeObjectURL = function (url) {
-      setTimeout(function () {
-        safe(function () {
-          delete blobCache[url];
-          origRevoke.call(URL, url);
-        });
-      }, 60000);
-    };
-  });
-
-  function sendDataUrl(dataUrl, name) {
-    if (!B || !B.saveDataUrl || !dataUrl) return;
-    safe(function () { B.saveDataUrl(dataUrl, name || 'TSV-secret-근무표'); });
-  }
-
-  function blobToDataUrl(blob, cb) {
-    safe(function () {
-      var reader = new FileReader();
-      reader.onload = function () { cb(reader.result); };
-      reader.onerror = function () { cb(null); };
-      reader.readAsDataURL(blob);
-    });
-  }
-
-  function handleAnchor(a) {
-    if (!a || !a.getAttribute) return false;
-    var name = a.getAttribute('download');
-    if (!name) return false;
-    var href = a.getAttribute('href') || a.href || '';
-
-    if (href.indexOf('data:') === 0) {
-      sendDataUrl(href, name);
-      return true;
-    }
-    if (href.indexOf('blob:') === 0) {
-      var cached = blobCache[href];
-      if (cached) {
-        blobToDataUrl(cached, function (d) { if (d) sendDataUrl(d, name); });
-        return true;
-      }
-      fetch(href).then(function (r) { return r.blob(); }).then(function (b) {
-        blobToDataUrl(b, function (d) { if (d) sendDataUrl(d, name); });
-      }).catch(function () {
-        if (B && B.toast) B.toast('파일을 저장하지 못했어요');
-      });
-      return true;
-    }
-    return false;
-  }
-
-  safe(function () {
-    var origClick = HTMLAnchorElement.prototype.click;
-    HTMLAnchorElement.prototype.click = function () {
-      if (handleAnchor(this)) return;
-      return origClick.apply(this, arguments);
-    };
-    document.addEventListener('click', function (ev) {
-      var node = ev.target;
-      var a = node && node.closest ? node.closest('a[download]') : null;
-      if (a && handleAnchor(a)) ev.preventDefault();
-    }, true);
-  });
-
-  /* ------------------------------------------------------------- clipboard */
-
-  safe(function () {
-    if (!B || !B.copyToClipboard) return;
-    if (!navigator.clipboard) {
-      try {
-        Object.defineProperty(navigator, 'clipboard', {
-          configurable: true,
-          value: {
-            writeText: function (text) {
-              return new Promise(function (resolve, reject) {
-                var ok = false;
-                try { ok = B.copyToClipboard(String(text)); } catch (e) { ok = false; }
-                if (ok) resolve(); else reject(new Error('clipboard unavailable'));
-              });
+    window.fmCallback = function (reqId, ok, json) {
+        var entry = pending[reqId];
+        if (!entry) {
+            return;
+        }
+        delete pending[reqId];
+        delete progressHandlers[reqId];
+        var data;
+        try {
+            data = typeof json === 'string' ? JSON.parse(json || '{}') : (json || {});
+        } catch (e) {
+            data = {};
+        }
+        if (ok && data.success !== false) {
+            entry.resolve(data);
+        } else {
+            var message = data.message || data.error || '작업을 마치지 못했습니다.';
+            if (typeof data.error === 'number') {
+                message = data.message || ('오류 ' + data.error);
             }
-          }
+            var error = new Error(message);
+            error.code = data.error;
+            error.data = data;
+            entry.reject(error);
+        }
+    };
+
+    window.fmProgress = function (reqId, percent, message) {
+        var handler = progressHandlers[reqId];
+        if (handler) {
+            try {
+                handler(percent, message || '');
+            } catch (e) {
+                // a broken progress handler must not break the transfer
+            }
+        }
+    };
+
+    window.fmOnNativeReady = function () {
+        if (window.FM && typeof window.FM.onReady === 'function') {
+            window.FM.onReady();
+        }
+    };
+
+    window.fmOnResume = function () {
+        if (window.FM && typeof window.FM.onResume === 'function') {
+            window.FM.onResume();
+        }
+    };
+
+    window.fmOnPermissionResult = function () {
+        if (window.FM && typeof window.FM.onPermissionResult === 'function') {
+            window.FM.onPermissionResult();
+        }
+    };
+
+    var FM = window.FM || {};
+
+    FM.hasNative = !!(window.NasBridge && window.LocalFileBridge);
+
+    function request(iface, action, params, onProgress) {
+        return new Promise(function (resolve, reject) {
+            var bridge = window[iface];
+            if (!bridge || typeof bridge.call !== 'function') {
+                reject(new Error('앱에서 열어야 사용할 수 있는 기능입니다.'));
+                return;
+            }
+            var id = 'r' + (++seq) + '_' + Date.now();
+            pending[id] = {resolve: resolve, reject: reject};
+            if (typeof onProgress === 'function') {
+                progressHandlers[id] = onProgress;
+            }
+            try {
+                bridge.call(id, action, JSON.stringify(params || {}));
+            } catch (e) {
+                delete pending[id];
+                delete progressHandlers[id];
+                reject(e);
+            }
         });
-      } catch (e) {}
     }
 
-    // execCommand('copy') is the page's fallback path; route it to the native clipboard.
-    var origExec = Document.prototype.execCommand;
-    Document.prototype.execCommand = function (cmd) {
-      if (String(cmd).toLowerCase() === 'copy') {
-        var text = '';
-        var sel = window.getSelection ? String(window.getSelection()) : '';
-        var active = document.activeElement;
-        if (sel) {
-          text = sel;
-        } else if (active && typeof active.value === 'string') {
-          var start = typeof active.selectionStart === 'number' ? active.selectionStart : 0;
-          var end = typeof active.selectionEnd === 'number' ? active.selectionEnd : active.value.length;
-          text = active.value.substring(start, end);
+    FM.nas = function (action, params, onProgress) {
+        return request('NasBridge', action, params, onProgress);
+    };
+
+    FM.local = function (action, params) {
+        return request('LocalFileBridge', action, params);
+    };
+
+    /** Direct one-way helpers that do not need an answer. */
+    FM.allowAllFiles = function () {
+        if (window.LocalFileBridge && window.LocalFileBridge.requestAllFiles) {
+            window.LocalFileBridge.requestAllFiles();
         }
-        if (text) {
-          var copied = false;
-          try { copied = B.copyToClipboard(text); } catch (e) { copied = false; }
-          if (copied) return true;
+    };
+
+    FM.requestMedia = function () {
+        if (window.LocalFileBridge && window.LocalFileBridge.requestMedia) {
+            window.LocalFileBridge.requestMedia();
         }
-      }
-      return origExec.apply(this, arguments);
     };
-  });
 
-  /* --------------------------------------------------------------- storage */
-
-  // Mirror localStorage into SharedPreferences so schedules survive even if the
-  // WebView storage for the file:// origin is cleared.
-  safe(function () {
-    var proto = window.Storage && Storage.prototype;
-    if (!proto || !B) return;
-    var origSet = proto.setItem;
-    proto.setItem = function (k, v) {
-      var result = origSet.call(this, k, v);
-      if (B.setItem) {
-        try { B.setItem(String(k), String(v)); } catch (e) {}
-      }
-      return result;
+    FM.openAppSettings = function () {
+        if (window.LocalFileBridge && window.LocalFileBridge.openAppSettings) {
+            window.LocalFileBridge.openAppSettings();
+        }
     };
-    var origRemove = proto.removeItem;
-    proto.removeItem = function (k) {
-      var result = origRemove.call(this, k);
-      if (B.removeItem) {
-        try { B.removeItem(String(k)); } catch (e) {}
-      }
-      return result;
+
+    FM.phoneCacheSize = function () {
+        try {
+            return window.LocalFileBridge && window.LocalFileBridge.thumbCacheSize
+                ? Number(window.LocalFileBridge.thumbCacheSize()) || 0 : 0;
+        } catch (e) {
+            return 0;
+        }
     };
-  });
 
-  /* ---------------------------------------------------------- file chooser */
+    FM.nasCacheSize = function () {
+        try {
+            return window.NasBridge && window.NasBridge.thumbCacheSize
+                ? Number(window.NasBridge.thumbCacheSize()) || 0 : 0;
+        } catch (e) {
+            return 0;
+        }
+    };
 
-  // A display:none <input type="file"> stops Android WebView from opening the
-  // picker, so keep it rendered but invisible.
-  safe(function () {
-    var inputs = document.querySelectorAll('input[type="file"]');
-    for (var i = 0; i < inputs.length; i++) {
-      var input = inputs[i];
-      if (input.style.display === 'none') {
-        input.style.display = 'block';
-        input.style.position = 'absolute';
-        input.style.width = '1px';
-        input.style.height = '1px';
-        input.style.opacity = '0';
-        input.style.overflow = 'hidden';
-        input.style.left = '-9999px';
-      }
-    }
-  });
+    FM.clearCaches = function () {
+        try {
+            if (window.LocalFileBridge && window.LocalFileBridge.clearThumbCache) {
+                window.LocalFileBridge.clearThumbCache();
+            }
+            if (window.NasBridge && window.NasBridge.clearThumbCache) {
+                window.NasBridge.clearThumbCache();
+            }
+        } catch (e) {
+            // cache clearing is best effort
+        }
+    };
 
-  /* ----------------------------------------------------------- system bars */
+    /** Loopback URL for <img>/<video>: route 'f'/'lt' for the phone, 's'/'nt' for the NAS. */
+    FM.mediaUrl = function (path, isNas, thumbnail, size) {
+        var base = window.fmServerBase || '';
+        var token = window.fmServerToken || '';
+        if (!base || !window.FMCore) {
+            return '';
+        }
+        var route = isNas
+            ? (thumbnail ? 'nt' : 's')
+            : (thumbnail ? 'lt' : 'f');
+        return window.FMCore.streamUrl(base, token, route, path, size);
+    };
 
-  function toHex(color) {
-    if (!color) return '';
-    color = String(color).trim();
-    if (color.charAt(0) === '#') return color;
-    var m = color.match(/rgba?\(([^)]+)\)/);
-    if (!m) return '';
-    var parts = m[1].split(',').map(function (x) { return parseFloat(x); });
-    if (parts.length < 3) return '';
-    function h(n) {
-      var s = Math.max(0, Math.min(255, Math.round(n))).toString(16);
-      return s.length === 1 ? '0' + s : s;
-    }
-    return '#' + h(parts[0]) + h(parts[1]) + h(parts[2]);
-  }
-
-  function syncChrome() {
-    if (!B || !B.updateChrome) return;
-    safe(function () {
-      var bodyStyle = getComputedStyle(document.body);
-      var bg = toHex(bodyStyle.backgroundColor) || '#f1f5fb';
-      var rootStyle = getComputedStyle(document.documentElement);
-      var gradient = String(rootStyle.getPropertyValue('--header-grad') || '');
-      var found = gradient.match(/#[0-9a-fA-F]{6}/);
-      var header = found ? found[0] : bg;
-      var night = document.body.classList.contains('night');
-      B.updateChrome(bg, header, night);
-    });
-  }
-
-  safe(function () {
-    new MutationObserver(syncChrome).observe(document.body, {
-      attributes: true,
-      attributeFilter: ['class']
-    });
-    syncChrome();
-  });
-})();
+    window.FM = FM;
+})(window);
