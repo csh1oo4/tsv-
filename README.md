@@ -135,6 +135,23 @@ time** (no `text/babel`, no Babel at runtime), so the app still starts with no n
   `localStorage` (`todaywork_v33_sound`) plus 톡톡/슉슉/띠링 preview buttons.
 - versionCode 12 / versionName 2.1, same fixed signing key.
 
+## v2.3.1 — 인앱 업데이트 확인 버그 수정
+
+- **증상** — v2.2(과 v2.3) 앱의 설정 탭 `업데이트 확인`이 v2.3이 이미 공개돼 있는데도
+  "현재 최신 버전입니다"라고 답했습니다.
+- **원인** — GitHub Releases API 목록은 `created_at` 내림차순인데, v2.3 릴리즈의
+  `created_at`이 `2026-11-21T21:30:29Z`로 찍혀 목록 **8번째(맨 끝)**로 밀렸고 맨 앞에는
+  v2.2가 남아 있었습니다. `checkAppUpdate`가 목록의 **첫 번째 매칭만** 보는
+  `.find(...)`였기 때문에 v2.2를 최신으로 판단했습니다.
+- **수정** — 순수 함수 `pickLatestDutyRelease(list)`가 조건(draft 아님·prerelease 아님·
+  `duty-calendar-v*` 태그·`.apk` 에셋 보유)에 맞는 릴리즈를 **모두 추린 뒤**
+  `compareAppVersion`으로 **버전 번호가 가장 높은** 릴리즈를 고릅니다. 목록 순서와
+  무관하며, 같은 버전이 둘이면 더 최근에 만들어진(=목록 앞) 쪽을 씁니다.
+  `compareAppVersion`은 `2.3.1 > 2.3 > 2.2`처럼 세 자리 비교가 됩니다.
+- **버전** — `APP_VERSION` `2.3.1`, `getAppVersion()` 대체값 `2.3.1`.
+  v2.3의 2D 가로 슬라이드 월 전환과 v2.2 기능은 그대로입니다.
+- versionCode 15 / versionName 2.3.1, same fixed signing key.
+
 ## v2.3 — 2D 가로 슬라이드(뷰페이저) 월 전환
 
 - **3D 책 넘기기 제거** — `.book-stage`(`perspective: 1800px`)와 `bookTurnNext` /
@@ -183,7 +200,7 @@ APK on every push. Locally the same thing is `gradle assembleDebug` with JDK 17
 and the Android SDK installed.
 
 - applicationId: `com.tsv.dutycalendar` (installs beside `TSV 근무표`)
-- versionCode 14 / versionName 2.3
+- versionCode 15 / versionName 2.3.1
 - Signing: fixed PKCS12 key `app/tsv-duty-fixed.p12` wired into
   `signingConfigs.debug`, so every rebuild installs over the previous one.
 
