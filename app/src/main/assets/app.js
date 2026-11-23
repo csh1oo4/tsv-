@@ -66,7 +66,7 @@
         settings: 'sf_settings'
     };
 
-    var VERSION = '1.1';
+    var VERSION = '1.2';
     var PACKAGE = 'com.choi.filemanager';
 
     function read(key, fallback) {
@@ -96,7 +96,7 @@
     }
 
     function readSettings() {
-        var defaults = {ignoreSsl: true, autoLogin: true, showHidden: false};
+        var defaults = {ignoreSsl: true, autoLogin: true, showHidden: false, protocol: 'dsm'};
         try {
             var raw = JSON.parse(read(LS.settings, '{}'));
             if (!raw || typeof raw !== 'object') {
@@ -105,7 +105,8 @@
             return {
                 ignoreSsl: raw.ignoreSsl !== false,
                 autoLogin: raw.autoLogin !== false,
-                showHidden: !!raw.showHidden
+                showHidden: !!raw.showHidden,
+                protocol: C.normalizeProtocol(raw.protocol) || 'dsm'
             };
         } catch (e) {
             return defaults;
@@ -478,8 +479,8 @@
             badge.classList.add('on');
             var name = info.serverName || '';
             label.textContent = name ? (name + ' 연결됨') : '연결됨';
-            subtitle.textContent = (info.baseUrl || 'DSM')
-                + (info.account ? ' · ' + info.account : '');
+            subtitle.textContent = (isWebDav() ? 'WebDAV · ' : 'DSM · ')
+                + (info.baseUrl || '') + (info.account ? ' · ' + info.account : '');
         } else {
             badge.classList.remove('on');
             label.textContent = '연결 안 됨';
@@ -739,8 +740,8 @@
         var info = state.nasStatus || {};
         var servers = info.servers || [];
         var html = noticeCard('cloud', '서버를 연결해 주세요',
-            '시놀로지 DSM 계정으로 로그인하면 File Station의 공유 폴더를 그대로 탐색하고, '
-            + '폰 사진을 바로 올리거나 내려받을 수 있습니다.');
+            'DSM File Station 또는 WebDAV(포트 5005·5006)로 로그인하면 NAS의 폴더를 그대로 '
+            + '탐색하고, 폰 사진을 바로 올리거나 내려받을 수 있습니다.');
         html += '<div class="savedcards" style="align-items:center;">'
             + '<button class="primarybtn" data-act="openServer">' + ic('server')
             + '<span>서버 설정 열기</span></button></div>';
@@ -748,11 +749,15 @@
         if (servers.length) {
             html += '<div class="savedcards">';
             each(servers, function (server) {
+                var proto = C.normalizeProtocol(server.protocol)
+                    || C.splitServerUrl(server.url || '').protocol;
                 html += '<button class="savedcard" data-act="useServer" data-url="' + esc(server.url)
-                    + '" data-account="' + esc(server.account || '') + '">'
+                    + '" data-account="' + esc(server.account || '')
+                    + '" data-protocol="' + esc(proto) + '">'
                     + '<span style="color:#60A5FA;">' + ic('server') + '</span>'
                     + '<span class="grow"><span class="u">' + esc(server.url) + '</span>'
-                    + '<span class="a">' + esc(server.account || '계정 없음') + '</span></span>'
+                    + '<span class="a">' + esc(server.account || '계정 없음') + ' · '
+                    + esc(C.protocolLabel(proto)) + '</span></span>'
                     + '<span class="go">로그인</span></button>';
             });
             html += '</div>';
@@ -773,9 +778,14 @@
     }
 
     function thumbHtml(entry, big) {
-        var src = FM.mediaUrl(entry.path, isNas(), true, isNas() ? 'medium' : (big ? 320 : 160));
         var isVideo = C.isVideo(entry.name);
         var isImage = C.isImage(entry.name);
+        // WebDAV has no thumbnail endpoint and a frame cannot be cut from a stream, so a
+        // WebDAV video tile shows its kind icon instead of an empty frame.
+        var canThumb = !(isNas() && isWebDav() && isVideo);
+        var src = canThumb
+            ? FM.mediaUrl(entry.path, isNas(), true, isNas() ? 'medium' : (big ? 320 : 160))
+            : '';
         var html = '';
         if ((isImage || isVideo) && src) {
             html += '<img src="' + esc(src) + '" alt="" loading="lazy" '
@@ -891,7 +901,8 @@
             case 'useServer':
                 openServerModal({
                     url: node.getAttribute('data-url') || '',
-                    account: node.getAttribute('data-account') || ''
+                    account: node.getAttribute('data-account') || '',
+                    protocol: node.getAttribute('data-protocol') || ''
                 });
                 break;
             case 'menu': {
@@ -1898,8 +1909,30 @@
             video.load();
             return;
         }
-        // DSM's Download API has no Range support, so a NAS video is cached once and then
-        // played from the phone: seeking works and re-opening is instant.
+        if (isWebDav()) {
+            // WebDAV answers Range requests, so the video streams straight from the NAS
+            // through the loopback server; only when that fails does it fall back to a copy.
+            video.onerror = function () {
+                playFromCache(entry);
+            };
+            video.src = FM.mediaUrl(entry.path, true, false);
+            video.load();
+            return;
+        }
+        playFromCache(entry);
+    }
+
+    /** DSM's Download API has no Range support, so a NAS video is copied once and played locally. */
+    function playFromCache(entry) {
+        var video = $('viewerVideo');
+        video.oncanplay = function () {
+            video.play().catch(function () {
+                // the user can press play
+            });
+        };
+        video.onerror = function () {
+            toast('재생할 수 없는 형식입니다. 외부 플레이어로 열어 보세요.');
+        };
         var cacheDir = (state.local && state.local.videoCacheDir) || '';
         findCached(cacheDir, entry).then(function (cached) {
             if (cached) {
@@ -1999,7 +2032,74 @@
     function sameServer(url) {
         var saved = C.splitServerUrl((state.nasStatus || {}).lastUrl || '');
         var typed = C.splitServerUrl(url);
-        return !!typed.host && typed.host === saved.host && String(typed.port) === String(saved.port);
+        return !!typed.host && typed.host === saved.host && String(typed.port) === String(saved.port)
+            && typed.protocol === saved.protocol;
+    }
+
+    /** The NAS tab is talking WebDAV rather than the DSM File Station API. */
+    function isWebDav() {
+        var info = state.nasStatus || {};
+        return info.protocol === 'webdav';
+    }
+
+    // ------------------------------------------------------------- protocol UI
+
+    function paintProtocol(proto) {
+        var p = C.normalizeProtocol(proto) || 'dsm';
+        state.settings.protocol = p;
+        var dsmBtn = $('cfgProtoDsm');
+        var davBtn = $('cfgProtoDav');
+        if (dsmBtn) {
+            dsmBtn.classList.toggle('on', p === 'dsm');
+        }
+        if (davBtn) {
+            davBtn.classList.toggle('on', p === 'webdav');
+        }
+        var hint = $('cfgProtoHint');
+        if (hint) {
+            hint.textContent = p === 'webdav'
+                ? 'WebDAV로 접속합니다. 포트 5005는 http, 5006은 https입니다.'
+                : 'DSM 계정으로 로그인해 File Station의 공유 폴더를 다룹니다.';
+        }
+        var portBox = $('cfgPort');
+        if (portBox) {
+            portBox.placeholder = p === 'webdav' ? '5005' : '5001';
+        }
+        var portLabel = $('cfgPortLabel');
+        if (portLabel) {
+            portLabel.textContent = p === 'webdav' ? '포트 (5005 HTTP / 5006 HTTPS)' : '포트 (DSM 5001 HTTPS)';
+        }
+    }
+
+    /** A protocol choice from the segmented control, keeping the port consistent. */
+    function chooseProtocol(proto) {
+        var p = C.normalizeProtocol(proto) || 'dsm';
+        var portBox = $('cfgPort');
+        var port = portBox ? String(portBox.value || '').trim().replace(/[^0-9]/g, '') : '';
+        paintProtocol(p);
+        if (portBox) {
+            if (p === 'webdav' && (!port || port === '5000' || port === '5001')) {
+                portBox.value = '5005';
+            } else if (p === 'dsm' && (port === '5005' || port === '5006')) {
+                portBox.value = '5001';
+            }
+        }
+        saveSettings();
+    }
+
+    /** Typing :5005/:5006 (in the address or the port box) selects WebDAV by itself. */
+    function followAddressPort() {
+        var host = String($('cfgHost').value || '').trim();
+        var port = String($('cfgPort').value || '').trim().replace(/[^0-9]/g, '');
+        var match = /:(5005|5006)(?:$|[\/?#])/.exec(host);
+        if (match || C.isWebDavPort(port)) {
+            if (state.settings.protocol !== 'webdav') {
+                paintProtocol('webdav');
+            }
+            if (match && !$('cfgPort').value.trim()) {
+                $('cfgPort').value = match[1];
+            }
+        }
     }
 
     function openServerModal(prefill) {
@@ -2017,17 +2117,23 @@
             ? '저장된 비밀번호 있음' : '연결 안 됨');
         $('cfgPass').placeholder = info.hasSavedPassword && sameServer(url)
             ? '저장된 비밀번호 사용' : '비밀번호';
+        paintProtocol(C.normalizeProtocol(prefill && prefill.protocol) || parts.protocol
+            || state.settings.protocol || 'dsm');
 
         var servers = info.servers || [];
         var savedBox = $('savedServers');
         if (servers.length) {
             var html = '<label style="font-size:10.5px;font-weight:700;color:#94A3B8;">저장된 서버</label>';
             each(servers, function (server) {
+                var proto = C.normalizeProtocol(server.protocol)
+                    || C.splitServerUrl(server.url || '').protocol;
                 html += '<button class="savedcard" data-act="useServer" data-url="' + esc(server.url)
-                    + '" data-account="' + esc(server.account || '') + '">'
+                    + '" data-account="' + esc(server.account || '')
+                    + '" data-protocol="' + esc(proto) + '">'
                     + '<span style="color:#60A5FA;">' + ic('server') + '</span>'
                     + '<span class="grow"><span class="u">' + esc(server.url) + '</span>'
-                    + '<span class="a">' + esc(server.account || '') + '</span></span>'
+                    + '<span class="a">' + esc(server.account || '') + ' · '
+                    + esc(C.protocolLabel(proto)) + '</span></span>'
                     + '<span class="go">불러오기</span></button>';
             });
             savedBox.innerHTML = html;
@@ -2037,7 +2143,8 @@
                 if (target && target.getAttribute('data-act') === 'useServer') {
                     openServerModal({
                         url: target.getAttribute('data-url') || '',
-                        account: target.getAttribute('data-account') || ''
+                        account: target.getAttribute('data-account') || '',
+                        protocol: target.getAttribute('data-protocol') || ''
                     });
                 }
             };
@@ -2077,7 +2184,10 @@
         var user = $('cfgUser').value.trim();
         var pass = $('cfgPass').value;
         var otp = ($('cfgOtp').value || '').trim();
-        var url = C.serverUrl(host, port);
+        var protocol = C.normalizeProtocol(state.settings.protocol)
+            || C.protocolFor(host, port, '');
+        var url = C.serverUrl(host, port, protocol);
+        protocol = C.normalizeProtocol(protocol) || C.splitServerUrl(url).protocol;
 
         if (!url || !user) {
             toast('서버 주소와 아이디를 입력해 주세요.');
@@ -2093,6 +2203,7 @@
 
         state.settings.ignoreSsl = $('cfgSsl').classList.contains('on');
         state.settings.autoLogin = $('cfgAuto').classList.contains('on');
+        state.settings.protocol = protocol;
         saveSettings();
 
         var btn = $('btnConnect');
@@ -2104,6 +2215,7 @@
             ? FM.nas('autoLogin')
             : FM.nas('login', {
                 url: url,
+                protocol: protocol,
                 username: user,
                 password: pass,
                 otp: otp,
@@ -2115,9 +2227,11 @@
         request.then(function (res) {
             state.connected = true;
             state.nasStatus = res || {};
+            state.settings.protocol = C.normalizeProtocol((res || {}).protocol) || protocol;
+            saveSettings();
             $('cfgState').value = '연결됨';
             closeServerModal();
-            toast('시놀로지에 연결되었습니다.');
+            toast(C.protocolLabel(state.settings.protocol) + '로 연결되었습니다.');
             state.side = 'nas';
             state.query = '';
             clearSelection(false);
@@ -2126,7 +2240,7 @@
             btn.disabled = false;
             btn.textContent = '저장 및 서버 접속';
             var message = error.message || '로그인하지 못했습니다.';
-            if (error.code === 403 || error.code === 404 || error.code === 406) {
+            if (protocol === 'dsm' && (error.code === 403 || error.code === 404 || error.code === 406)) {
                 message = '2단계 인증 번호가 필요합니다. OTP 6자리를 입력해 주세요.';
             }
             $('cfgState').value = '연결 실패';
@@ -2331,6 +2445,14 @@
         };
         $('btnCloseServer').onclick = closeServerModal;
         $('btnConnect').onclick = connectServer;
+        $('cfgProto').onclick = function (event) {
+            var target = closestAttr(event.target, 'data-proto');
+            if (target) {
+                chooseProtocol(target.getAttribute('data-proto'));
+            }
+        };
+        $('cfgPort').addEventListener('input', followAddressPort);
+        $('cfgHost').addEventListener('input', followAddressPort);
         $('btnPermAction').onclick = function () {
             FM.allowAllFiles();
         };
@@ -2398,7 +2520,7 @@
                 ['앱', 'SynoFile Pro'],
                 ['버전', VERSION],
                 ['패키지', PACKAGE],
-                ['시놀로지', 'DSM File Station API (SYNO.API.Auth / List / Upload / Download)'],
+                ['시놀로지', 'DSM File Station API · WebDAV (HTTP 5005 / HTTPS 5006)'],
                 ['폰 저장소', 'Android ' + ((state.local && state.local.sdk) || '-')]
             ];
             var html = '';

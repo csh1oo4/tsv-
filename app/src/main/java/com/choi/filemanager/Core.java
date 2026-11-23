@@ -1,13 +1,19 @@
 package com.choi.filemanager;
 
 import java.io.UnsupportedEncodingException;
+import java.io.ByteArrayOutputStream;
 import java.net.URI;
 import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.TimeZone;
 
 /**
  * Pure-Java helpers shared by the bridges and exercised by the JVM unit tests
@@ -360,6 +366,308 @@ public final class Core {
             }
         }
         return true;
+    }
+
+    // -------------------------------------------------------------- protocol
+
+    public static final String PROTOCOL_DSM = "dsm";
+    public static final String PROTOCOL_WEBDAV = "webdav";
+    /** Synology's WebDAV ports: 5005 is plain HTTP, 5006 is HTTPS. */
+    public static final String DAV_HTTP_PORT = "5005";
+    public static final String DAV_HTTPS_PORT = "5006";
+
+    /** "" / "dsm" / "webdav"; anything else means "no opinion". */
+    public static String normalizeProtocol(String value) {
+        String p = value == null ? "" : value.trim().toLowerCase(Locale.US);
+        if (PROTOCOL_WEBDAV.equals(p) || PROTOCOL_DSM.equals(p)) {
+            return p;
+        }
+        return "";
+    }
+
+    public static boolean isWebDavPort(String port) {
+        String p = port == null ? "" : port.trim();
+        return DAV_HTTP_PORT.equals(p) || DAV_HTTPS_PORT.equals(p);
+    }
+
+    /** ":5005" / ":5006" written into the address box already says WebDAV. */
+    public static String protocolFromHost(String host) {
+        String h = host == null ? "" : host.trim();
+        int colon = h.lastIndexOf(':');
+        while (colon >= 0) {
+            String rest = h.substring(colon + 1);
+            String digits = rest;
+            int slash = digits.indexOf('/');
+            if (slash < 0) {
+                slash = digits.indexOf('?');
+            }
+            if (slash >= 0) {
+                digits = digits.substring(0, slash);
+            }
+            if (isWebDavPort(digits)) {
+                return PROTOCOL_WEBDAV;
+            }
+            colon = colon > 0 ? h.lastIndexOf(':', colon - 1) : -1;
+        }
+        return "";
+    }
+
+    /** The protocol to use: an explicit request first, then the address, then DSM. */
+    public static String protocolFor(String requested, String url) {
+        String explicit = normalizeProtocol(requested);
+        if (!explicit.isEmpty()) {
+            return explicit;
+        }
+        String raw = url == null ? "" : url.trim();
+        if (PROTOCOL_WEBDAV.equals(protocolFromHost(raw))) {
+            return PROTOCOL_WEBDAV;
+        }
+        int colon = raw.indexOf(':');
+        if (colon > 0) {
+            String rest = raw.substring(colon + 1);
+            if (rest.startsWith("//")) {
+                rest = rest.substring(2);
+            }
+            int slash = rest.indexOf('/');
+            if (slash >= 0) {
+                rest = rest.substring(0, slash);
+            }
+            int portColon = rest.lastIndexOf(':');
+            if (portColon > 0 && isWebDavPort(rest.substring(portColon + 1))) {
+                return PROTOCOL_WEBDAV;
+            }
+        }
+        return PROTOCOL_DSM;
+    }
+
+    /**
+     * The WebDAV base URL: scheme, host, port and any typed path, no trailing slash.
+     *
+     *   "nas.synology.me"        -> http://nas.synology.me:5005
+     *   "nas.synology.me:5006"   -> https://nas.synology.me:5006
+     *   "https://nas/x"          -> https://nas:5006/x
+     */
+    public static String webDavUrl(String raw) {
+        String url = raw == null ? "" : raw.trim();
+        if (url.isEmpty()) {
+            return "";
+        }
+        String lower = url.toLowerCase(Locale.US);
+        boolean secure;
+        boolean hadScheme = true;
+        if (lower.startsWith("http://")) {
+            secure = false;
+            url = url.substring("http://".length());
+        } else if (lower.startsWith("https://")) {
+            secure = true;
+            url = url.substring("https://".length());
+        } else {
+            hadScheme = false;
+            secure = false;
+            int colon = url.indexOf(':');
+            if (colon > 0 && url.indexOf('/') < 0
+                    && DAV_HTTPS_PORT.equals(url.substring(colon + 1))) {
+                secure = true;
+            }
+        }
+        while (url.endsWith("/")) {
+            url = url.substring(0, url.length() - 1);
+        }
+        if (url.isEmpty()) {
+            return "";
+        }
+        String hostPart = url;
+        String path = "";
+        int slash = url.indexOf('/');
+        if (slash >= 0) {
+            hostPart = url.substring(0, slash);
+            path = url.substring(slash);
+        }
+        String port = "";
+        int colon = hostPart.lastIndexOf(':');
+        if (colon > 0 && looksLikeHostPort(hostPart)) {
+            port = hostPart.substring(colon + 1);
+            hostPart = hostPart.substring(0, colon);
+        }
+        if (hostPart.isEmpty()) {
+            return "";
+        }
+        if (port.isEmpty()) {
+            port = secure ? DAV_HTTPS_PORT : DAV_HTTP_PORT;
+        } else if (!hadScheme) {
+            // With no scheme typed, the port decides: 5006 is https, everything else http.
+            if (DAV_HTTPS_PORT.equals(port)) {
+                secure = true;
+            } else if (DAV_HTTP_PORT.equals(port)) {
+                secure = false;
+            }
+        }
+        return (secure ? "https" : "http") + "://" + hostPart + ":" + port + path;
+    }
+
+    // --------------------------------------------------------------- WebDAV
+
+    /** RFC 3986 pchar characters may stay as they are inside a path. */
+    private static boolean davPathChar(int cp) {
+        if (cp >= 'A' && cp <= 'Z') {
+            return true;
+        }
+        if (cp >= 'a' && cp <= 'z') {
+            return true;
+        }
+        if (cp >= '0' && cp <= '9') {
+            return true;
+        }
+        return cp == '-' || cp == '.' || cp == '_' || cp == '~' || cp == '/'
+                || cp == '!' || cp == '$' || cp == '&' || cp == '\'' || cp == '(' || cp == ')'
+                || cp == '*' || cp == '+' || cp == ',' || cp == ';' || cp == '=' || cp == ':'
+                || cp == '@';
+    }
+
+    /** "/사진/2026년 11월.jpg" -> "/%EC%82%AC%EC%A7%84/2026%EB%85%84%2011%EC%9B%94.jpg" */
+    public static String davEncodePath(String path) {
+        String p = normalizePath(path);
+        StringBuilder sb = new StringBuilder(p.length() + 16);
+        for (int i = 0; i < p.length(); ) {
+            int cp = p.codePointAt(i);
+            if (davPathChar(cp)) {
+                sb.appendCodePoint(cp);
+                i += Character.charCount(cp);
+                continue;
+            }
+            byte[] bytes = new String(Character.toChars(cp)).getBytes(StandardCharsets.UTF_8);
+            for (byte b : bytes) {
+                sb.append('%');
+                String hex = Integer.toHexString(b & 0xFF).toUpperCase(Locale.US);
+                if (hex.length() < 2) {
+                    sb.append('0');
+                }
+                sb.append(hex);
+            }
+            i += Character.charCount(cp);
+        }
+        return sb.toString();
+    }
+
+    /** The inverse; '+' stays a plus because in a path it is a literal. */
+    public static String davDecode(String text) {
+        if (text == null || text.isEmpty()) {
+            return "";
+        }
+        ByteArrayOutputStream bos = new ByteArrayOutputStream(text.length());
+        for (int i = 0; i < text.length(); ) {
+            char c = text.charAt(i);
+            if (c == '%' && i + 2 < text.length()
+                    && isHexDigit(text.charAt(i + 1)) && isHexDigit(text.charAt(i + 2))) {
+                bos.write(Integer.parseInt(text.substring(i + 1, i + 3), 16));
+                i += 3;
+                continue;
+            }
+            int cp = text.codePointAt(i);
+            byte[] bytes = new String(Character.toChars(cp)).getBytes(StandardCharsets.UTF_8);
+            bos.write(bytes, 0, bytes.length);
+            i += Character.charCount(cp);
+        }
+        return new String(bos.toByteArray(), StandardCharsets.UTF_8);
+    }
+
+    private static boolean isHexDigit(char c) {
+        return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+    }
+
+    /** The absolute URL of a page path under the WebDAV base. */
+    public static String davUrl(String base, String path) {
+        String b = base == null ? "" : base.trim();
+        while (b.endsWith("/")) {
+            b = b.substring(0, b.length() - 1);
+        }
+        if (b.isEmpty()) {
+            return "";
+        }
+        String p = normalizePath(path);
+        return "/".equals(p) ? b + "/" : b + davEncodePath(p);
+    }
+
+    /** The path part of the WebDAV base ("http://h:5005/dav" -> "/dav"). */
+    public static String davBasePath(String base) {
+        String raw = base == null ? "" : base.trim();
+        int scheme = raw.indexOf("://");
+        String rest = scheme >= 0 ? raw.substring(scheme + 3) : raw;
+        int slash = rest.indexOf('/');
+        if (slash < 0) {
+            return scheme >= 0 ? "/" : normalizePath(rest);
+        }
+        return normalizePath(davDecode(rest.substring(slash)));
+    }
+
+    /**
+     * A PROPFIND href becomes the page path: absolute and absolute-path hrefs are decoded
+     * and stripped of the WebDAV prefix. "" means "not inside this server".
+     */
+    public static String davPathOf(String href, String base) {
+        String raw = href == null ? "" : href.trim();
+        if (raw.isEmpty()) {
+            return "";
+        }
+        String pathOnly = raw;
+        int scheme = raw.indexOf("://");
+        if (scheme >= 0) {
+            String rest = raw.substring(scheme + 3);
+            int slash = rest.indexOf('/');
+            pathOnly = slash < 0 ? "/" : rest.substring(slash);
+        }
+        int cut = pathOnly.indexOf('?');
+        if (cut >= 0) {
+            pathOnly = pathOnly.substring(0, cut);
+        }
+        cut = pathOnly.indexOf('#');
+        if (cut >= 0) {
+            pathOnly = pathOnly.substring(0, cut);
+        }
+        if (pathOnly.isEmpty()) {
+            return "/";
+        }
+        String decoded = davDecode(pathOnly);
+        String root = davBasePath(base);
+        if (!"/".equals(root)) {
+            if (decoded.equals(root)) {
+                return "/";
+            }
+            if (decoded.startsWith(root + "/")) {
+                decoded = decoded.substring(root.length());
+            } else {
+                return "";
+            }
+        }
+        return normalizePath(decoded);
+    }
+
+    /** RFC 1123 ("Tue, 24 Nov 2026 03:10:00 GMT") as epoch ms; 0 when unreadable. */
+    public static long parseHttpDate(String value) {
+        String text = value == null ? "" : value.trim();
+        if (text.isEmpty()) {
+            return 0L;
+        }
+        String[] patterns = {
+                "EEE, dd MMM yyyy HH:mm:ss zzz",
+                "EEE, dd MMM yyyy HH:mm:ss Z",
+                "yyyy-MM-dd'T'HH:mm:ss'Z'",
+                "yyyy-MM-dd'T'HH:mm:ssXXX"
+        };
+        for (String pattern : patterns) {
+            try {
+                SimpleDateFormat format = new SimpleDateFormat(pattern, Locale.US);
+                format.setLenient(false);
+                format.setTimeZone(TimeZone.getTimeZone("GMT"));
+                Date date = format.parse(text);
+                if (date != null) {
+                    return date.getTime();
+                }
+            } catch (ParseException | RuntimeException ignored) {
+                // try the next shape
+            }
+        }
+        return 0L;
     }
 
     /** Korean explanation for a SYNO error code (File Station / Auth). */

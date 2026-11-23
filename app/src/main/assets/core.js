@@ -489,44 +489,254 @@
     // ------------------------------------------------------------ server fields
 
     /**
-     * The 주소 / 포트 boxes become one URL: "192.168.0.7" + "5001" -> https://192.168.0.7:5001.
-     * A host that already carries a scheme (or a path, as QuickConnect does) is left as typed.
+     * The 주소 / 포트 boxes become one URL.
+     *
+     *   DSM     "192.168.0.7" + "5001"  -> https://192.168.0.7:5001   (5000 stays http)
+     *   WebDAV  "nas.synology.me" + "5005" -> http://nas.synology.me:5005
+     *           "nas.synology.me" + "5006" -> https://nas.synology.me:5006
+     *           "nas.synology.me" + ""     -> http://nas.synology.me:5005
+     *
+     * A scheme typed by the user wins over the port default, and a path (QuickConnect, a
+     * WebDAV prefix) is kept exactly as typed.
      */
-    function serverUrl(host, port) {
+    function serverUrl(host, port, protocol) {
         var h = host === null || host === undefined ? '' : String(host).trim();
         if (!h) {
             return '';
         }
-        if (/^https?:\/\//i.test(h)) {
-            return h.replace(/\/+$/, '');
+        var scheme = '';
+        var typed = /^(https?):\/\//i.exec(h);
+        if (typed) {
+            scheme = typed[1].toLowerCase();
+            h = h.substring(typed[0].length);
         }
-        var p = port === null || port === undefined ? '' : String(port).trim().replace(/[^0-9]/g, '');
-        var secure = p !== '5000';
-        return (secure ? 'https://' : 'http://') + h.replace(/\/+$/, '') + (p ? ':' + p : '');
+        var path = '';
+        var slash = h.indexOf('/');
+        if (slash >= 0) {
+            path = h.substring(slash).replace(/\/+$/, '');
+            h = h.substring(0, slash);
+        }
+        var embedded = '';
+        var colon = h.lastIndexOf(':');
+        if (colon > 0 && /^[0-9]+$/.test(h.substring(colon + 1))) {
+            embedded = h.substring(colon + 1);
+            h = h.substring(0, colon);
+        }
+        if (!h) {
+            return '';
+        }
+        var boxPort = port === null || port === undefined ? '' : String(port).trim().replace(/[^0-9]/g, '');
+        var p = boxPort || embedded;
+        var proto = normalizeProtocol(protocol) || suggestProtocol('', p) || 'dsm';
+
+        if (proto === 'webdav') {
+            var secure = scheme ? scheme === 'https' : p === DAV_HTTPS_PORT;
+            if (!scheme) {
+                scheme = secure ? 'https' : 'http';
+            }
+            if (!p) {
+                p = secure ? DAV_HTTPS_PORT : DAV_HTTP_PORT;
+            }
+            return scheme + '://' + h + ':' + p + path;
+        }
+
+        if (!scheme) {
+            scheme = p === '5000' ? 'http' : 'https';
+        }
+        return scheme + '://' + h + (p ? ':' + p : '') + path;
     }
 
     /** The other direction, so the settings form can open filled in from the saved server. */
     function splitServerUrl(url) {
         var raw = url === null || url === undefined ? '' : String(url).trim();
-        var out = {host: raw, port: '5001', secure: true};
+        var out = {host: raw, port: '5001', secure: true, protocol: 'dsm', path: '', scheme: 'https'};
         if (!raw) {
             out.host = '';
             return out;
         }
-        var match = /^(https?):\/\/([^/:]+)(?::(\d+))?/i.exec(raw);
+        var match = /^(https?):\/\/([^/:]+)(?::(\d+))?(\/[^?#]*)?/i.exec(raw);
         if (!match) {
-            var bare = /^([^/:]+)(?::(\d+))?$/.exec(raw);
+            var bare = /^([^/:]+)(?::(\d+))?(\/[^?#]*)?$/.exec(raw);
             if (bare) {
                 out.host = bare[1];
                 out.port = bare[2] || '5001';
-                out.secure = out.port !== '5000';
+                out.secure = bare[2] ? bare[2] !== '5000' : true;
+                out.scheme = out.secure ? 'https' : 'http';
+                out.path = bare[3] ? bare[3].replace(/\/+$/, '') : '';
+                out.protocol = isWebDavPort(out.port) ? 'webdav' : 'dsm';
             }
             return out;
         }
         out.host = match[2];
         out.secure = match[1].toLowerCase() === 'https';
+        out.scheme = out.secure ? 'https' : 'http';
         out.port = match[3] || (out.secure ? '5001' : '5000');
+        out.path = match[4] ? match[4].replace(/\/+$/, '') : '';
+        out.protocol = isWebDavPort(out.port) ? 'webdav' : 'dsm';
         return out;
+    }
+
+    // ---------------------------------------------------------------- protocol
+
+    var PROTOCOLS = ['dsm', 'webdav'];
+    var PROTOCOL_LABELS = {dsm: 'DSM (File Station)', webdav: 'WebDAV'};
+    var DAV_HTTP_PORT = '5005';
+    var DAV_HTTPS_PORT = '5006';
+
+    /** '' / 'dsm' / 'webdav' — anything else is empty ("no opinion"). */
+    function normalizeProtocol(value) {
+        var p = value === null || value === undefined ? '' : String(value).trim().toLowerCase();
+        return p === 'webdav' ? 'webdav' : (p === 'dsm' ? 'dsm' : '');
+    }
+
+    /** 5005 (WebDAV over HTTP) and 5006 (WebDAV over HTTPS) are Synology's WebDAV ports. */
+    function isWebDavPort(port) {
+        var p = port === null || port === undefined ? '' : String(port).trim();
+        return p === DAV_HTTP_PORT || p === DAV_HTTPS_PORT;
+    }
+
+    /** ":5005" typed inside the address box already says WebDAV. */
+    function protocolFromHost(host) {
+        var h = host === null || host === undefined ? '' : String(host).trim();
+        return /:(5005|5006)(?:$|[\/?#])/.test(h) ? 'webdav' : '';
+    }
+
+    /** The protocol the address itself hints at; '' when it says nothing. */
+    function suggestProtocol(host, port) {
+        if (protocolFromHost(host) === 'webdav' || isWebDavPort(port)) {
+            return 'webdav';
+        }
+        return '';
+    }
+
+    /** What the form should select: the address hint first, then the current choice. */
+    function protocolFor(host, port, current) {
+        var suggested = suggestProtocol(host, port);
+        if (suggested) {
+            return suggested;
+        }
+        return normalizeProtocol(current) || 'dsm';
+    }
+
+    function protocolLabel(protocol) {
+        return PROTOCOL_LABELS[normalizeProtocol(protocol)] || PROTOCOL_LABELS.dsm;
+    }
+
+    function nextProtocol(protocol) {
+        return normalizeProtocol(protocol) === 'webdav' ? 'dsm' : 'webdav';
+    }
+
+    // ------------------------------------------------------------- WebDAV
+
+    var DAV_KEEP = /[A-Za-z0-9\-._~\/!$&'()*+,;=:@]/;
+
+    function percentOf(ch) {
+        var bytes = utf8Encode(ch);
+        var out = '';
+        for (var i = 0; i < bytes.length; i++) {
+            var hex = bytes[i].toString(16).toUpperCase();
+            out += '%' + (hex.length < 2 ? '0' + hex : hex);
+        }
+        return out;
+    }
+
+    /** "/사진/2026년 11월.jpg" -> "/%EC%82%AC%EC%A7%84/2026%EB%85%84%2011%EC%9B%94.jpg" */
+    function davEncodePath(path) {
+        var p = normalizePath(path);
+        var out = '';
+        for (var i = 0; i < p.length; i++) {
+            var ch = p.charAt(i);
+            if (DAV_KEEP.test(ch)) {
+                out += ch;
+                continue;
+            }
+            if (ch >= '\uD800' && ch <= '\uDBFF' && i + 1 < p.length) {
+                out += percentOf(ch + p.charAt(++i));
+                continue;
+            }
+            out += percentOf(ch);
+        }
+        return out;
+    }
+
+    /** The inverse; '+' stays a plus because that is what a path means. */
+    function davDecode(text) {
+        var value = text === null || text === undefined ? '' : String(text);
+        var bytes = [];
+        for (var i = 0; i < value.length; i++) {
+            var ch = value.charAt(i);
+            if (ch === '%' && i + 2 < value.length) {
+                var hex = value.substring(i + 1, i + 3);
+                if (/^[0-9A-Fa-f]{2}$/.test(hex)) {
+                    bytes.push(parseInt(hex, 16));
+                    i += 2;
+                    continue;
+                }
+            }
+            var literal = ch;
+            if (ch >= '\uD800' && ch <= '\uDBFF' && i + 1 < value.length) {
+                literal = ch + value.charAt(++i);
+            }
+            var encoded = utf8Encode(literal);
+            for (var j = 0; j < encoded.length; j++) {
+                bytes.push(encoded[j]);
+            }
+        }
+        return utf8Decode(bytes);
+    }
+
+    /** The absolute URL of a page path under the WebDAV base (no trailing slash on base). */
+    function davUrl(base, path) {
+        var b = base === null || base === undefined ? '' : String(base).trim().replace(/\/+$/, '');
+        if (!b) {
+            return '';
+        }
+        var p = normalizePath(path);
+        return p === '/' ? b + '/' : b + davEncodePath(p);
+    }
+
+    /** The path part of the WebDAV base ("http://h:5005/dav" -> "/dav"). */
+    function davBasePath(base) {
+        var raw = base === null || base === undefined ? '' : String(base).trim();
+        var match = /^(?:https?:)?\/\/[^\/]*(\/[^?#]*)?/i.exec(raw);
+        if (!match) {
+            return normalizePath(raw);
+        }
+        return normalizePath(match[1] ? davDecode(match[1]) : '/');
+    }
+
+    /**
+     * A PROPFIND href becomes the page path: absolute or absolute-path hrefs are decoded and
+     * stripped of the WebDAV prefix. '' means "not inside this server" (and is skipped).
+     */
+    function davPathOf(href, base) {
+        var raw = href === null || href === undefined ? '' : String(href).trim();
+        if (!raw) {
+            return '';
+        }
+        var match = /^(?:https?:)?\/\/[^\/]*(\/[^?#]*)?/i.exec(raw);
+        var pathOnly = match ? (match[1] || '/') : raw;
+        var cut = pathOnly.indexOf('?');
+        if (cut >= 0) {
+            pathOnly = pathOnly.substring(0, cut);
+        }
+        cut = pathOnly.indexOf('#');
+        if (cut >= 0) {
+            pathOnly = pathOnly.substring(0, cut);
+        }
+        var decoded = davDecode(pathOnly);
+        var root = davBasePath(base);
+        if (root !== '/') {
+            if (decoded === root) {
+                return '/';
+            }
+            if (decoded.indexOf(root + '/') === 0) {
+                decoded = decoded.substring(root.length);
+            } else {
+                return '';
+            }
+        }
+        return normalizePath(decoded);
     }
 
     // --------------------------------------------------------------- transfers
@@ -611,6 +821,19 @@
         nextFilter: nextFilter,
         serverUrl: serverUrl,
         splitServerUrl: splitServerUrl,
+        PROTOCOLS: PROTOCOLS,
+        normalizeProtocol: normalizeProtocol,
+        isWebDavPort: isWebDavPort,
+        protocolFromHost: protocolFromHost,
+        suggestProtocol: suggestProtocol,
+        protocolFor: protocolFor,
+        protocolLabel: protocolLabel,
+        nextProtocol: nextProtocol,
+        davEncodePath: davEncodePath,
+        davDecode: davDecode,
+        davUrl: davUrl,
+        davBasePath: davBasePath,
+        davPathOf: davPathOf,
         clampPercent: clampPercent,
         transferSummary: transferSummary,
         transferLine: transferLine

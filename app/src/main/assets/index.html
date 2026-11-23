@@ -986,6 +986,37 @@
 
     .savedrow { display: flex; flex-direction: column; gap: 6px; }
 
+    .protoseg {
+        display: flex;
+        gap: 4px;
+        padding: 4px;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+    }
+
+    .protobtn {
+        flex: 1;
+        padding: 8px 4px;
+        border-radius: 9px;
+        font-size: 11px;
+        font-weight: 800;
+        color: var(--muted);
+        background: transparent;
+        white-space: nowrap;
+    }
+
+    .protobtn.on { background: var(--blue); color: #fff; box-shadow: 0 3px 10px rgba(59, 130, 246, .28); }
+
+    .protohint {
+        display: block;
+        font-size: 9.5px;
+        font-weight: 500;
+        color: var(--muted2);
+        line-height: 1.45;
+        margin-top: 1px;
+    }
+
     .switchrow {
         display: flex;
         align-items: center;
@@ -1461,7 +1492,7 @@
                 <div class="sq"><i data-icon="server"></i></div>
                 <div>
                     <h2>시놀로지 NAS 접속 설정</h2>
-                    <p class="sub2">DSM File Station API · OTP 2단계 인증 지원</p>
+                    <p class="sub2">DSM File Station · WebDAV(HTTP/HTTPS) · OTP 2단계 인증</p>
                 </div>
             </div>
             <button class="closebtn" id="btnCloseServer"><i data-icon="x"></i></button>
@@ -1469,13 +1500,22 @@
 
         <div class="savedrow" id="savedServers"></div>
 
+        <div class="field">
+            <label>접속 방식</label>
+            <div class="protoseg" id="cfgProto" data-proto="dsm">
+                <button type="button" class="protobtn on" id="cfgProtoDsm" data-proto="dsm">DSM (File Station)</button>
+                <button type="button" class="protobtn" id="cfgProtoDav" data-proto="webdav">WebDAV (5005/5006)</button>
+            </div>
+            <span class="protohint" id="cfgProtoHint">DSM 계정으로 로그인해 File Station의 공유 폴더를 다룹니다.</span>
+        </div>
+
         <div class="fieldrow host">
             <div class="field">
-                <label>DSM 주소 (IP 또는 DDNS)</label>
-                <input id="cfgHost" type="text" inputmode="url" autocomplete="off" placeholder="mynas.synology.me">
+                <label>주소 (IP · DDNS · :포트 포함 가능)</label>
+                <input id="cfgHost" type="text" inputmode="url" autocomplete="off" placeholder="choi-film.synology.me">
             </div>
             <div class="field">
-                <label>포트 (HTTPS)</label>
+                <label id="cfgPortLabel">포트 (DSM 5001 HTTPS)</label>
                 <input id="cfgPort" type="text" inputmode="numeric" autocomplete="off" placeholder="5001">
             </div>
         </div>
@@ -1601,7 +1641,7 @@
         <button class="menuitem" id="menuServer"><i data-icon="server"></i><span class="grow">서버 접속 설정</span><span class="val" id="menuServerValue">-</span></button>
         <button class="menuitem" id="menuCache"><i data-icon="trash-2"></i><span class="grow">썸네일 캐시 비우기</span><span class="val" id="menuCacheValue">0 B</span></button>
         <button class="menuitem" id="menuLogout"><i data-icon="lock"></i><span class="grow">시놀로지 로그아웃</span></button>
-        <button class="menuitem" id="menuAbout"><i data-icon="info"></i><span class="grow">앱 정보</span><span class="val">v1.1</span></button>
+        <button class="menuitem" id="menuAbout"><i data-icon="info"></i><span class="grow">앱 정보</span><span class="val">v1.2</span></button>
     </div>
 </div>
 

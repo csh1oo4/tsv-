@@ -1,13 +1,17 @@
 # 📁 SynoFile Pro (com.choi.filemanager)
 
-시놀로지 NAS(DSM File Station)와 안드로이드 폰의 사진·영상을 한 화면에서 보고 정리하는 앱.
-v1.1 / versionCode 2 — v1.0의 네이티브 엔진 위에 새 디자인(다크 듀얼 스토리지 UI)을 얹었다.
+시놀로지 NAS와 안드로이드 폰의 사진·영상을 한 화면에서 보고 정리하는 앱.
+v1.2 / versionCode 3 — v1.1의 화면에 **WebDAV 접속**(HTTP 5005 / HTTPS 5006)을 더했다.
+DSM 로그인이 막힌 NAS도 WebDAV 계정으로 붙을 수 있다.
 
 ## 무엇을 하나요
 
-- **☁️ 시놀로지 NAS** — DSM 계정 로그인(2단계 인증 OTP, 자체 서명 인증서 허용), 공유 폴더 →
-  하위 폴더 탐색, 썸네일, 원본 보기, 영상 재생, 업로드/다운로드, NAS 내부 복사·이동·이름
-  변경·삭제·새 폴더.
+- **☁️ 시놀로지 NAS** — 두 가지 접속 방식.
+  - **DSM (File Station)** — DSM 계정 로그인(2단계 인증 OTP, 자체 서명 인증서 허용).
+  - **WebDAV** — 주소에 `:5005`(http)를 적으면 자동 선택, `:5006`이면 https. Basic 인증으로
+    PROPFIND/MKCOL/MOVE/COPY/PUT/DELETE를 직접 말한다. 포트를 비우면 `http://…:5005`.
+  공유 폴더 → 하위 폴더 탐색, 썸네일, 원본 보기, 영상 재생(Range 스트리밍), 업로드/다운로드,
+  NAS 내부 복사·이동·이름 변경·삭제·새 폴더.
 - **📱 내 폰 저장소** — `/storage/emulated/0` 이하 전체 탐색, 카메라·다운로드·사진 등 빠른 이동,
   사진/영상 그리드·리스트, 새 폴더·이름 변경·삭제·복사·이동·공유·외부 앱 열기.
 - **🔁 양방향 전송** — 폰 → NAS 업로드, NAS → 폰 다운로드. 전송 작업함에 진행률·완료·실패가
@@ -26,8 +30,12 @@ app/src/main/assets/app.js       화면 동작 전체
 
 app/src/main/java/com/choi/filemanager/
     MainActivity.java     WebView 셸, 권한, FileProvider, 브리지 등록, 뒤로가기
-    NasBridge.java        DSM File Station 클라이언트 (SYNO.API.Auth/List/Thumb/
-                          Download/Upload/CreateFolder/Rename/Delete/CopyMove)
+    NasBridge.java        브리지 본체: DSM File Station 클라이언트 + WebDAV 분기
+                          (SYNO.API.Auth/List/Thumb/Download/Upload/CreateFolder/
+                          Rename/Delete/CopyMove, 프로토콜별 저장·자동 로그인)
+    DavClient.java        WebDAV 동작 (PROPFIND 목록·MKCOL·MOVE/COPY·PUT·GET·DELETE)
+    DavXml.java           PROPFIND 본문과 207 Multi-Status 파서 (순수 Java, JVM 테스트)
+    HttpWire.java         소켓 HTTP/1.1 클라이언트 — PROPFIND 등을 위해 직접 구현
     LocalFileBridge.java  폰 저장소 (목록/생성/이름변경/삭제/복사/이동/공유)
     LocalServer.java      루프백 HTTP 서버 (/f /lt /s /nt, Range 지원)
     Core.java             공용 순수 헬퍼 (JVM 단위 테스트 대상)
@@ -36,10 +44,16 @@ app/src/main/java/com/choi/filemanager/
 
 ### 왜 루프백 서버인가
 
-`file://` 페이지는 NAS에 직접 요청할 수 없습니다(CORS·자체 서명 인증서). 그래서 모든 DSM
-호출은 `NasBridge`가 `HttpURLConnection`으로 대신하고, 화면에 띄우는 사진·영상 바이트만
-`127.0.0.1`의 임시 포트(토큰 보호, Range 지원)로 넘겨 `<img>`·`<video>`가 그대로 읽게 합니다.
-NAS 영상은 DSM Download API가 Range를 지원하지 않으므로 한 번 캐시에 받아 재생합니다.
+`file://` 페이지는 NAS에 직접 요청할 수 없습니다(CORS·자체 서명 인증서). 그래서 모든 NAS
+호출은 `NasBridge`가 대신하고, 화면에 띄우는 사진·영상 바이트만 `127.0.0.1`의 임시 포트
+(토큰 보호, Range 지원)로 넘겨 `<img>`·`<video>`가 그대로 읽게 합니다.
+
+DSM 모드는 `HttpURLConnection`을 쓰고, WebDAV 모드는 `HttpWire`(직접 만든 소켓 HTTP/1.1
+클라이언트)를 씁니다 — 안드로이드의 `HttpURLConnection`은 표준 6개 메서드 외에는
+`ProtocolException`을 던져 PROPFIND/MKCOL/MOVE/COPY를 보낼 수 없기 때문입니다.
+DSM Download API는 Range를 지원하지 않아 NAS 영상을 한 번 캐시에 받아 재생하지만,
+WebDAV는 Range를 그대로 넘겨 바로 스트리밍합니다. WebDAV에는 썸네일 API가 없어 이미지를
+한 번 받아(24MB 이하) 축소·캐시합니다.
 
 ### 왜 오프라인 안전한가
 
@@ -68,5 +82,5 @@ gradle assembleDebug           # APK (CI)
 
 ## 릴리즈
 
-- 태그: `file-manager-v1.1`
-- 에셋: `SynoFile-Pro-v1.1.apk`
+- 태그: `file-manager-v1.2`
+- 에셋: `SynoFile-Pro-v1.2.apk`

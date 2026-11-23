@@ -2,6 +2,8 @@ package com.choi.filemanager;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.util.Log;
 
 import org.json.JSONArray;
@@ -30,13 +32,16 @@ import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 
 /**
- * The Synology DSM File Station client behind window.NasBridge.
+ * The Synology client behind window.NasBridge: DSM File Station (v1.0/1.1 behaviour, kept
+ * exactly as it was) and, since v1.2, WebDAV on ports 5005/5006.
  *
  * A file:// WebView cannot call the NAS itself: fetch() from that origin is blocked by
- * CORS, an https NAS with a self-signed certificate is refused, and the DSM session has to
- * survive between calls. So every DSM request is made here with HttpURLConnection:
+ * CORS, an https NAS with a self-signed certificate is refused, and the session has to
+ * survive between calls. So every request is made here:
  *
- *   - the session id from SYNO.API.Auth is kept as _sid and appended to each call,
+ *   - DSM: SYNO.API.Auth keeps a _sid that is appended to each call,
+ *   - WebDAV: Basic auth on every request, spoken by DavClient/HttpWire (Android's
+ *     HttpURLConnection refuses PROPFIND/MKCOL/MOVE/COPY),
  *   - an optional "ignore certificate" switch installs a trust-all SSL socket factory for
  *     private servers that use a Synology self-signed certificate,
  *   - large transfers stream through without loading the file into memory.
@@ -53,22 +58,27 @@ public final class NasBridge implements LocalServer.NasSource {
     private static final String KEY_LAST_ID = "last_account";
     private static final String KEY_LAST_PW = "last_password";
     private static final String KEY_LAST_SSL = "last_ignore_ssl";
+    private static final String KEY_LAST_PROTOCOL = "last_protocol";
     private static final String KEY_AUTOLOGIN = "auto_login";
 
     private static final int TIMEOUT_CONNECT = 15000;
     private static final int TIMEOUT_READ = 60000;
+    /** A WebDAV thumbnail is the original image; anything bigger is not worth fetching. */
+    private static final long MAX_THUMB_SOURCE = 24L * 1024 * 1024;
     private static final String ADDITIONAL =
             "[\"real_path\",\"size\",\"owner\",\"time\",\"type\",\"perm\"]";
 
     private final MainActivity activity;
     private final Context context;
 
+    private volatile String protocol = Core.PROTOCOL_DSM;
     private volatile String baseUrl = "";
     private volatile String sid = "";
     private volatile String account = "";
     private volatile String serverName = "";
     private volatile boolean ignoreSsl = true;
     private volatile boolean connected = false;
+    private volatile DavClient dav;
 
     private static SSLSocketFactory trustAllFactory;
     private static HostnameVerifier trustAllVerifier;
@@ -168,6 +178,9 @@ public final class NasBridge implements LocalServer.NasSource {
             } catch (DsmException e) {
                 payload = error(e.code, Core.dsmErrorText(e.code));
                 ok = false;
+            } catch (DavClient.DavException e) {
+                payload = error(e.code, e.getMessage());
+                ok = false;
             } catch (Exception e) {
                 Log.w(TAG, "nas action failed: " + action, e);
                 payload = error(-1, "시놀로지와 통신하지 못했습니다. 주소와 네트워크를 확인해 주세요.");
@@ -222,10 +235,16 @@ public final class NasBridge implements LocalServer.NasSource {
         if (rawUrl.isEmpty() || user.isEmpty()) {
             return error(400, "서버 주소와 아이디를 입력해 주세요.");
         }
-        baseUrl = Core.normalizeServerUrl(rawUrl);
+        protocol = Core.protocolFor(params.optString("protocol", ""), rawUrl);
         ignoreSsl = ssl;
         connected = false;
         sid = "";
+        dav = null;
+        if (Core.PROTOCOL_WEBDAV.equals(protocol)) {
+            baseUrl = "";
+            return doLoginWebDav(rawUrl, user, pass, ssl, save, autoLogin);
+        }
+        baseUrl = Core.normalizeServerUrl(rawUrl);
 
         JSONObject data = new JSONObject();
         data.put("api", "SYNO.API.Auth");
@@ -277,13 +296,47 @@ public final class NasBridge implements LocalServer.NasSource {
         SharedPreferences.Editor editor = prefs.edit()
                 .putString(KEY_LAST_URL, baseUrl)
                 .putString(KEY_LAST_ID, user)
+                .putString(KEY_LAST_PROTOCOL, Core.PROTOCOL_DSM)
                 .putBoolean(KEY_LAST_SSL, ssl)
                 .putBoolean(KEY_AUTOLOGIN, autoLogin);
         if (save && !pass.isEmpty()) {
             editor.putString(KEY_LAST_PW, CryptoStore.encrypt(context, pass));
         }
         editor.apply();
-        rememberServer(baseUrl, user);
+        rememberServer(baseUrl, user, Core.PROTOCOL_DSM);
+
+        JSONObject out = status();
+        out.put("success", true);
+        return out;
+    }
+
+    /** WebDAV login: PROPFIND Depth 0 on the base URL, Basic auth on every request. */
+    private JSONObject doLoginWebDav(String rawUrl, String user, String pass, boolean ssl,
+                                     boolean save, boolean autoLogin) throws Exception {
+        String base = Core.webDavUrl(rawUrl);
+        if (base.isEmpty()) {
+            return error(400, "WebDAV 주소를 확인해 주세요. 예: http://choi-film.synology.me:5005");
+        }
+        DavClient client = new DavClient(base, user, pass, ssl, trustAllSocketFactory());
+        String name = client.login();
+        dav = client;
+        protocol = Core.PROTOCOL_WEBDAV;
+        baseUrl = base;
+        account = user;
+        serverName = name == null ? "" : name;
+        connected = true;
+
+        SharedPreferences.Editor editor = prefs().edit()
+                .putString(KEY_LAST_URL, base)
+                .putString(KEY_LAST_ID, user)
+                .putString(KEY_LAST_PROTOCOL, Core.PROTOCOL_WEBDAV)
+                .putBoolean(KEY_LAST_SSL, ssl)
+                .putBoolean(KEY_AUTOLOGIN, autoLogin);
+        if (save && !pass.isEmpty()) {
+            editor.putString(KEY_LAST_PW, CryptoStore.encrypt(context, pass));
+        }
+        editor.apply();
+        rememberServer(base, user, Core.PROTOCOL_WEBDAV);
 
         JSONObject out = status();
         out.put("success", true);
@@ -309,6 +362,14 @@ public final class NasBridge implements LocalServer.NasSource {
     }
 
     private JSONObject doLogout() {
+        if (Core.PROTOCOL_WEBDAV.equals(protocol)) {
+            // Basic auth has no session to end; forgetting the password is the logout.
+            dav = null;
+            sid = "";
+            connected = false;
+            account = "";
+            return status();
+        }
         try {
             JSONObject data = new JSONObject();
             data.put("session", "FileStation");
@@ -326,6 +387,8 @@ public final class NasBridge implements LocalServer.NasSource {
         JSONObject out = new JSONObject();
         try {
             out.put("connected", connected);
+            out.put("protocol", protocol);
+            out.put("webdav", Core.PROTOCOL_WEBDAV.equals(protocol));
             out.put("baseUrl", baseUrl);
             out.put("account", account);
             out.put("serverName", serverName == null ? "" : serverName);
@@ -333,6 +396,7 @@ public final class NasBridge implements LocalServer.NasSource {
             SharedPreferences prefs = prefs();
             out.put("lastUrl", prefs.getString(KEY_LAST_URL, ""));
             out.put("lastAccount", prefs.getString(KEY_LAST_ID, ""));
+            out.put("lastProtocol", prefs.getString(KEY_LAST_PROTOCOL, Core.PROTOCOL_DSM));
             out.put("hasSavedPassword", !prefs.getString(KEY_LAST_PW, "").isEmpty());
             out.put("autoLogin", prefs.getBoolean(KEY_AUTOLOGIN, true));
             out.put("servers", savedServers().optJSONArray("servers"));
@@ -359,6 +423,7 @@ public final class NasBridge implements LocalServer.NasSource {
         params.put("url", url);
         params.put("username", user);
         params.put("password", password);
+        params.put("protocol", prefs.getString(KEY_LAST_PROTOCOL, Core.PROTOCOL_DSM));
         params.put("ignoreSsl", prefs.getBoolean(KEY_LAST_SSL, true));
         params.put("save", true);
         params.put("autoLogin", true);
@@ -386,18 +451,26 @@ public final class NasBridge implements LocalServer.NasSource {
         return out;
     }
 
-    private void rememberServer(String url, String user) {
+    private void rememberServer(String url, String user, String protocolName) {
         try {
             JSONArray list = new JSONArray();
             JSONArray stored = new JSONArray(prefs().getString(KEY_SERVERS, "[]"));
             JSONObject entry = new JSONObject();
             entry.put("url", url);
             entry.put("account", user);
+            entry.put("protocol", protocolName);
             list.put(entry);
             for (int i = 0; i < stored.length(); i++) {
                 JSONObject item = stored.getJSONObject(i);
-                if (!url.equalsIgnoreCase(item.optString("url"))
-                        || !user.equals(item.optString("account"))) {
+                String storedUrl = item.optString("url");
+                if (Core.normalizeProtocol(item.optString("protocol", "")).isEmpty()) {
+                    // v1.1 entries predate the protocol field: fill it in from the port.
+                    item.put("protocol", Core.protocolFor("", storedUrl));
+                }
+                boolean same = url.equalsIgnoreCase(storedUrl)
+                        && user.equals(item.optString("account"))
+                        && protocolName.equalsIgnoreCase(item.optString("protocol"));
+                if (!same) {
                     list.put(item);
                 }
             }
@@ -576,7 +649,20 @@ public final class NasBridge implements LocalServer.NasSource {
 
     // ---------------------------------------------------------------- listing
 
+    /** True when the signed-in account is a WebDAV one. */
+    private boolean isWebDav() {
+        return Core.PROTOCOL_WEBDAV.equals(protocol) && dav != null;
+    }
+
     private JSONObject listShares() throws Exception {
+        if (isWebDav()) {
+            // WebDAV has no share list: the base URL is the root folder.
+            JSONObject out = new JSONObject();
+            out.put("path", "/");
+            out.put("parent", "/");
+            out.put("entries", dav.list("/"));
+            return out;
+        }
         JSONObject data = new JSONObject();
         data.put("additional", ADDITIONAL);
         data.put("limit", "500");
@@ -593,6 +679,16 @@ public final class NasBridge implements LocalServer.NasSource {
 
     private JSONObject list(JSONObject params) throws Exception {
         String path = Core.normalizePath(params.optString("path", "/"));
+        if (isWebDav()) {
+            JSONArray entries = dav.list(path);
+            JSONObject out = new JSONObject();
+            out.put("path", path);
+            out.put("parent", Core.parentOf(path));
+            out.put("entries", entries);
+            out.put("total", entries.length());
+            out.put("offset", 0);
+            return out;
+        }
         if ("/".equals(path)) {
             // File Station cannot list "/" itself: the root is the list of shared folders.
             JSONObject shares = listShares();
@@ -648,6 +744,9 @@ public final class NasBridge implements LocalServer.NasSource {
     }
 
     private JSONObject stat(JSONObject params) throws Exception {
+        if (isWebDav()) {
+            return dav.stat(params.optString("path", "/"));
+        }
         JSONObject data = new JSONObject();
         data.put("path", params.optString("path", "/"));
         data.put("additional", "[\"size\",\"time\",\"type\",\"real_path\"]");
@@ -713,6 +812,12 @@ public final class NasBridge implements LocalServer.NasSource {
             }
             path = Core.joinPath(Core.parentOf(path), name);
         }
+        if (isWebDav()) {
+            dav.mkdir(path);
+            JSONObject davOut = new JSONObject();
+            davOut.put("path", path);
+            return davOut;
+        }
         JSONObject data = new JSONObject();
         data.put("folder_path", Core.parentOf(path));
         data.put("name", name);
@@ -728,6 +833,12 @@ public final class NasBridge implements LocalServer.NasSource {
         String newName = Core.sanitizeName(params.optString("newName", ""));
         if (path.isEmpty() || newName.isEmpty()) {
             return new JSONObject();
+        }
+        if (isWebDav()) {
+            dav.rename(path, newName);
+            JSONObject davOut = new JSONObject();
+            davOut.put("path", Core.joinPath(Core.parentOf(path), newName));
+            return davOut;
         }
         JSONObject data = new JSONObject();
         data.put("path", path);
@@ -747,6 +858,14 @@ public final class NasBridge implements LocalServer.NasSource {
         for (int i = 0; i < paths.length(); i++) {
             list.put(paths.optString(i));
         }
+        if (isWebDav()) {
+            for (int i = 0; i < list.length(); i++) {
+                dav.delete(list.optString(i));
+            }
+            JSONObject davOut = new JSONObject();
+            davOut.put("count", list.length());
+            return davOut;
+        }
         JSONObject data = new JSONObject();
         data.put("path", list.toString());
         data.put("recursive", "true");
@@ -763,6 +882,13 @@ public final class NasBridge implements LocalServer.NasSource {
         boolean overwrite = params.optBoolean("overwrite", false);
         if (paths == null || paths.length() == 0 || dest.isEmpty()) {
             return new JSONObject();
+        }
+        if (isWebDav()) {
+            dav.copyMove(paths, dest, move, overwrite, (percent, message) ->
+                    activity.postProgress(reqId, percent, message));
+            JSONObject davOut = new JSONObject();
+            davOut.put("count", paths.length());
+            return davOut;
         }
         JSONArray list = new JSONArray();
         for (int i = 0; i < paths.length(); i++) {
@@ -819,6 +945,17 @@ public final class NasBridge implements LocalServer.NasSource {
             return error(1104, "저장할 폴더를 만들지 못했습니다.");
         }
         File target = uniqueTarget(dir, wantedName);
+        if (isWebDav()) {
+            dav.download(path, target, (percent, message) ->
+                    activity.postProgress(reqId, percent, message));
+            activity.scanMedia(target);
+            JSONObject davOut = new JSONObject();
+            davOut.put("success", true);
+            davOut.put("savedPath", target.getAbsolutePath());
+            davOut.put("name", target.getName());
+            davOut.put("size", target.length());
+            return davOut;
+        }
         File part = new File(target.getAbsolutePath() + ".part");
 
         String url = baseUrl + "/webapi/entry.cgi?api=SYNO.FileStation.Download"
@@ -922,7 +1059,12 @@ public final class NasBridge implements LocalServer.NasSource {
                 continue;
             }
             try {
-                uploadOne(file, destDir, overwrite, reqId, i, total);
+                if (isWebDav()) {
+                    dav.put(file, Core.joinPath(destDir, file.getName()), overwrite,
+                            (percent, message) -> activity.postProgress(reqId, percent, message));
+                } else {
+                    uploadOne(file, destDir, overwrite, reqId, i, total);
+                }
                 JSONObject item = new JSONObject();
                 item.put("name", file.getName());
                 item.put("dest", Core.joinPath(destDir, file.getName()));
@@ -930,6 +1072,8 @@ public final class NasBridge implements LocalServer.NasSource {
                 done++;
             } catch (DsmException e) {
                 failed.put(file.getName() + " (" + Core.dsmErrorText(e.code) + ")");
+            } catch (DavClient.DavException e) {
+                failed.put(file.getName() + " (" + e.getMessage() + ")");
             } catch (Exception e) {
                 failed.put(file.getName() + " (전송 실패)");
             }
@@ -1065,6 +1209,10 @@ public final class NasBridge implements LocalServer.NasSource {
     }
 
     private JSONObject quota() throws Exception {
+        if (isWebDav()) {
+            // WebDAV has no quota call; the page hides the bar when it is empty.
+            return new JSONObject();
+        }
         JSONObject data = new JSONObject();
         JSONObject res = apiCall("SYNO.FileStation.Info", 2, "get", data, true);
         JSONObject body = res.optJSONObject("data");
@@ -1081,6 +1229,9 @@ public final class NasBridge implements LocalServer.NasSource {
 
     @Override
     public boolean isConnected() {
+        if (Core.PROTOCOL_WEBDAV.equals(protocol)) {
+            return connected && dav != null;
+        }
         return connected && sid != null && !sid.isEmpty() && baseUrl != null && !baseUrl.isEmpty();
     }
 
@@ -1090,6 +1241,26 @@ public final class NasBridge implements LocalServer.NasSource {
         if (!isConnected()) {
             meta.code = 503;
             return null;
+        }
+        if (isWebDav()) {
+            // WebDAV answers Range itself, so the loopback server can pass 206 straight on.
+            HttpWire.Response response = dav.get(path, rangeHeader);
+            if (response.code >= 400) {
+                meta.code = response.code >= 500 ? 502 : 404;
+                response.close();
+                return null;
+            }
+            meta.code = response.code == 206 ? 206 : 200;
+            meta.contentType = LocalServer.safeType(Core.nameOf(path));
+            long length = response.contentLength();
+            meta.contentLength = length;
+            String contentRange = response.header("Content-Range");
+            if (!contentRange.isEmpty()) {
+                meta.contentRange = contentRange;
+            } else if (meta.code == 206 && length > 0) {
+                meta.contentRange = "bytes 0-" + (length - 1) + "/" + length;
+            }
+            return new ResponseStream(response);
         }
         String url = baseUrl + "/webapi/entry.cgi?api=SYNO.FileStation.Download"
                 + "&version=2&method=download&mode=open&path=" + Core.urlEncode(path)
@@ -1123,6 +1294,9 @@ public final class NasBridge implements LocalServer.NasSource {
     public byte[] thumbnail(String path, String size) throws Exception {
         if (!isConnected()) {
             return null;
+        }
+        if (isWebDav()) {
+            return davThumbnail(path, size);
         }
         String safeSize = "small".equals(size) || "large".equals(size) || "original".equals(size)
                 ? size : "medium";
@@ -1192,6 +1366,107 @@ public final class NasBridge implements LocalServer.NasSource {
         for (File f : files) {
             //noinspection ResultOfMethodCallIgnored
             f.delete();
+        }
+    }
+
+    /**
+     * WebDAV has no thumbnail call, so the image is fetched once (capped) and scaled here;
+     * the JPEG lands in the same cache the DSM thumbnails use.
+     */
+    private byte[] davThumbnail(String path, String size) throws Exception {
+        if (!Core.isImage(path)) {
+            return null;
+        }
+        String safeSize = "small".equals(size) || "large".equals(size) ? size : "medium";
+        int target = "small".equals(safeSize) ? 160 : ("large".equals(safeSize) ? 640 : 320);
+        File cacheDir = new File(activity.getCacheDir(), "nasthumbs");
+        if (!cacheDir.exists() && !cacheDir.mkdirs()) {
+            return null;
+        }
+        File cached = new File(cacheDir, sha1("dav|" + path + "|" + safeSize) + ".jpg");
+        if (cached.isFile() && cached.length() > 0
+                && System.currentTimeMillis() - cached.lastModified() < 7L * 24 * 3600 * 1000) {
+            byte[] hit = readBytes(cached);
+            if (hit != null && hit.length > 0) {
+                return hit;
+            }
+        }
+        byte[] source = dav.readImage(path, MAX_THUMB_SOURCE);
+        if (source == null || source.length == 0) {
+            return null;
+        }
+        Bitmap bitmap = null;
+        try {
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            BitmapFactory.decodeByteArray(source, 0, source.length, bounds);
+            int sample = 1;
+            int longest = Math.max(bounds.outWidth, bounds.outHeight);
+            while (longest / (sample * 2) >= target) {
+                sample *= 2;
+            }
+            BitmapFactory.Options options = new BitmapFactory.Options();
+            options.inSampleSize = sample;
+            bitmap = BitmapFactory.decodeByteArray(source, 0, source.length, options);
+            if (bitmap == null) {
+                return null;
+            }
+            byte[] jpeg = scaleToJpeg(bitmap, target);
+            if (jpeg == null || jpeg.length == 0) {
+                return null;
+            }
+            FileOutputStream fos = null;
+            try {
+                fos = new FileOutputStream(cached);
+                fos.write(jpeg);
+            } catch (Exception ignored) {
+                // caching is a nicety
+            } finally {
+                closeQuietly(fos);
+            }
+            return jpeg;
+        } catch (Throwable t) {
+            Log.d(TAG, "dav thumb failed for " + path + ": " + t);
+            return null;
+        } finally {
+            if (bitmap != null) {
+                bitmap.recycle();
+            }
+        }
+    }
+
+    private static byte[] scaleToJpeg(Bitmap source, int target) {
+        int width = source.getWidth();
+        int height = source.getHeight();
+        if (width <= 0 || height <= 0) {
+            return null;
+        }
+        double scale = Math.min(1.0, (double) target / Math.max(width, height));
+        Bitmap scaled = source;
+        if (scale < 1.0) {
+            scaled = Bitmap.createScaledBitmap(source,
+                    Math.max(1, (int) (width * scale)), Math.max(1, (int) (height * scale)), true);
+        }
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        scaled.compress(Bitmap.CompressFormat.JPEG, 84, bos);
+        if (scaled != source) {
+            scaled.recycle();
+        }
+        return bos.toByteArray();
+    }
+
+    /** An open WebDAV GET whose close() also closes the socket behind it. */
+    private static final class ResponseStream extends java.io.FilterInputStream {
+        private final HttpWire.Response response;
+
+        ResponseStream(HttpWire.Response response) {
+            super(response.stream);
+            this.response = response;
+        }
+
+        @Override
+        public void close() {
+            response.close();
         }
     }
 

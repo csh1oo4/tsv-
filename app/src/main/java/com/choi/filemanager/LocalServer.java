@@ -34,8 +34,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * cannot hold a 4 GB video in memory, so every byte the page displays is handed to it by
  * this server on 127.0.0.1 with a random port and a per-run token:
  *
- *   /s?p=&lt;b64url path&gt;   NAS original — proxied to SYNO.FileStation.Download, Range passed through
- *   /nt?p=&lt;b64url path&gt;  NAs thumbnail — SYNO.FileStation.Thumb forwarded as image bytes
+ *   /s?p=&lt;b64url path&gt;   NAS original — proxied to DSM's download API or a WebDAV GET,
+ *                          Range passed straight through (206 + Content-Range)
+ *   /nt?p=&lt;b64url path&gt;  NAS thumbnail — DSM's Thumb API, or a scaled WebDAV image
  *   /f?p=&lt;b64url path&gt;   phone file — served from disk with Range support
  *   /lt?p=&lt;b64url path&gt;  phone thumbnail — generated once and cached in cache/thumbs
  *   /ping                  "ok", used by the page to check the server is alive
@@ -532,12 +533,16 @@ public final class LocalServer {
                 return "OK";
             case 206:
                 return "Partial Content";
+            case 401:
+                return "Unauthorized";
             case 403:
                 return "Forbidden";
             case 404:
                 return "Not Found";
             case 405:
                 return "Method Not Allowed";
+            case 416:
+                return "Requested Range Not Satisfiable";
             case 502:
                 return "Bad Gateway";
             case 503:

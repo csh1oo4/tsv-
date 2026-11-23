@@ -389,6 +389,77 @@ var SynoFileTestSuite = (function () {
         eq(C.splitServerUrl('http://192.168.0.7:5000').secure, false, 'splitServerUrl http');
         eq(C.splitServerUrl('').host, '', 'splitServerUrl empty');
 
+        // ---- WebDAV: the address decides the protocol, the scheme the user typed wins ----
+        eq(C.isWebDavPort('5005'), true, 'isWebDavPort 5005');
+        eq(C.isWebDavPort('5006'), true, 'isWebDavPort 5006');
+        eq(C.isWebDavPort('5001'), false, 'isWebDavPort 5001');
+        eq(C.protocolFromHost('nas.synology.me:5005'), 'webdav', 'protocolFromHost :5005');
+        eq(C.protocolFromHost('nas.synology.me'), '', 'protocolFromHost without a port');
+        eq(C.suggestProtocol('nas.synology.me', '5006'), 'webdav', 'suggestProtocol 5006');
+        eq(C.suggestProtocol('nas.synology.me', '5001'), '', 'suggestProtocol 5001 is quiet');
+        eq(C.protocolFor('nas.synology.me', '5005', 'dsm'), 'webdav',
+            'protocolFor follows the port over the current choice');
+        eq(C.protocolFor('nas.synology.me', '5001', 'webdav'), 'webdav',
+            'protocolFor keeps an explicit choice when the port is silent');
+        eq(C.protocolFor('nas.synology.me', '5001', ''), 'dsm', 'protocolFor defaults to DSM');
+        eq(C.normalizeProtocol('WebDAV'), 'webdav', 'normalizeProtocol is case-blind');
+        eq(C.normalizeProtocol('ftp'), '', 'normalizeProtocol rejects other words');
+        eq(C.nextProtocol('dsm'), 'webdav', 'nextProtocol dsm -> webdav');
+        eq(C.protocolLabel('webdav'), 'WebDAV', 'protocolLabel');
+
+        eq(C.serverUrl('nas.synology.me', '5005', 'webdav'), 'http://nas.synology.me:5005',
+            'serverUrl webdav 5005 is http');
+        eq(C.serverUrl('nas.synology.me', '5006', 'webdav'), 'https://nas.synology.me:5006',
+            'serverUrl webdav 5006 is https');
+        eq(C.serverUrl('nas.synology.me', '5005'), 'http://nas.synology.me:5005',
+            'serverUrl infers webdav from the port');
+        eq(C.serverUrl('nas.synology.me', '', 'webdav'), 'http://nas.synology.me:5005',
+            'serverUrl webdav without a port uses 5005');
+        eq(C.serverUrl('https://nas.synology.me', '', 'webdav'), 'https://nas.synology.me:5006',
+            'serverUrl keeps a typed https scheme');
+        eq(C.serverUrl('http://nas.synology.me', '5006', 'webdav'), 'http://nas.synology.me:5006',
+            'serverUrl keeps a typed http scheme');
+        eq(C.serverUrl('nas.synology.me:5005', '', 'webdav'), 'http://nas.synology.me:5005',
+            'serverUrl reads a port typed into the address box');
+        eq(C.serverUrl('choi-film.synology.me:5005/webdav', '', 'webdav'),
+            'http://choi-film.synology.me:5005/webdav', 'serverUrl keeps a typed WebDAV path');
+        eq(C.splitServerUrl('http://nas.synology.me:5005').protocol, 'webdav',
+            'splitServerUrl sees WebDAV');
+        eq(C.splitServerUrl('http://nas.synology.me:5005').secure, false,
+            'splitServerUrl webdav is not secure');
+        eq(C.splitServerUrl('https://nas.synology.me:5006').protocol, 'webdav',
+            'splitServerUrl sees secure WebDAV');
+        eq(C.splitServerUrl('https://nas.synology.me:5001').protocol, 'dsm',
+            'splitServerUrl sees DSM');
+        eq(C.splitServerUrl('http://nas:5005/webdav').path, '/webdav', 'splitServerUrl keeps the path');
+        eq(C.serverUrl(C.splitServerUrl('http://nas.synology.me:5005').host,
+            C.splitServerUrl('http://nas.synology.me:5005').port, 'webdav'),
+            'http://nas.synology.me:5005', 'split then serverUrl round trips');
+
+        eq(C.davDecode(C.davEncodePath('/사진/2026년 11월/A B.jpg')),
+            '/사진/2026년 11월/A B.jpg', 'davEncodePath round trips Korean and spaces');
+        eq(C.davEncodePath('/사진/2026년 11월.jpg'),
+            '/%EC%82%AC%EC%A7%84/2026%EB%85%84%2011%EC%9B%94.jpg', 'davEncodePath encodes Korean');
+        check('davEncodePath never leaves a space', C.davEncodePath('/a b/c d').indexOf(' ') < 0);
+        eq(C.davEncodePath('/a-b_c.d~e'), '/a-b_c.d~e', 'davEncodePath keeps unreserved letters');
+        eq(C.davDecode('/a%20b%2Bc+d'), '/a b+c+d', 'davDecode keeps a literal plus');
+        eq(C.davDecode('%EA%B0%80'), '가', 'davDecode UTF-8');
+
+        eq(C.davUrl('http://h:5005', '/'), 'http://h:5005/', 'davUrl root');
+        eq(C.davUrl('http://h:5005', '/사진'), 'http://h:5005/%EC%82%AC%EC%A7%84', 'davUrl encodes');
+        eq(C.davUrl('http://h:5005/', '/a'), 'http://h:5005/a', 'davUrl trims the base slash');
+        eq(C.davBasePath('http://h:5005'), '/', 'davBasePath at the root');
+        eq(C.davBasePath('http://h:5005/dav'), '/dav', 'davBasePath with a prefix');
+        eq(C.davPathOf('http://h:5005/photo/%EA%B0%80.jpg', 'http://h:5005'), '/photo/가.jpg',
+            'davPathOf decodes an absolute href');
+        eq(C.davPathOf('/photo/', 'http://h:5005'), '/photo', 'davPathOf trims the trailing slash');
+        eq(C.davPathOf('http://h:5005/dav/photo/1.jpg', 'http://h:5005/dav'), '/photo/1.jpg',
+            'davPathOf strips the WebDAV prefix');
+        eq(C.davPathOf('http://h:5005/dav/a.jpg', 'http://h:5005/dav/'), '/a.jpg',
+            'davPathOf survives a base with a trailing slash');
+        eq(C.davPathOf('http://other:5005/a.jpg', 'http://h:5005/dav'), '',
+            'davPathOf drops a path outside the server');
+
         eq(C.clampPercent(38.6), 39, 'clampPercent rounds');
         eq(C.clampPercent(-2), 0, 'clampPercent floors at 0');
         eq(C.clampPercent(310), 100, 'clampPercent caps at 100');
@@ -409,6 +480,10 @@ var SynoFileTestSuite = (function () {
         var manifest = read('app/src/main/AndroidManifest.xml');
         var activity = read('app/src/main/java/com/choi/filemanager/MainActivity.java');
         var nasBridge = read('app/src/main/java/com/choi/filemanager/NasBridge.java');
+        var davClient = read('app/src/main/java/com/choi/filemanager/DavClient.java');
+        var davXml = read('app/src/main/java/com/choi/filemanager/DavXml.java');
+        var httpWire = read('app/src/main/java/com/choi/filemanager/HttpWire.java');
+        var davAll = nasBridge + davClient + davXml + httpWire;
         var localBridge = read('app/src/main/java/com/choi/filemanager/LocalFileBridge.java');
         var localServer = read('app/src/main/java/com/choi/filemanager/LocalServer.java');
         var gradle = read('app/build.gradle');
@@ -518,6 +593,21 @@ var SynoFileTestSuite = (function () {
             nasBridge.indexOf('setSSLSocketFactory') >= 0 && nasBridge.indexOf('X509TrustManager') >= 0);
         check('NAS uploads as multipart', nasBridge.indexOf('multipart/form-data') >= 0);
         check('NAS password is keystore-encrypted', nasBridge.indexOf('CryptoStore.encrypt') >= 0);
+        check('NasBridge speaks WebDAV',
+            ['PROPFIND', 'MKCOL', 'MOVE', 'COPY', 'PUT', 'DELETE', 'Depth', 'Authorization',
+                'Basic '].every(function (word) { return davAll.indexOf(word) >= 0; }));
+        check('NasBridge keeps the WebDAV branch beside DSM',
+            nasBridge.indexOf('PROTOCOL_WEBDAV') >= 0 && nasBridge.indexOf('SYNO.API.Auth') >= 0);
+        check('MOVE/COPY send an absolute Destination and Overwrite',
+            davClient.indexOf('"Destination"') >= 0 && davClient.indexOf('"Overwrite"') >= 0
+            && davClient.indexOf('Core.davUrl(base') >= 0);
+        check('NasBridge sends the WebDAV body itself', httpWire.indexOf('class HttpWire') >= 0);
+        check('the DAV multistatus parser is pure Java', davXml.indexOf('DAV:') >= 0);
+        check('app.js sends the chosen protocol on login',
+            appJs.indexOf('protocol: protocol') >= 0 && appJs.indexOf("FM.nas('login'") >= 0);
+        check('index.html offers the protocol switch',
+            html.indexOf('id="cfgProtoDsm"') >= 0 && html.indexOf('id="cfgProtoDav"') >= 0
+            && html.indexOf('id="cfgProto"') >= 0);
         check('LocalServer serves /f /lt /s /nt',
             ['"/f"', '"/lt"', '"/s"', '"/nt"'].every(function (route) {
                 return localServer.indexOf(route) >= 0;
@@ -546,8 +636,8 @@ var SynoFileTestSuite = (function () {
 
         check('applicationId stays com.choi.filemanager',
             gradle.indexOf('applicationId "com.choi.filemanager"') >= 0);
-        check('versionCode is 2', /versionCode 2\b/.test(gradle));
-        check('versionName is 1.1', gradle.indexOf('versionName "1.1"') >= 0);
+        check('versionCode is 3', /versionCode 3\b/.test(gradle));
+        check('versionName is 1.2', gradle.indexOf('versionName "1.2"') >= 0);
         check('signing uses the fixed keystore',
             gradle.indexOf("storeFile file('filemanager-fixed.p12')") >= 0);
         check('signing alias is filemanager', gradle.indexOf("keyAlias 'filemanager'") >= 0);
@@ -774,6 +864,24 @@ var SynoFileTestSuite = (function () {
                 get('cfgHost').value);
             check('server modal prefills the port', get('cfgPort').value === '5001',
                 get('cfgPort').value);
+            check('server modal starts on DSM', get('cfgProtoDsm').classList.contains('on')
+                && !get('cfgProtoDav').classList.contains('on'));
+            tap(get('cfgProto'), {'data-proto': 'webdav'});
+            check('choosing WebDAV turns its button on', get('cfgProtoDav').classList.contains('on')
+                && !get('cfgProtoDsm').classList.contains('on'));
+            check('choosing WebDAV moves the port to 5005', get('cfgPort').value === '5005',
+                get('cfgPort').value);
+            check('the WebDAV hint explains the ports',
+                get('cfgProtoHint').textContent.indexOf('5005') >= 0,
+                get('cfgProtoHint').textContent);
+            tap(get('cfgProto'), {'data-proto': 'dsm'});
+            check('going back to DSM restores port 5001', get('cfgPort').value === '5001',
+                get('cfgPort').value);
+            get('cfgPort').value = '5006';
+            get('cfgPort').dispatch('input', {});
+            check('typing 5006 selects WebDAV by itself', get('cfgProtoDav').classList.contains('on'));
+            get('cfgPort').value = '5001';
+            get('cfgPort').dispatch('input', {});
             get('btnCloseServer').onclick();
             check('server modal closes', get('serverModal').classList.contains('hide'));
 
@@ -786,7 +894,7 @@ var SynoFileTestSuite = (function () {
             get('menuSheet').classList.remove('hide');
             get('menuAbout').onclick();
             check('about dialog shows the version',
-                get('dlgBody').innerHTML.indexOf('1.1') >= 0,
+                get('dlgBody').innerHTML.indexOf('1.2') >= 0,
                 get('dlgBody').innerHTML.slice(0, 200));
             get('dlgCancel').onclick();
 
