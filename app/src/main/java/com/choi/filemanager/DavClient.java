@@ -97,7 +97,9 @@ public final class DavClient {
         HttpWire.Response response = propfind("/", 0);
         try {
             if (response.code == 401) {
-                throw new DavException(400, "아이디 또는 비밀번호가 올바르지 않습니다.");
+                throw new DavException(400, "아이디 또는 비밀번호가 올바르지 않습니다. "
+                        + "2단계 인증 계정은 WebDAV에서 OTP를 받지 않으니 DSM 제어판에서 "
+                        + "이 계정의 WebDAV 접속 허용도 확인해 주세요.");
             }
             if (response.code == 403) {
                 throw new DavException(402, "이 계정에는 WebDAV 접속 권한이 없습니다. "
@@ -131,7 +133,10 @@ public final class DavClient {
     /** Depth 1 PROPFIND: the folder's own entry is dropped and paths come back page-relative. */
     public JSONArray list(String path) throws DavException {
         String clean = Core.normalizePath(path);
-        HttpWire.Response response = propfind(clean, 1);
+        // Collections are addressed with the trailing slash; asking for "/photo" instead of
+        // "/photo/" costs an extra 301 round trip on most WebDAV servers.
+        String folder = "/".equals(clean) ? "/" : clean + "/";
+        HttpWire.Response response = propfind(folder, 1);
         try {
             if (response.code == 401) {
                 throw new DavException(400, "아이디 또는 비밀번호가 올바르지 않습니다.");

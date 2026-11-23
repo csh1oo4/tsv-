@@ -2069,6 +2069,10 @@
         if (portLabel) {
             portLabel.textContent = p === 'webdav' ? '포트 (5005 HTTP / 5006 HTTPS)' : '포트 (DSM 5001 HTTPS)';
         }
+        var otp = $('cfgOtp');
+        if (otp) {
+            otp.placeholder = p === 'webdav' ? 'WebDAV는 OTP를 쓰지 않습니다' : '6자리 코드';
+        }
     }
 
     /** A protocol choice from the segmented control, keeping the port consistent. */
