@@ -531,7 +531,7 @@ const {
   useRef,
   useMemo
 } = React;
-const APP_VERSION = "2.3.1";
+const APP_VERSION = "2.4";
 
 // 🔊 앱 효과음 — 외부 오디오 파일 없이 Web Audio API로 만드는 짧은 소리
 const SFX_STORAGE_KEY = "todaywork_v33_sound";
@@ -1368,7 +1368,166 @@ const INITIAL_EQUIP_FOLDERS = [{
   desc: "AOI 비전 검사 및 텐션 제어 설비",
   items: []
 }];
-const INITIAL_ALARMS = [{
+
+/* ---------------------------------------------------------------- v2.4 알람
+   알람 객체: { id, time "HH:MM", label, shifts[], enabled,
+               gameEnabled, gameType, difficulty,
+               soundEnabled, soundType, soundId, soundName, soundUri, volume,
+               autoOff(분, 0=설정 안 함), repeat, cheer } */
+const ALARM_SOUNDS = [{
+  id: "arcade",
+  name: "아케이드 기상곡",
+  emoji: "🕹️",
+  desc: "레트로 게임 멜로디"
+}, {
+  id: "trumpet",
+  name: "유쾌한 기상 나팔",
+  emoji: "🎺",
+  desc: "밝은 금관 팡파르"
+}, {
+  id: "cuckoo",
+  name: "숲속 뻐꾸기 모닝",
+  emoji: "🐤",
+  desc: "뻐꾸기와 새소리"
+}, {
+  id: "aurora",
+  name: "상쾌한 오로라 차임",
+  emoji: "✨",
+  desc: "반짝이는 벨 아르페지오"
+}];
+const ALARM_GAMES = [{
+  id: "math",
+  label: "사칙연산",
+  emoji: "🧮",
+  desc: "간단한 수식을 풀어요"
+}, {
+  id: "typing",
+  label: "따라쓰기",
+  emoji: "⌨️",
+  desc: "주어진 문장을 따라 써요"
+}, {
+  id: "numbers",
+  label: "숫자 순서",
+  emoji: "🔢",
+  desc: "숫자를 순서대로 터치해요"
+}, {
+  id: "colors",
+  label: "색깔 순서",
+  emoji: "🎨",
+  desc: "색깔 순서대로 터치해요"
+}, {
+  id: "random",
+  label: "랜덤",
+  emoji: "🎲",
+  desc: "매번 무작위로 골라요"
+}];
+const ALARM_DIFFICULTIES = [{
+  id: "easy",
+  label: "쉬움"
+}, {
+  id: "normal",
+  label: "보통"
+}, {
+  id: "hard",
+  label: "어려움"
+}];
+const ALARM_AUTO_OFF_CHOICES = [{
+  value: 0,
+  label: "설정 안 함"
+}, {
+  value: 1,
+  label: "1분"
+}, {
+  value: 3,
+  label: "3분"
+}, {
+  value: 5,
+  label: "5분"
+}];
+const ALARM_COLORS = [{
+  id: 0,
+  name: "빨강",
+  hex: "#ef4444"
+}, {
+  id: 1,
+  name: "주황",
+  hex: "#f97316"
+}, {
+  id: 2,
+  name: "노랑",
+  hex: "#eab308"
+}, {
+  id: 3,
+  name: "초록",
+  hex: "#22c55e"
+}, {
+  id: 4,
+  name: "파랑",
+  hex: "#3b82f6"
+}, {
+  id: 5,
+  name: "보라",
+  hex: "#a855f7"
+}];
+const MASTER_CODE = "070299";
+const DEVICE_ID_KEY = "tsv_duty_device_id";
+const MASTER_FLAG_KEY = "tsv_duty_master";
+const DEFAULT_CHEER = "오늘도 안전근무 화이팅";
+const ALARM_DEFAULTS = {
+  gameEnabled: true,
+  gameType: "math",
+  difficulty: "easy",
+  soundEnabled: true,
+  vibrate: true,
+  soundType: "builtin",
+  soundId: "aurora",
+  soundName: "상쾌한 오로라 차임",
+  soundUri: "",
+  volume: 80,
+  autoOff: 0,
+  repeat: false,
+  cheer: ""
+};
+
+// 예전 버전 알람(order/compare)·빈 값을 안전한 기본값으로 채운다.
+const normalizeAlarm = raw => {
+  const src = Object.assign({}, raw || {});
+  const out = Object.assign({}, ALARM_DEFAULTS, src);
+  const timeMatch = /^([0-9]{1,2}):([0-9]{2})$/.exec(String(out.time || "").trim());
+  out.time = timeMatch ? String(Math.min(23, parseInt(timeMatch[1], 10))).padStart(2, "0") + ":" + timeMatch[2] : "07:00";
+  let shifts = Array.isArray(out.shifts) ? out.shifts.slice() : [];
+  shifts = shifts.map(s => s === "주특" ? "주" : s === "야특" ? "야" : s === "오" ? "비" : s).filter(s => ["주", "야", "비", "휴"].includes(s));
+  out.shifts = shifts.length ? Array.from(new Set(shifts)) : ["주"];
+  if (out.gameType === "order") out.gameType = "numbers";
+  if (out.gameType === "compare") out.gameType = "math";
+  if (!ALARM_GAMES.some(g => g.id === out.gameType)) out.gameType = "math";
+  if (!ALARM_DIFFICULTIES.some(d => d.id === out.difficulty)) out.difficulty = "easy";
+  out.volume = Math.max(0, Math.min(100, Number(out.volume) || 0));
+  out.autoOff = [0, 1, 3, 5].includes(Number(out.autoOff)) ? Number(out.autoOff) : 0;
+  out.repeat = !!out.repeat;
+  out.vibrate = out.vibrate !== false;
+  out.soundEnabled = out.soundEnabled !== false;
+  out.gameEnabled = out.gameEnabled !== false;
+  out.soundType = out.soundType === "device" ? "device" : "builtin";
+  if (!ALARM_SOUNDS.some(s => s.id === out.soundId)) out.soundId = "aurora";
+  out.soundName = String(out.soundName || "");
+  out.soundUri = String(out.soundUri || "");
+  out.cheer = String(out.cheer || "");
+  out.label = String(out.label || "근무 알람");
+  return out;
+};
+const alarmGameLabel = type => {
+  const found = ALARM_GAMES.find(g => g.id === type);
+  return found ? found.label : "사칙연산";
+};
+const alarmSoundLabel = alarm => {
+  const a = normalizeAlarm(alarm);
+  if (!a.soundEnabled) return "무음";
+  if (a.soundType === "device") return a.soundName || "내 기기 음악";
+  const found = ALARM_SOUNDS.find(s => s.id === a.soundId);
+  return found ? found.name : "기본 알람음";
+};
+const INITIAL_ALARMS = [normalizeAlarm({
   id: "al1",
   time: "06:40",
   label: "주간 출근 알람",
@@ -1376,17 +1535,27 @@ const INITIAL_ALARMS = [{
   enabled: false,
   gameEnabled: true,
   gameType: "math",
-  difficulty: "easy"
-}, {
+  difficulty: "easy",
+  soundId: "trumpet",
+  soundName: "유쾌한 기상 나팔",
+  volume: 90,
+  autoOff: 3,
+  cheer: DEFAULT_CHEER
+}), normalizeAlarm({
   id: "al2",
   time: "18:40",
   label: "야간 출근 알람",
   shifts: ["야"],
   enabled: false,
   gameEnabled: true,
-  gameType: "order",
-  difficulty: "easy"
-}];
+  gameType: "numbers",
+  difficulty: "easy",
+  soundId: "aurora",
+  soundName: "상쾌한 오로라 차임",
+  volume: 85,
+  autoOff: 3,
+  cheer: "야간근무 안전하게!"
+})];
 
 /* =====================================================================
    v2.0 — 네이티브 브리지 · 실시간 공유 공통 상수/헬퍼
@@ -1829,13 +1998,39 @@ function App() {
   const [equipEditing, setEquipEditing] = useState(null); // { id, folderId, author, date }
   const [equipDeleteTarget, setEquipDeleteTarget] = useState(null); // { id, title, folderId }
 
-  // 알람 및 게임 상태
+  // 알람 및 게임 상태 (v2.4: 게임 5종·색깔 단계·미리보기·음원 미리듣기)
   const [alarmModalOpen, setAlarmModalOpen] = useState(false);
   const [editingAlarm, setEditingAlarm] = useState(null);
   const [ringingAlarm, setRingingAlarm] = useState(null);
   const [gameChallenge, setGameChallenge] = useState(null);
   const [gameUserAnswer, setGameUserAnswer] = useState("");
   const [gameOrderStep, setGameOrderStep] = useState(1);
+  const [gameColorStep, setGameColorStep] = useState(1);
+  const [gamePreviewOpen, setGamePreviewOpen] = useState(false);
+  const [soundTab, setSoundTab] = useState("builtin"); // 기본·재미 / 내 기기 음악
+  const [soundPreviewId, setSoundPreviewId] = useState("");
+  const [photoLightbox, setPhotoLightbox] = useState(null); // { src, title, zoom }
+
+  // 마스터(관리자) 권한 · 이 기기 고유 ID
+  const [myDeviceId] = useState(() => {
+    try {
+      const saved = localStorage.getItem(DEVICE_ID_KEY);
+      if (saved) return saved;
+      const created = "dev_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+      localStorage.setItem(DEVICE_ID_KEY, created);
+      return created;
+    } catch (e) {
+      return "dev_" + Math.random().toString(36).slice(2);
+    }
+  });
+  const [isMaster, setIsMaster] = useState(() => {
+    try {
+      return localStorage.getItem(MASTER_FLAG_KEY) === "1";
+    } catch (e) {
+      return false;
+    }
+  });
+  const [masterCodeInput, setMasterCodeInput] = useState("");
 
   // 로컬 스토리지 동기화
   useEffect(() => {
@@ -2062,6 +2257,39 @@ function App() {
   const myGroup = useMemo(() => groups.find(g => g.id === myGroupId) || groups[0], [groups, myGroupId]);
 
   // 메인 근무(주/야/오/휴) 계산
+  /* ---------------------------------------------------------------- v2.4 권한
+     마스터는 모든 글, 일반 사용자는 authorId가 이 기기와 같은 글만 수정·삭제한다.
+     authorId가 없는 예전 글·남이 쓴 글은 일반 사용자에게 잠긴다. */
+  const canEditPost = post => {
+    if (!post) return false;
+    if (isMaster === true) return true;
+    return !!(post.authorId && myDeviceId && String(post.authorId) === String(myDeviceId));
+  };
+  const guardPostEdit = post => {
+    if (canEditPost(post)) return true;
+    notify("본인이 작성한 글만 수정·삭제할 수 있습니다");
+    return false;
+  };
+  const verifyMasterCode = () => {
+    if (String(masterCodeInput || "").trim() === MASTER_CODE) {
+      setIsMaster(true);
+      try {
+        localStorage.setItem(MASTER_FLAG_KEY, "1");
+      } catch (e) {}
+      setMasterCodeInput("");
+      playSfx("save");
+      notify("👑 마스터 관리자 권한이 켜졌습니다");
+    } else {
+      notify("마스터 코드가 올바르지 않습니다");
+    }
+  };
+  const disableMasterMode = () => {
+    setIsMaster(false);
+    try {
+      localStorage.removeItem(MASTER_FLAG_KEY);
+    } catch (e) {}
+    notify("일반 사용자 모드로 전환했습니다");
+  };
   const getShiftForGroupDate = (groupId, dateKey) => {
     const overrideKey = `${groupId}_${dateKey}`;
     if (overrides[overrideKey]) return overrides[overrideKey];
@@ -2412,51 +2640,28 @@ function App() {
     };
   }, [viewDate, myGroupId, groups, pattern, anchorDate, overrides, subOverrides]);
 
-  // 알람 울림 & 게임 생성
+  // 알람 울림 & 게임 생성 (v2.4 — 사칙연산·따라쓰기·숫자·색깔·랜덤)
   const triggerAlarmTest = alarm => {
+    const a = normalizeAlarm(alarm);
     const todayShift = getShiftForGroupDate(myGroupId, selectedDateKey);
-    if (!alarm.shifts.includes(todayShift)) {
+    const baseShift = todayShift === "주특" ? "주" : todayShift === "야특" ? "야" : todayShift;
+    const allowed = a.shifts.some(code => {
+      const c = code === "주특" ? "주" : code === "야특" ? "야" : code;
+      return c === baseShift || c === todayShift;
+    });
+    if (!allowed) {
       notify(`선택일(${selectedDateKey})은 '${todayShift}' 근무이므로 알람이 울리지 않습니다.`);
       return;
     }
-    setRingingAlarm(alarm);
-    if (alarm.gameEnabled) {
-      if (alarm.gameType === "math") {
-        const max = alarm.difficulty === "hard" ? 45 : alarm.difficulty === "normal" ? 20 : 9;
-        const a = Math.floor(Math.random() * max) + 3;
-        const b = Math.floor(Math.random() * max) + 2;
-        const ops = alarm.difficulty === "hard" ? ["+", "-", "×"] : ["+", "-"];
-        const op = ops[Math.floor(Math.random() * ops.length)];
-        let ans = a + b;
-        if (op === "-") ans = a - b;
-        if (op === "×") ans = a * b;
-        setGameChallenge({
-          type: "math",
-          question: `${a} ${op} ${b} = ?`,
-          answer: String(ans)
-        });
-        setGameUserAnswer("");
-      } else if (alarm.gameType === "order") {
-        const nums = [1, 2, 3, 4, 5, 6].sort(() => Math.random() - 0.5);
-        setGameChallenge({
-          type: "order",
-          nums
-        });
-        setGameOrderStep(1);
-      } else {
-        const left = Math.floor(Math.random() * 80) + 15;
-        let right = Math.floor(Math.random() * 80) + 15;
-        if (left === right) right += 3;
-        setGameChallenge({
-          type: "compare",
-          left,
-          right,
-          answer: left > right ? "left" : "right"
-        });
-      }
-    } else {
-      setGameChallenge(null);
-    }
+    setRingingAlarm({
+      id: a.id,
+      time: a.time,
+      label: a.label,
+      cheer: a.cheer,
+      soundEnabled: a.soundEnabled
+    });
+    setGameChallenge(a.gameEnabled ? makeGameChallenge(a.gameType, a.difficulty, a.cheer) : null);
+    resetGameAnswer();
   };
 
   // 실제 시각 알람 체크
@@ -2470,7 +2675,16 @@ function App() {
       const nowStr = `${hh}:${mm}`;
       const todayKey = formatDateKey(now.getFullYear(), now.getMonth(), now.getDate());
       const todayShift = getShiftForGroupDate(myGroupId, todayKey);
-      const matched = alarms.find(a => a.enabled && a.time === nowStr && a.shifts.includes(todayShift));
+      const baseShift = todayShift === "주특" ? "주" : todayShift === "야특" ? "야" : todayShift;
+      const matched = alarms.find(rawAlarm => {
+        if (!rawAlarm || !rawAlarm.enabled) return false;
+        const a = normalizeAlarm(rawAlarm);
+        if (a.time !== nowStr) return false;
+        return a.shifts.some(code => {
+          const c = code === "주특" ? "주" : code === "야특" ? "야" : code;
+          return c === baseShift || c === todayShift;
+        });
+      });
       if (matched && !ringingAlarm) {
         triggerAlarmTest(matched);
       }
@@ -2869,43 +3083,225 @@ function App() {
   };
 
   /* ---------- 근무 알람 (AndroidAlarm) ---------- */
+  /* v2.4 — 알람 계산·예약·테스트를 한 곳에 모았다.
+     · 주특/야특도 주·야 알람에 포함되고, 근무 선택에 '휴'가 있으면 휴무일에도 울린다.
+     · 네이티브 예약 목록과 '다음 알람' 표시가 같은 계산(buildAlarmOccurrences)을 쓴다. */
+  const alarmSoundSpec = alarm => {
+    const a = normalizeAlarm(alarm);
+    return {
+      soundType: a.soundType,
+      soundId: a.soundId,
+      soundUri: a.soundUri,
+      volume: a.volume
+    };
+  };
+  const buildAlarmOccurrences = () => {
+    const occurrences = [];
+    const nowMs = Date.now();
+    const base = new Date();
+    for (let i = 0; i < 30; i++) {
+      const day = new Date(base.getFullYear(), base.getMonth(), base.getDate() + i);
+      const ymd = formatDateKey(day.getFullYear(), day.getMonth(), day.getDate());
+      const shift = getShiftForGroupDate(myGroupId, ymd);
+      const sub = getSubShiftForGroupDate(myGroupId, ymd);
+      const badge = sub === "특근" ? shift === "야" ? "야특" : "주특" : shift;
+      (alarms || []).forEach(rawAlarm => {
+        if (!rawAlarm || !rawAlarm.enabled) return;
+        const al = normalizeAlarm(rawAlarm);
+        const matches = al.shifts.some(code => {
+          const baseCode = code === "주특" ? "주" : code === "야특" ? "야" : code;
+          return baseCode === shift || code === badge;
+        });
+        if (!matches) return;
+        const parts = al.time.split(":");
+        const hh = parseInt(parts[0], 10) || 0;
+        const mi = parseInt(parts[1], 10) || 0;
+        const when = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hh, mi, 0, 0);
+        if (when.getTime() <= nowMs + 5000) return;
+        occurrences.push({
+          id: `${al.id}_${ymd}`,
+          triggerAtMs: when.getTime(),
+          label: `${al.label || "근무 알람"} (${badge})`,
+          shift: badge,
+          time: al.time,
+          gameEnabled: !!al.gameEnabled,
+          gameType: al.gameType,
+          gameDifficulty: al.difficulty,
+          gameCount: 1,
+          sound: !!al.soundEnabled,
+          vibrate: !!al.vibrate,
+          volume: al.volume,
+          soundType: al.soundType,
+          soundId: al.soundId,
+          soundUri: al.soundUri,
+          autoOff: al.autoOff,
+          repeat: !!al.repeat,
+          cheer: al.cheer
+        });
+      });
+    }
+    occurrences.sort((a, b) => a.triggerAtMs - b.triggerAtMs);
+    return occurrences;
+  };
   const syncNativeAlarms = () => {
     if (!hasAndroidAlarm() || typeof window.AndroidAlarm.scheduleAlarms !== "function") return;
     try {
-      const occurrences = [];
-      const nowMs = Date.now();
-      const base = new Date();
-      for (let i = 0; i < 30; i++) {
-        const day = new Date(base.getFullYear(), base.getMonth(), base.getDate() + i);
-        const ymd = formatDateKey(day.getFullYear(), day.getMonth(), day.getDate());
-        const shift = getShiftForGroupDate(myGroupId, ymd);
-        if (shift === "휴") continue;
-        (alarms || []).forEach(al => {
-          if (!al || !al.enabled) return;
-          if (!Array.isArray(al.shifts) || !al.shifts.includes(shift)) return;
-          const parts = String(al.time || "06:00").split(":");
-          const hh = parseInt(parts[0], 10) || 0;
-          const mi = parseInt(parts[1], 10) || 0;
-          const when = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hh, mi, 0, 0);
-          if (when.getTime() <= nowMs + 5000) return;
-          occurrences.push({
-            id: `${al.id}_${ymd}`,
-            triggerAtMs: when.getTime(),
-            label: `${al.label || "근무 알람"} (${shift})`,
-            gameEnabled: !!al.gameEnabled,
-            gameDifficulty: al.difficulty || "easy",
-            gameCount: 1,
-            sound: true,
-            vibrate: true
-          });
-        });
-      }
-      window.AndroidAlarm.scheduleAlarms(JSON.stringify(occurrences));
+      window.AndroidAlarm.scheduleAlarms(JSON.stringify(buildAlarmOccurrences()));
     } catch (e) {
       console.warn("syncNativeAlarms failed", e);
     }
   };
   nativeSyncRef.current.alarms = syncNativeAlarms;
+
+  /* ---------- 알람 해제 게임 (웹·네이티브 같은 규칙) ---------- */
+  const makeGameChallenge = (type, difficulty, cheerText) => {
+    let kind = type;
+    if (!kind || kind === "random") {
+      const pool = ["math", "typing", "numbers", "colors"];
+      kind = pool[Math.floor(Math.random() * pool.length)];
+    }
+    if (kind === "typing") {
+      const custom = String(cheerText || "").trim();
+      const phrase = custom || (difficulty === "hard" ? "오늘도 안전근무 화이팅 힘내세요" : difficulty === "normal" ? "오늘도 안전근무 화이팅" : "안전근무");
+      return {
+        type: "typing",
+        phrase
+      };
+    }
+    if (kind === "numbers") {
+      const count = difficulty === "hard" ? 16 : difficulty === "normal" ? 12 : 9;
+      const nums = Array.from({
+        length: count
+      }, (_, i) => i + 1);
+      for (let i = nums.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const t = nums[i];
+        nums[i] = nums[j];
+        nums[j] = t;
+      }
+      return {
+        type: "numbers",
+        nums,
+        count
+      };
+    }
+    if (kind === "colors") {
+      const length = difficulty === "hard" ? 5 : difficulty === "normal" ? 4 : 3;
+      const pool = ALARM_COLORS.map(c => c.id);
+      for (let i = pool.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const t = pool[i];
+        pool[i] = pool[j];
+        pool[j] = t;
+      }
+      return {
+        type: "colors",
+        sequence: pool.slice(0, length)
+      };
+    }
+    const max = difficulty === "hard" ? 45 : difficulty === "normal" ? 20 : 9;
+    const a = Math.floor(Math.random() * max) + 3;
+    const b = Math.floor(Math.random() * max) + 2;
+    const ops = difficulty === "hard" ? ["+", "-", "×"] : ["+", "-"];
+    const op = ops[Math.floor(Math.random() * ops.length)];
+    let ans = a + b;
+    if (op === "-") ans = a - b;
+    if (op === "×") ans = a * b;
+    return {
+      type: "math",
+      question: `${a} ${op} ${b} = ?`,
+      answer: String(ans)
+    };
+  };
+  const resetGameAnswer = () => {
+    setGameUserAnswer("");
+    setGameOrderStep(1);
+    setGameColorStep(1);
+  };
+
+  /* ---------- 5초 뒤 테스트 알람 (실제 알람과 같은 경로) ---------- */
+  const testAlarmIn5s = () => {
+    const source = (alarms || []).find(a => a && a.enabled) || (alarms || [])[0] || {
+      id: "test",
+      time: "07:00"
+    };
+    const base = normalizeAlarm(source);
+    const spec = {
+      id: "test_" + Date.now(),
+      label: "테스트 알람",
+      gameEnabled: base.gameEnabled,
+      gameType: base.gameType,
+      gameDifficulty: base.difficulty,
+      gameCount: 1,
+      sound: base.soundEnabled,
+      vibrate: base.vibrate,
+      volume: base.volume,
+      soundType: base.soundType,
+      soundId: base.soundId,
+      soundUri: base.soundUri,
+      autoOff: base.autoOff,
+      repeat: false,
+      cheer: base.cheer
+    };
+    if (hasAndroidAlarm() && typeof window.AndroidAlarm.testAlarmNow === "function") {
+      window.AndroidAlarm.testAlarmNow(JSON.stringify(spec));
+      notify("5초 뒤 알람이 울립니다. 화면을 그대로 두세요!");
+      return;
+    }
+    notify("5초 뒤 테스트 알람이 울립니다 (웹 미리보기)");
+    setTimeout(() => {
+      setRingingAlarm({
+        time: base.time,
+        label: "테스트 알람",
+        cheer: base.cheer,
+        soundEnabled: false
+      });
+      setGameChallenge(base.gameEnabled ? makeGameChallenge(base.gameType, base.difficulty, base.cheer) : null);
+      resetGameAnswer();
+    }, 5000);
+  };
+
+  /* ---------- 알람음 미리듣기 ---------- */
+  const previewAlarmSound = (alarm, overrideSound) => {
+    const a = Object.assign({}, normalizeAlarm(alarm), overrideSound || {});
+    const spec = {
+      soundType: a.soundType,
+      soundId: a.soundId,
+      soundUri: a.soundUri,
+      volume: a.volume
+    };
+    setSoundPreviewId(a.soundType === "device" ? "device" : a.soundId);
+    if (hasAndroidAlarm() && typeof window.AndroidAlarm.previewSound === "function") {
+      try {
+        window.AndroidAlarm.stopPreview();
+      } catch (e) {}
+      window.AndroidAlarm.previewSound(JSON.stringify(spec));
+      return;
+    }
+    notify("미리듣기는 앱(APK)에서 들을 수 있어요");
+  };
+  const stopAlarmSoundPreview = () => {
+    setSoundPreviewId("");
+    if (hasAndroidAlarm() && typeof window.AndroidAlarm.stopPreview === "function") {
+      try {
+        window.AndroidAlarm.stopPreview();
+      } catch (e) {}
+    }
+  };
+  useEffect(() => {
+    window.onAlarmSoundPicked = (name, uri) => {
+      setEditingAlarm(prev => prev ? normalizeAlarm(Object.assign({}, normalizeAlarm(prev), {
+        soundType: "device",
+        soundUri: String(uri || ""),
+        soundName: String(name || "내 기기 음악")
+      })) : prev);
+      setSoundTab("device");
+      notify("기기 음악을 알람음으로 선택했습니다: " + (name || ""));
+    };
+    return () => {
+      window.onAlarmSoundPicked = null;
+    };
+  }, []);
 
   /* ---------- 홈 화면 위젯 (AndroidWidget) ---------- */
   const syncNativeWidget = () => {
@@ -3019,6 +3415,7 @@ function App() {
     title: it.title || "",
     content: it.content || it.note || it.body || "",
     author: it.author || "",
+    authorId: it.authorId || "",
     date: it.date || it.dateLabel || "",
     image: it.image || it.imageData || null
   });
@@ -3104,6 +3501,7 @@ function App() {
     title: data.title || "",
     content: data.content || data.body || "",
     author: data.author || "",
+    authorId: data.authorId || "",
     date: data.date || data.dateLabel || "",
     image: data.image || data.imageData || null,
     comments: Array.isArray(data.comments) ? data.comments : []
@@ -3241,6 +3639,7 @@ function App() {
       title: post.title || "",
       content: post.content || "",
       author: post.author || myAuthorLabel(),
+      authorId: post.authorId || "",
       date: post.date || "",
       image: post.image || null,
       comments: Array.isArray(post.comments) ? post.comments : []
@@ -3279,6 +3678,7 @@ function App() {
       title: post.title || "",
       content: post.content || "",
       author: post.author || myAuthorLabel(),
+      authorId: post.authorId || "",
       date: post.date || "",
       image: post.image || null
     };
@@ -3303,12 +3703,14 @@ function App() {
   const isPseudoFolderId = fid => !fid || fid === "f_unfiled";
   const openEquipEdit = (item, folderId) => {
     if (!item) return;
+    if (!guardPostEdit(item)) return;
     const realFolders = (equipFolders || []).filter(f => !isPseudoFolderId(f.id));
     const targetFolderId = isPseudoFolderId(folderId) ? realFolders[0] && realFolders[0].id || (isPseudoFolderId(selectedFolderId) ? "" : selectedFolderId) : folderId;
     setEquipEditing({
       id: item.id,
       folderId: targetFolderId,
       author: item.author || "",
+      authorId: item.authorId || "",
       date: item.date || ""
     });
     setEquipItemForm({
@@ -3331,6 +3733,7 @@ function App() {
   };
   const deleteEquipItem = target => {
     if (!target) return;
+    if (!guardPostEdit(target)) return;
     setEquipFolders(prev => (prev || []).map(f => Object.assign({}, f, {
       items: (f.items || []).filter(it => it.id !== target.id)
     })));
@@ -3467,6 +3870,15 @@ function App() {
   useEffect(() => {
     window.tsvHandleBack = () => {
       if (ringingAlarm) return true;
+      if (photoLightbox) {
+        setPhotoLightbox(null);
+        return true;
+      }
+      if (gamePreviewOpen) {
+        setGamePreviewOpen(false);
+        setGameChallenge(null);
+        return true;
+      }
       if (activeLiveWidget) {
         setActiveLiveWidget(null);
         return true;
@@ -3538,7 +3950,7 @@ function App() {
     return () => {
       window.tsvHandleBack = null;
     };
-  }, [ringingAlarm, activeLiveWidget, selectedPostId, postEditorOpen, newEquipItemOpen, equipDeleteTarget, newFolderOpen, alarmModalOpen, shareModalOpen, widgetHubOpen, updateModalOpen, dayModalOpen, summaryDetailType, drawerOpen, isReorderingNav]);
+  }, [ringingAlarm, photoLightbox, gamePreviewOpen, activeLiveWidget, selectedPostId, postEditorOpen, newEquipItemOpen, equipDeleteTarget, newFolderOpen, alarmModalOpen, shareModalOpen, widgetHubOpen, updateModalOpen, dayModalOpen, summaryDetailType, drawerOpen, isReorderingNav]);
 
   /* ---------- 앱 복귀 / 권한 결과 / 업데이트 콜백 ---------- */
   useEffect(() => {
@@ -4140,13 +4552,18 @@ function App() {
     className: "text-xs text-slate-600 mt-1"
   }, it.content), it.image && /*#__PURE__*/React.createElement("img", {
     src: it.image,
-    alt: "",
-    className: "mt-2.5 w-full max-h-48 object-cover rounded-xl border border-slate-100"
+    alt: it.title || "",
+    onClick: () => setPhotoLightbox({
+      src: it.image,
+      title: it.title || it.folderName || "설비 사진",
+      zoom: 1
+    }),
+    className: "mt-2.5 w-full max-h-48 object-cover rounded-xl border border-slate-100 cursor-zoom-in"
   }), /*#__PURE__*/React.createElement("div", {
     className: "mt-2 flex items-center justify-between gap-2 text-[11px] text-slate-400"
   }, /*#__PURE__*/React.createElement("span", {
     className: "truncate"
-  }, it.author, " \xB7 ", it.date), /*#__PURE__*/React.createElement("span", {
+  }, it.author, " \xB7 ", it.date), canEditPost(it) && /*#__PURE__*/React.createElement("span", {
     className: "flex items-center gap-1.5 shrink-0"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => openEquipEdit(it, it.folderId),
@@ -4231,12 +4648,17 @@ function App() {
     }, item.content), item.image && /*#__PURE__*/React.createElement("img", {
       src: item.image,
       alt: item.title,
-      className: "mt-2.5 w-full max-h-56 object-cover rounded-xl border border-slate-100"
+      onClick: () => setPhotoLightbox({
+        src: item.image,
+        title: item.title || "설비 사진",
+        zoom: 1
+      }),
+      className: "mt-2.5 w-full max-h-56 object-cover rounded-xl border border-slate-100 cursor-zoom-in"
     }), /*#__PURE__*/React.createElement("div", {
       className: "mt-2 pt-2 border-t border-slate-100 flex items-center justify-between gap-2 text-[11px] text-slate-400"
     }, /*#__PURE__*/React.createElement("span", {
       className: "truncate"
-    }, "\uC791\uC131\uC790: ", item.author), /*#__PURE__*/React.createElement("span", {
+    }, "\uC791\uC131\uC790: ", item.author), canEditPost(item) && /*#__PURE__*/React.createElement("span", {
       className: "flex items-center gap-1.5 shrink-0"
     }, /*#__PURE__*/React.createElement("button", {
       onClick: () => openEquipEdit(item, currentFolder.id),
@@ -4255,88 +4677,118 @@ function App() {
       name: "trash",
       size: 12
     }), " \uC0AD\uC81C")))))));
-  })())), activeTab === "alarm" && /*#__PURE__*/React.createElement("div", {
-    className: "p-4"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center justify-between mb-3"
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h2", {
-    className: "text-lg font-extrabold text-slate-900"
-  }, "\uADFC\uBB34\uBCC4 \uC2A4\uB9C8\uD2B8 \uC54C\uB78C"), /*#__PURE__*/React.createElement("p", {
-    className: "text-xs text-slate-500"
-  }, "\uD604\uC7AC \uC5F0\uB3D9\uB41C \uB0B4 \uADFC\uBB34\uC870: ", /*#__PURE__*/React.createElement("strong", {
-    className: "text-blue-600"
-  }, myGroup.name), " (\uD734\uBB34\uC77C \uC790\uB3D9 \uAEBC\uC9D0)")), /*#__PURE__*/React.createElement("button", {
-    onClick: () => {
-      setEditingAlarm({
-        id: "al_" + Date.now(),
-        time: "07:00",
-        label: "새 근무 알람",
-        shifts: ["주"],
-        enabled: true,
-        gameEnabled: true,
-        gameType: "math",
-        difficulty: "easy"
-      });
-      setAlarmModalOpen(true);
-    },
-    className: "w-9 h-9 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-sm"
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "plus",
-    size: 20
-  }))), /*#__PURE__*/React.createElement("div", {
-    className: "p-3 rounded-2xl bg-blue-50/70 border border-blue-100 mb-4 flex items-center justify-between"
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
-    className: "text-[11px] font-bold text-blue-600"
-  }, "\uC120\uD0DD\uC77C(", selectedDateKey, ") \uADFC\uBB34 \uC0C1\uD0DC"), /*#__PURE__*/React.createElement("p", {
-    className: "text-xs font-extrabold text-slate-800 mt-0.5"
-  }, myGroup.name, " \xB7 '", getShiftForGroupDate(myGroupId, selectedDateKey), "' \uADFC\uBB34", getShiftForGroupDate(myGroupId, selectedDateKey) === "휴" ? " (휴무일이므로 알람이 울리지 않습니다)" : " (해당 근무 알람만 활성화)")), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setActiveTab("settings"),
-    className: "text-[11px] font-bold text-blue-700 underline shrink-0"
-  }, "\uC870 \uBCC0\uACBD")), /*#__PURE__*/React.createElement("div", {
-    className: "space-y-3"
-  }, alarms.map(al => /*#__PURE__*/React.createElement("div", {
-    key: al.id,
-    className: "p-4 rounded-2xl border border-slate-200 bg-white shadow-2xs"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center justify-between"
-  }, /*#__PURE__*/React.createElement("div", {
-    onClick: () => {
-      setEditingAlarm({
-        ...al
-      });
-      setAlarmModalOpen(true);
-    },
-    className: "cursor-pointer"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-baseline gap-2"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "text-2xl font-extrabold text-slate-900 tracking-tight"
-  }, al.time), /*#__PURE__*/React.createElement("span", {
-    className: "text-xs font-semibold text-slate-500"
-  }, al.label)), /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center gap-1.5 mt-2"
-  }, ["주", "야", "오"].map(s => {
-    const active = al.shifts.includes(s);
-    return /*#__PURE__*/React.createElement("span", {
-      key: s,
-      className: `px-2 py-0.5 rounded-full text-[11px] font-bold ${active ? s === "주" ? "bg-amber-400 text-slate-900" : s === "야" ? "bg-slate-800 text-white" : "bg-sky-500 text-white" : "bg-slate-100 text-slate-400"}`
-    }, s);
-  }), /*#__PURE__*/React.createElement("span", {
-    className: "ml-1 text-[11px] font-semibold text-blue-600"
-  }, al.gameEnabled ? `🎮 ${al.gameType === "math" ? "사칙연산" : al.gameType === "order" ? "숫자순서" : "크기비교"}` : "일반 해제"))), /*#__PURE__*/React.createElement("div", {
-    className: "flex flex-col items-end gap-2"
-  }, /*#__PURE__*/React.createElement("button", {
-    onClick: () => setAlarms(prev => prev.map(item => item.id === al.id ? {
-      ...item,
-      enabled: !item.enabled
-    } : item)),
-    className: `w-12 h-7 rounded-full transition p-1 ${al.enabled ? "bg-blue-600" : "bg-slate-200"}`
-  }, /*#__PURE__*/React.createElement("div", {
-    className: `w-5 h-5 rounded-full bg-white transition-transform ${al.enabled ? "translate-x-5" : "translate-x-0"}`
-  })), /*#__PURE__*/React.createElement("button", {
-    onClick: () => triggerAlarmTest(al),
-    className: "text-[11px] font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg hover:bg-slate-200"
-  }, "\uC6B8\uB9BC\xB7\uAC8C\uC784 \uD14C\uC2A4\uD2B8"))))))), activeTab === "board" && /*#__PURE__*/React.createElement("div", {
+  })())), activeTab === "alarm" && (() => {
+    const upcoming = buildAlarmOccurrences();
+    const next = upcoming.length ? upcoming[0] : null;
+    const nextAt = next ? new Date(next.triggerAtMs) : null;
+    const nextLabel = nextAt ? `${nextAt.getMonth() + 1}/${nextAt.getDate()} ${String(nextAt.getHours()).padStart(2, "0")}:${String(nextAt.getMinutes()).padStart(2, "0")}` : "";
+    const myShiftToday = getShiftForGroupDate(myGroupId, selectedDateKey);
+    return /*#__PURE__*/React.createElement("div", {
+      className: "p-4 space-y-3"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center justify-between"
+    }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h2", {
+      className: "text-lg font-extrabold text-slate-900"
+    }, "\uADFC\uBB34\uBCC4 \uC2A4\uB9C8\uD2B8 \uC54C\uB78C"), /*#__PURE__*/React.createElement("p", {
+      className: "text-xs text-slate-500"
+    }, "\uB0B4 \uADFC\uBB34\uC870 ", /*#__PURE__*/React.createElement("strong", {
+      className: "text-blue-600"
+    }, myGroup.name), " \xB7 \uADFC\uBB34\uC77C\uC5D0\uB9CC \uC6B8\uB824\uC694")), /*#__PURE__*/React.createElement("button", {
+      onClick: () => {
+        setEditingAlarm(normalizeAlarm({
+          id: "al_" + Date.now(),
+          time: "07:00",
+          label: "새 근무 알람",
+          shifts: ["주"],
+          enabled: true
+        }));
+        setSoundTab("builtin");
+        setAlarmModalOpen(true);
+      },
+      className: "w-9 h-9 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-sm"
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "plus",
+      size: 20
+    }))), /*#__PURE__*/React.createElement("div", {
+      className: "p-4 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-sm"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center justify-between"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "text-[11px] font-extrabold tracking-wide text-blue-100"
+    }, "\uB2E4\uC74C \uC54C\uB78C"), /*#__PURE__*/React.createElement("span", {
+      className: "text-[10px] font-bold text-blue-100"
+    }, hasAndroidAlarm() ? "폰 알람 연결됨" : "웹 미리보기")), next ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
+      className: "mt-1 text-xl font-extrabold tracking-tight"
+    }, nextLabel, " \xB7 ", next.shift, "\uADFC\uBB34"), /*#__PURE__*/React.createElement("p", {
+      className: "text-[11px] font-semibold text-blue-100"
+    }, next.label)) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
+      className: "mt-1 text-base font-extrabold"
+    }, "\uC608\uC57D\uB41C \uC54C\uB78C\uC774 \uC5C6\uC5B4\uC694"), /*#__PURE__*/React.createElement("p", {
+      className: "text-[11px] font-semibold text-blue-100"
+    }, "\uC54C\uB78C\uC744 \uCF1C\uBA74 \uADFC\uBB34\uC77C\uC5D0 \uB9DE\uCDB0 \uC790\uB3D9\uC73C\uB85C \uC608\uC57D\uB429\uB2C8\uB2E4")), /*#__PURE__*/React.createElement("button", {
+      onClick: testAlarmIn5s,
+      className: "mt-3 w-full py-2.5 rounded-xl bg-white/15 border border-white/30 text-xs font-extrabold text-white active:bg-white/25"
+    }, "\u23F1 5\uCD08 \uB4A4 \uD14C\uC2A4\uD2B8 \uC54C\uB78C")), /*#__PURE__*/React.createElement("div", {
+      className: "p-3 rounded-2xl bg-blue-50/70 border border-blue-100 flex items-center justify-between"
+    }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+      className: "text-[11px] font-bold text-blue-600"
+    }, "\uC120\uD0DD\uC77C(", selectedDateKey, ") \uADFC\uBB34 \uC0C1\uD0DC"), /*#__PURE__*/React.createElement("p", {
+      className: "text-xs font-extrabold text-slate-800 mt-0.5"
+    }, myGroup.name, " \xB7 '", myShiftToday, "' \uADFC\uBB34", myShiftToday === "휴" ? " (휴무일 — '휴'를 고른 알람만 울려요)" : " (해당 근무 알람만 울려요)")), /*#__PURE__*/React.createElement("button", {
+      onClick: () => setActiveTab("settings"),
+      className: "text-[11px] font-bold text-blue-700 underline shrink-0"
+    }, "\uC870 \uBCC0\uACBD")), /*#__PURE__*/React.createElement("div", {
+      className: "space-y-3"
+    }, (alarms || []).map(al => {
+      const a = normalizeAlarm(al);
+      return /*#__PURE__*/React.createElement("div", {
+        key: a.id,
+        className: "p-4 rounded-2xl border border-slate-200 bg-white shadow-2xs"
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "flex items-start justify-between gap-2"
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "min-w-0 cursor-pointer",
+        onClick: () => {
+          setEditingAlarm(normalizeAlarm(a));
+          setSoundTab(a.soundType === "device" ? "device" : "builtin");
+          setAlarmModalOpen(true);
+        }
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "flex items-baseline gap-2"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: `text-2xl font-extrabold tracking-tight ${a.enabled ? "text-slate-900" : "text-slate-400"}`
+      }, a.time), /*#__PURE__*/React.createElement("span", {
+        className: "text-xs font-semibold text-slate-500 truncate"
+      }, a.label)), /*#__PURE__*/React.createElement("div", {
+        className: "flex flex-wrap items-center gap-1.5 mt-2"
+      }, ["주", "야", "비", "휴"].map(code => {
+        const active = a.shifts.includes(code);
+        const tone = code === "주" ? "bg-amber-400 text-slate-900" : code === "야" ? "bg-slate-800 text-white" : code === "비" ? "bg-sky-500 text-white" : "bg-rose-100 text-rose-600";
+        return /*#__PURE__*/React.createElement("span", {
+          key: code,
+          className: `px-2 py-0.5 rounded-full text-[11px] font-bold ${active ? tone : "bg-slate-100 text-slate-400"}`
+        }, code);
+      }), /*#__PURE__*/React.createElement("span", {
+        className: "ml-1 text-[11px] font-semibold text-blue-600"
+      }, a.gameEnabled ? `🎮 ${alarmGameLabel(a.gameType)}` : "일반 해제"), /*#__PURE__*/React.createElement("span", {
+        className: "text-[11px] font-semibold text-slate-400"
+      }, a.soundEnabled ? `🔔 ${alarmSoundLabel(a)}` : "🔇 무음"), a.repeat && /*#__PURE__*/React.createElement("span", {
+        className: "text-[11px] font-semibold text-indigo-500"
+      }, "\u21BB \uB2E4\uC2DC \uC6B8\uB9BC"))), /*#__PURE__*/React.createElement("div", {
+        className: "flex flex-col items-end gap-2 shrink-0"
+      }, /*#__PURE__*/React.createElement("button", {
+        onClick: () => setAlarms(prev => prev.map(item => item.id === a.id ? Object.assign({}, item, {
+          enabled: !item.enabled
+        }) : item)),
+        className: `w-12 h-7 rounded-full transition p-1 ${a.enabled ? "bg-blue-600" : "bg-slate-200"}`
+      }, /*#__PURE__*/React.createElement("div", {
+        className: `w-5 h-5 rounded-full bg-white transition-transform ${a.enabled ? "translate-x-5" : "translate-x-0"}`
+      })), /*#__PURE__*/React.createElement("button", {
+        onClick: () => triggerAlarmTest(a),
+        className: "text-[11px] font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg hover:bg-slate-200"
+      }, "\uC6B8\uB9BC\xB7\uAC8C\uC784 \uD14C\uC2A4\uD2B8"))));
+    })));
+  })(), activeTab === "board" && /*#__PURE__*/React.createElement("div", {
     className: "p-4"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between mb-3"
@@ -4549,6 +5001,38 @@ function App() {
     onClick: () => setIsReorderingNav(v => !v),
     className: "px-3 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-bold shrink-0"
   }, isReorderingNav ? "편집 완료" : "순서 이동")), /*#__PURE__*/React.createElement("section", {
+    className: "p-4 rounded-2xl bg-amber-50 border border-amber-200 space-y-2.5"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "min-w-0"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "text-xs font-extrabold text-amber-900"
+  }, "\uD83D\uDC51 \uB9C8\uC2A4\uD130 \uAD00\uB9AC\uC790 \uAD8C\uD55C"), /*#__PURE__*/React.createElement("p", {
+    className: "text-[11px] text-amber-700/80 mt-0.5"
+  }, isMaster ? "모든 게시글·설비 기록을 수정·삭제할 수 있습니다." : "일반 사용자는 본인이 쓴 글만 수정·삭제할 수 있습니다.")), /*#__PURE__*/React.createElement("span", {
+    className: `ml-2 shrink-0 px-2 py-0.5 rounded-full text-[10px] font-extrabold ${isMaster ? "bg-amber-500 text-white" : "bg-white text-amber-700 border border-amber-300"}`
+  }, isMaster ? "마스터" : "일반")), isMaster ? /*#__PURE__*/React.createElement("button", {
+    onClick: disableMasterMode,
+    className: "w-full py-2.5 rounded-xl bg-white border border-amber-300 text-amber-800 text-xs font-extrabold"
+  }, "\uC77C\uBC18 \uBAA8\uB4DC\uB85C \uC804\uD658") : /*#__PURE__*/React.createElement("div", {
+    className: "flex gap-2"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "password",
+    value: masterCodeInput,
+    onChange: e => setMasterCodeInput(e.target.value),
+    onKeyDown: e => {
+      if (e.key === "Enter") verifyMasterCode();
+    },
+    placeholder: "\uAD00\uB9AC\uC790 \uCF54\uB4DC",
+    autoComplete: "off",
+    className: "flex-1 px-3 py-2.5 rounded-xl border border-amber-200 bg-white text-xs font-bold"
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: verifyMasterCode,
+    className: "px-4 py-2.5 rounded-xl bg-amber-500 text-white text-xs font-extrabold"
+  }, "\uC778\uC99D")), /*#__PURE__*/React.createElement("p", {
+    className: "text-[10px] text-amber-700/70"
+  }, "\uC778\uC99D \uC0C1\uD0DC\uB294 \uC774 \uAE30\uAE30\uC5D0\uB9CC \uC800\uC7A5\uB429\uB2C8\uB2E4.")), /*#__PURE__*/React.createElement("section", {
     className: "p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
     className: "text-xs font-bold text-slate-500"
@@ -5423,6 +5907,7 @@ function App() {
           author: `${myGroup.name} ${myGroup.members.split(",")[0].trim()}`,
           date: `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, "0")}.${String(now.getDate()).padStart(2, "0")}`,
           image: postForm.image,
+          authorId: myDeviceId,
           comments: []
         };
         setPosts(prev => [newPost, ...prev]);
@@ -5451,8 +5936,9 @@ function App() {
       className: "text-xs font-bold text-blue-600"
     }, catInfo ? catInfo.label : "게시판"), /*#__PURE__*/React.createElement("div", {
       className: "flex items-center gap-1.5"
-    }, /*#__PURE__*/React.createElement("button", {
+    }, canEditPost(post) && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
       onClick: () => {
+        if (!guardPostEdit(post)) return;
         setEditingPostId(post.id);
         setPostForm({
           category: post.category,
@@ -5469,6 +5955,7 @@ function App() {
       size: 13
     }), " \uC218\uC815"), /*#__PURE__*/React.createElement("button", {
       onClick: () => {
+        if (!guardPostEdit(post)) return;
         setPosts(prev => prev.filter(p => p.id !== post.id));
         removeBoardPost(post.id);
         setSelectedPostId(null);
@@ -5478,7 +5965,7 @@ function App() {
     }, /*#__PURE__*/React.createElement(Icon, {
       name: "trash",
       size: 13
-    }), " \uC0AD\uC81C"), /*#__PURE__*/React.createElement("button", {
+    }), " \uC0AD\uC81C")), /*#__PURE__*/React.createElement("button", {
       onClick: () => setSelectedPostId(null),
       className: "p-1 text-slate-500 ml-1"
     }, /*#__PURE__*/React.createElement(Icon, {
@@ -5492,8 +5979,13 @@ function App() {
       className: "text-xs text-slate-700 leading-relaxed whitespace-pre-wrap"
     }, post.content), post.image && /*#__PURE__*/React.createElement("img", {
       src: post.image,
-      alt: "",
-      className: "w-full rounded-xl border border-slate-200"
+      alt: post.title || "",
+      onClick: () => setPhotoLightbox({
+        src: post.image,
+        title: post.title || "게시판 사진",
+        zoom: 1
+      }),
+      className: "w-full rounded-xl border border-slate-200 cursor-zoom-in"
     }), /*#__PURE__*/React.createElement("div", {
       className: "pt-3 border-t border-slate-100 space-y-2"
     }, /*#__PURE__*/React.createElement("span", {
@@ -5665,6 +6157,7 @@ function App() {
           title: equipItemForm.title.trim(),
           content: equipItemForm.content.trim(),
           author: equipEditing.author,
+          authorId: equipEditing.authorId || "",
           date: equipEditing.date,
           image: equipItemForm.image || null
         };
@@ -5684,6 +6177,7 @@ function App() {
         title: equipItemForm.title.trim(),
         content: equipItemForm.content.trim(),
         author: `${myGroup.name} ${myGroup.members.split(",")[0].trim()}`,
+        authorId: myDeviceId,
         date: `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, "0")}.${String(now.getDate()).padStart(2, "0")}`,
         image: equipItemForm.image
       };
@@ -5714,189 +6208,482 @@ function App() {
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "trash",
     size: 12
-  }), " \uC0AC\uC9C4 \uC0AD\uC81C")))), alarmModalOpen && editingAlarm && /*#__PURE__*/React.createElement("div", {
-    className: "fixed inset-0 z-50 flex items-end justify-center bg-slate-900/45"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "w-full max-w-md bg-white rounded-t-3xl p-5 space-y-4"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center justify-between pb-2 border-b border-slate-100"
-  }, /*#__PURE__*/React.createElement("h3", {
-    className: "text-base font-extrabold text-slate-900"
-  }, "\uC54C\uB78C \uC124\uC815"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => {
-      setAlarms(prev => {
-        const exists = prev.some(a => a.id === editingAlarm.id);
-        return exists ? prev.map(a => a.id === editingAlarm.id ? editingAlarm : a) : [...prev, editingAlarm];
+  }), " \uC0AC\uC9C4 \uC0AD\uC81C")))), alarmModalOpen && editingAlarm && (() => {
+    const draft = normalizeAlarm(editingAlarm);
+    const patch = fields => setEditingAlarm(prev => normalizeAlarm(Object.assign({}, normalizeAlarm(prev), fields)));
+    const timeParts = draft.time.split(":");
+    const hh24 = parseInt(timeParts[0], 10) || 0;
+    const minute = parseInt(timeParts[1], 10) || 0;
+    const isPM = hh24 >= 12;
+    const hour12 = hh24 % 12 === 0 ? 12 : hh24 % 12;
+    const writeTime = (h12, mm, pm) => {
+      let h = h12 % 12;
+      if (pm) h += 12;
+      patch({
+        time: String(h).padStart(2, "0") + ":" + String((mm + 60) % 60).padStart(2, "0")
       });
-      setAlarmModalOpen(false);
-      playSfx("save");
-      notify("근무 연동 알람이 저장되었습니다.");
-    },
-    className: "text-sm font-extrabold text-blue-600"
-  }, "\uC800\uC7A5")), /*#__PURE__*/React.createElement("div", {
-    className: "flex justify-center py-2"
-  }, /*#__PURE__*/React.createElement("input", {
-    type: "time",
-    value: editingAlarm.time,
-    onChange: e => setEditingAlarm(prev => ({
-      ...prev,
-      time: e.target.value
-    })),
-    className: "text-3xl font-extrabold text-slate-900 bg-slate-100 px-5 py-3 rounded-2xl"
-  })), /*#__PURE__*/React.createElement("input", {
-    type: "text",
-    value: editingAlarm.label,
-    onChange: e => setEditingAlarm(prev => ({
-      ...prev,
-      label: e.target.value
-    })),
-    placeholder: "\uC54C\uB78C \uC774\uB984 (\uC608: \uC8FC\uAC04 \uCD9C\uADFC \uC54C\uB78C)",
-    className: "w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold"
-  }), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
-    className: "text-xs font-bold text-slate-500 block mb-2"
-  }, "\uC6B8\uB9B4 \uADFC\uBB34 \uC120\uD0DD (\uD734\uBB34\uC77C \uC790\uB3D9 \uAEBC\uC9D0)"), /*#__PURE__*/React.createElement("div", {
-    className: "flex gap-2"
-  }, ["주", "야", "오"].map(code => {
-    const active = editingAlarm.shifts.includes(code);
-    return /*#__PURE__*/React.createElement("button", {
-      key: code,
-      onClick: () => setEditingAlarm(prev => ({
-        ...prev,
-        shifts: active ? prev.shifts.filter(s => s !== code) : [...prev.shifts, code]
-      })),
-      className: `w-11 h-11 rounded-full text-sm font-extrabold transition ${active ? "bg-amber-400 text-slate-900 ring-2 ring-amber-500" : "bg-slate-100 text-slate-400"}`
-    }, code);
-  }))), /*#__PURE__*/React.createElement("div", {
-    className: "p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-3"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center justify-between"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "text-xs font-extrabold text-slate-800"
-  }, "\uC54C\uB78C \uD574\uC81C \uAC8C\uC784 \uBBF8\uC158"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setEditingAlarm(prev => ({
-      ...prev,
-      gameEnabled: !prev.gameEnabled
-    })),
-    className: `w-11 h-6 rounded-full p-0.5 transition ${editingAlarm.gameEnabled ? "bg-blue-600" : "bg-slate-300"}`
-  }, /*#__PURE__*/React.createElement("div", {
-    className: `w-5 h-5 rounded-full bg-white transition-transform ${editingAlarm.gameEnabled ? "translate-x-5" : "translate-x-0"}`
-  }))), editingAlarm.gameEnabled && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-    className: "grid grid-cols-3 gap-1.5"
-  }, [{
-    id: "math",
-    label: "사칙연산"
-  }, {
-    id: "order",
-    label: "숫자순서"
-  }, {
-    id: "compare",
-    label: "큰 수 찾기"
-  }].map(g => /*#__PURE__*/React.createElement("button", {
-    key: g.id,
-    onClick: () => setEditingAlarm(prev => ({
-      ...prev,
-      gameType: g.id
-    })),
-    className: `py-2 rounded-xl text-xs font-bold ${editingAlarm.gameType === g.id ? "bg-blue-600 text-white" : "bg-white text-slate-600 border border-slate-200"}`
-  }, g.label))), /*#__PURE__*/React.createElement("div", {
-    className: "grid grid-cols-3 gap-1.5"
-  }, [{
-    id: "easy",
-    label: "쉬움"
-  }, {
-    id: "normal",
-    label: "보통"
-  }, {
-    id: "hard",
-    label: "어려움"
-  }].map(lv => /*#__PURE__*/React.createElement("button", {
-    key: lv.id,
-    onClick: () => setEditingAlarm(prev => ({
-      ...prev,
-      difficulty: lv.id
-    })),
-    className: `py-1.5 rounded-xl text-xs font-bold ${editingAlarm.difficulty === lv.id ? "bg-slate-900 text-white" : "bg-white text-slate-500 border border-slate-200"}`
-  }, lv.label))))))), ringingAlarm && /*#__PURE__*/React.createElement("div", {
-    className: "fixed inset-0 z-50 bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "w-16 h-16 rounded-full bg-amber-400 text-slate-900 flex items-center justify-center animate-bounce mb-4"
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "bell",
-    size: 32
-  })), /*#__PURE__*/React.createElement("p", {
-    className: "text-xs font-bold text-amber-400"
-  }, myGroup.name, " \xB7 ", ringingAlarm.label), /*#__PURE__*/React.createElement("h2", {
-    className: "text-5xl font-extrabold tracking-tight my-2"
-  }, ringingAlarm.time), gameChallenge ? /*#__PURE__*/React.createElement("div", {
-    className: "w-full max-w-xs mt-6 p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-4"
-  }, /*#__PURE__*/React.createElement("p", {
-    className: "text-xs font-bold text-slate-400"
-  }, "\uC54C\uB78C\uC744 \uB044\uB824\uBA74 \uC544\uB798 \uBBF8\uC158\uC744 \uC644\uB8CC\uD558\uC138\uC694!"), gameChallenge.type === "math" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-    className: "text-2xl font-extrabold text-amber-300 py-2"
-  }, gameChallenge.question), /*#__PURE__*/React.createElement("input", {
-    type: "number",
-    value: gameUserAnswer,
-    onChange: e => setGameUserAnswer(e.target.value),
-    placeholder: "\uC815\uB2F5 \uC785\uB825",
-    className: "w-full py-3 rounded-2xl bg-slate-800 text-center text-xl font-extrabold text-white focus:outline-none focus:ring-2 focus:ring-amber-400"
-  }), /*#__PURE__*/React.createElement("button", {
-    onClick: () => {
-      if (gameUserAnswer.trim() === gameChallenge.answer) {
-        setRingingAlarm(null);
-        notify("정답입니다! 알람이 해제되었습니다.");
-      } else {
-        notify("오답입니다. 다시 계산해 주세요!");
-      }
-    },
-    className: "w-full py-3 rounded-2xl bg-blue-600 text-white text-sm font-extrabold"
-  }, "\uC815\uB2F5 \uD655\uC778 \uBC0F \uC54C\uB78C \uB044\uAE30")), gameChallenge.type === "order" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
-    className: "text-sm font-bold text-white"
-  }, "1\uBD80\uD130 6\uAE4C\uC9C0 \uC21C\uC11C\uB300\uB85C \uB204\uB974\uC138\uC694 (", gameOrderStep, "\uBC88 \uCC28\uB840)"), /*#__PURE__*/React.createElement("div", {
-    className: "grid grid-cols-3 gap-2"
-  }, gameChallenge.nums.map(n => /*#__PURE__*/React.createElement("button", {
-    key: n,
-    onClick: () => {
-      if (n === gameOrderStep) {
-        if (n === 6) {
-          setRingingAlarm(null);
-          notify("미션 성공! 알람이 해제되었습니다.");
+    };
+    const toggle = (on, onClick) => /*#__PURE__*/React.createElement("button", {
+      onClick: onClick,
+      className: `w-11 h-6 rounded-full p-0.5 transition ${on ? "bg-blue-600" : "bg-slate-300"}`
+    }, /*#__PURE__*/React.createElement("div", {
+      className: `w-5 h-5 rounded-full bg-white transition-transform ${on ? "translate-x-5" : "translate-x-0"}`
+    }));
+    return /*#__PURE__*/React.createElement("div", {
+      className: "fixed inset-0 z-50 flex items-end justify-center bg-slate-900/45"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "w-full max-w-md bg-white rounded-t-3xl max-h-[92vh] overflow-y-auto"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "sticky top-0 z-10 flex items-center justify-between px-5 py-3 bg-white border-b border-slate-100"
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => {
+        stopAlarmSoundPreview();
+        setAlarmModalOpen(false);
+      },
+      className: "p-1 text-slate-500"
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "close",
+      size: 18
+    })), /*#__PURE__*/React.createElement("h3", {
+      className: "text-base font-extrabold text-slate-900"
+    }, "\uC54C\uB78C \uC124\uC815"), /*#__PURE__*/React.createElement("button", {
+      onClick: () => {
+        const saved = normalizeAlarm(editingAlarm);
+        setAlarms(prev => {
+          const exists = prev.some(a => a.id === saved.id);
+          return exists ? prev.map(a => a.id === saved.id ? saved : a) : prev.concat([saved]);
+        });
+        stopAlarmSoundPreview();
+        setAlarmModalOpen(false);
+        playSfx("save");
+        notify("알람이 저장되었습니다.");
+      },
+      className: "text-sm font-extrabold text-blue-600"
+    }, "\uC800\uC7A5")), /*#__PURE__*/React.createElement("div", {
+      className: "p-5 space-y-4"
+    }, /*#__PURE__*/React.createElement("section", {
+      className: "p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center gap-2"
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => writeTime(hour12, minute, false),
+      className: `flex-1 py-2.5 rounded-xl text-sm font-extrabold ${!isPM ? "bg-blue-600 text-white" : "bg-white text-slate-500 border border-slate-200"}`
+    }, "\uC624\uC804"), /*#__PURE__*/React.createElement("button", {
+      onClick: () => writeTime(hour12, minute, true),
+      className: `flex-1 py-2.5 rounded-xl text-sm font-extrabold ${isPM ? "bg-blue-600 text-white" : "bg-white text-slate-500 border border-slate-200"}`
+    }, "\uC624\uD6C4")), /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center justify-center gap-2"
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => writeTime(hour12 === 1 ? 12 : hour12 - 1, minute, isPM),
+      className: "w-11 h-11 rounded-xl bg-white border border-slate-200 text-slate-700 text-xl font-extrabold"
+    }, "\u2212"), /*#__PURE__*/React.createElement("div", {
+      className: "w-16 text-center"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "text-4xl font-extrabold text-slate-900 tracking-tight"
+    }, hour12), /*#__PURE__*/React.createElement("span", {
+      className: "block text-[10px] font-bold text-slate-400"
+    }, "\uC2DC")), /*#__PURE__*/React.createElement("button", {
+      onClick: () => writeTime(hour12 === 12 ? 1 : hour12 + 1, minute, isPM),
+      className: "w-11 h-11 rounded-xl bg-white border border-slate-200 text-slate-700 text-xl font-extrabold"
+    }, "+"), /*#__PURE__*/React.createElement("span", {
+      className: "mx-1 text-3xl font-extrabold text-slate-300"
+    }, ":"), /*#__PURE__*/React.createElement("button", {
+      onClick: () => writeTime(hour12, minute - 5, isPM),
+      className: "w-11 h-11 rounded-xl bg-white border border-slate-200 text-slate-700 text-xl font-extrabold"
+    }, "\u2212"), /*#__PURE__*/React.createElement("div", {
+      className: "w-16 text-center"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "text-4xl font-extrabold text-slate-900 tracking-tight"
+    }, String(minute).padStart(2, "0")), /*#__PURE__*/React.createElement("span", {
+      className: "block text-[10px] font-bold text-slate-400"
+    }, "\uBD84")), /*#__PURE__*/React.createElement("button", {
+      onClick: () => writeTime(hour12, minute + 5, isPM),
+      className: "w-11 h-11 rounded-xl bg-white border border-slate-200 text-slate-700 text-xl font-extrabold"
+    }, "+")), /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center justify-center gap-1.5"
+    }, [0, 10, 20, 30, 40, 50].map(mm => /*#__PURE__*/React.createElement("button", {
+      key: mm,
+      onClick: () => writeTime(hour12, mm, isPM),
+      className: `px-2.5 py-1.5 rounded-lg text-[11px] font-bold ${minute === mm ? "bg-blue-600 text-white" : "bg-white text-slate-500 border border-slate-200"}`
+    }, String(mm).padStart(2, "0"), "\uBD84")))), /*#__PURE__*/React.createElement("input", {
+      type: "text",
+      value: draft.label,
+      onChange: e => patch({
+        label: e.target.value
+      }),
+      placeholder: "\uC54C\uB78C \uC774\uB984 (\uC608: \uC8FC\uAC04 \uCD9C\uADFC \uC54C\uB78C)",
+      className: "w-full px-3 py-2.5 rounded-xl border border-slate-200 text-xs font-bold"
+    }), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+      className: "text-xs font-bold text-slate-500 block mb-2"
+    }, "\uC801\uC6A9 \uADFC\uBB34 (\uC5EC\uB7EC \uAC1C \uC120\uD0DD)"), /*#__PURE__*/React.createElement("div", {
+      className: "grid grid-cols-4 gap-2"
+    }, ["주", "야", "비", "휴"].map(code => {
+      const active = draft.shifts.includes(code);
+      const label = code === "주" ? "주간" : code === "야" ? "야간" : code === "비" ? "비번" : "휴무";
+      return /*#__PURE__*/React.createElement("button", {
+        key: code,
+        onClick: () => patch({
+          shifts: active ? draft.shifts.filter(s => s !== code) : draft.shifts.concat([code])
+        }),
+        className: `py-2.5 rounded-xl text-xs font-extrabold ${active ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-400"}`
+      }, label);
+    })), /*#__PURE__*/React.createElement("p", {
+      className: "mt-1.5 text-[10px] text-slate-400"
+    }, "\uC8FC\uD2B9\xB7\uC57C\uD2B9(\uD2B9\uADFC)\uB3C4 \uC8FC\xB7\uC57C \uC54C\uB78C\uC5D0 \uD3EC\uD568\uB418\uACE0, \uD734\uBB34\uB97C \uACE0\uB974\uBA74 \uC26C\uB294 \uB0A0\uC5D0\uB3C4 \uC6B8\uB824\uC694.")), /*#__PURE__*/React.createElement("section", {
+      className: "p-4 rounded-2xl bg-white border border-slate-200 space-y-3"
+    }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+      className: "text-xs font-extrabold text-slate-800"
+    }, "\uC790\uB3D9 \uAEBC\uC9D0"), /*#__PURE__*/React.createElement("div", {
+      className: "mt-2 grid grid-cols-4 gap-1.5"
+    }, ALARM_AUTO_OFF_CHOICES.map(choice => /*#__PURE__*/React.createElement("button", {
+      key: choice.value,
+      onClick: () => patch({
+        autoOff: choice.value
+      }),
+      className: `py-2 rounded-xl text-[11px] font-bold ${draft.autoOff === choice.value ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-500"}`
+    }, choice.label)))), /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center justify-between"
+    }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+      className: "text-xs font-extrabold text-slate-800"
+    }, "\uB2E4\uC2DC \uC6B8\uB9BC"), /*#__PURE__*/React.createElement("p", {
+      className: "text-[10px] text-slate-400"
+    }, "\uB044\uBA74 5\uBD84 \uB4A4 \uD55C \uBC88 \uB354 (\uCD5C\uB300 3\uBC88)")), toggle(draft.repeat, () => patch({
+      repeat: !draft.repeat
+    }))), /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center justify-between"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "text-xs font-extrabold text-slate-800"
+    }, "\uC9C4\uB3D9"), toggle(draft.vibrate, () => patch({
+      vibrate: !draft.vibrate
+    }))), /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center justify-between"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "text-xs font-extrabold text-slate-800"
+    }, "\uC54C\uB78C\uC74C"), toggle(draft.soundEnabled, () => patch({
+      soundEnabled: !draft.soundEnabled
+    }))), draft.soundEnabled && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center gap-2"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "text-[11px] font-bold text-slate-500 w-8"
+    }, "\uC74C\uB7C9"), /*#__PURE__*/React.createElement("input", {
+      type: "range",
+      min: "0",
+      max: "100",
+      step: "5",
+      value: draft.volume,
+      onChange: e => patch({
+        volume: Number(e.target.value)
+      }),
+      className: "flex-1 accent-blue-600"
+    }), /*#__PURE__*/React.createElement("span", {
+      className: "w-10 text-right text-[11px] font-extrabold text-slate-700"
+    }, draft.volume, "%")), /*#__PURE__*/React.createElement("p", {
+      className: "mt-1 text-[10px] text-slate-400"
+    }, "0%\uB85C \uB450\uC5B4\uB3C4 \uC54C\uB78C\uC774 \uC644\uC804\uD788 \uAEBC\uC9C0\uC9C0 \uC54A\uB3C4\uB85D \uCD5C\uC18C 5%\uB85C \uC6B8\uB824\uC694."))), draft.soundEnabled && /*#__PURE__*/React.createElement("section", {
+      className: "p-4 rounded-2xl bg-white border border-slate-200 space-y-3"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex rounded-xl bg-slate-100 p-1"
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => setSoundTab("builtin"),
+      className: `flex-1 py-2 rounded-lg text-[11px] font-extrabold ${soundTab === "builtin" ? "bg-white text-slate-900 shadow-xs" : "text-slate-500"}`
+    }, "\uAE30\uBCF8\xB7\uC7AC\uBBF8 \uC54C\uB78C\uC74C"), /*#__PURE__*/React.createElement("button", {
+      onClick: () => setSoundTab("device"),
+      className: `flex-1 py-2 rounded-lg text-[11px] font-extrabold ${soundTab === "device" ? "bg-white text-slate-900 shadow-xs" : "text-slate-500"}`
+    }, "\uB0B4 \uAE30\uAE30 \uC74C\uC545")), soundTab === "builtin" ? /*#__PURE__*/React.createElement("div", {
+      className: "space-y-1.5"
+    }, ALARM_SOUNDS.map(sound => {
+      const selected = draft.soundType === "builtin" && draft.soundId === sound.id;
+      return /*#__PURE__*/React.createElement("div", {
+        key: sound.id,
+        className: `flex items-center gap-2 p-2.5 rounded-xl border ${selected ? "border-blue-500 bg-blue-50/60" : "border-slate-200"}`
+      }, /*#__PURE__*/React.createElement("button", {
+        onClick: () => patch({
+          soundType: "builtin",
+          soundId: sound.id,
+          soundName: sound.name
+        }),
+        className: "flex items-center gap-2 flex-1 min-w-0 text-left"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "text-lg"
+      }, sound.emoji), /*#__PURE__*/React.createElement("span", {
+        className: "min-w-0"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "block text-xs font-extrabold text-slate-900 truncate"
+      }, sound.name), /*#__PURE__*/React.createElement("span", {
+        className: "block text-[10px] text-slate-400 truncate"
+      }, sound.desc))), /*#__PURE__*/React.createElement("button", {
+        onClick: () => previewAlarmSound(draft, {
+          soundType: "builtin",
+          soundId: sound.id,
+          soundName: sound.name
+        }),
+        className: `px-2.5 py-1.5 rounded-lg text-[11px] font-extrabold ${soundPreviewId === sound.id ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600"}`
+      }, "\u25B6"));
+    })) : /*#__PURE__*/React.createElement("div", {
+      className: "space-y-2"
+    }, /*#__PURE__*/React.createElement("p", {
+      className: "text-[11px] text-slate-500"
+    }, draft.soundType === "device" && draft.soundName ? `선택된 파일: ${draft.soundName}` : "기기에 있는 음악 파일을 알람음으로 쓸 수 있어요."), /*#__PURE__*/React.createElement("div", {
+      className: "flex gap-2"
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => {
+        if (hasAndroidAlarm() && typeof window.AndroidAlarm.pickAudioFile === "function") {
+          window.AndroidAlarm.pickAudioFile();
         } else {
-          setGameOrderStep(n + 1);
+          notify("기기 음악 선택은 앱(APK)에서 할 수 있어요");
         }
+      },
+      className: "flex-1 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-extrabold"
+    }, "\uD83C\uDFB5 \uB0B4 \uAE30\uAE30 \uC74C\uC545 \uC120\uD0DD"), draft.soundType === "device" && /*#__PURE__*/React.createElement("button", {
+      onClick: () => previewAlarmSound(draft, {
+        soundType: "device"
+      }),
+      className: "px-3 py-2.5 rounded-xl bg-slate-100 text-xs font-extrabold text-slate-700"
+    }, "\u25B6 \uBBF8\uB9AC\uB4E3\uAE30"))), soundPreviewId ? /*#__PURE__*/React.createElement("button", {
+      onClick: stopAlarmSoundPreview,
+      className: "w-full py-2 rounded-xl bg-slate-900 text-white text-[11px] font-extrabold"
+    }, "\u25A0 \uBBF8\uB9AC\uB4E3\uAE30 \uC815\uC9C0") : null), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+      className: "text-xs font-bold text-slate-500 block mb-1.5"
+    }, "\uC751\uC6D0 \uBB38\uAD6C \xB7 \uC54C\uB78C \uBA54\uBAA8"), /*#__PURE__*/React.createElement("input", {
+      type: "text",
+      value: draft.cheer,
+      onChange: e => patch({
+        cheer: e.target.value
+      }),
+      placeholder: "\uC608: \uC624\uB298\uB3C4 \uC548\uC804\uADFC\uBB34 \uD654\uC774\uD305",
+      className: "w-full px-3 py-2.5 rounded-xl border border-slate-200 text-xs font-bold"
+    }), /*#__PURE__*/React.createElement("p", {
+      className: "mt-1 text-[10px] text-slate-400"
+    }, "\uC54C\uB78C \uD654\uBA74\uACFC '\uB530\uB77C\uC4F0\uAE30' \uAC8C\uC784\uC5D0 \uC774 \uBB38\uC7A5\uC774 \uB098\uC635\uB2C8\uB2E4.")), /*#__PURE__*/React.createElement("section", {
+      className: "p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center justify-between"
+    }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+      className: "text-xs font-extrabold text-slate-800"
+    }, "\uC54C\uB78C \uD574\uC81C \uAC8C\uC784"), /*#__PURE__*/React.createElement("p", {
+      className: "text-[10px] text-slate-400"
+    }, "\uBBF8\uC158\uC744 \uD480\uC5B4\uC57C \uC54C\uB78C\uC774 \uAEBC\uC838\uC694")), toggle(draft.gameEnabled, () => patch({
+      gameEnabled: !draft.gameEnabled
+    }))), draft.gameEnabled && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+      className: "space-y-1.5"
+    }, ALARM_GAMES.map(game => {
+      const active = draft.gameType === game.id;
+      return /*#__PURE__*/React.createElement("button", {
+        key: game.id,
+        onClick: () => patch({
+          gameType: game.id
+        }),
+        className: `w-full flex items-center gap-2 p-2.5 rounded-xl border text-left ${active ? "border-blue-500 bg-white" : "border-slate-200 bg-white/60"}`
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "text-base"
+      }, game.emoji), /*#__PURE__*/React.createElement("span", {
+        className: "flex-1 min-w-0"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "block text-xs font-extrabold text-slate-900"
+      }, game.label), /*#__PURE__*/React.createElement("span", {
+        className: "block text-[10px] text-slate-400"
+      }, game.desc)), active && /*#__PURE__*/React.createElement("span", {
+        className: "text-[10px] font-extrabold text-blue-600"
+      }, "\uC120\uD0DD"));
+    })), /*#__PURE__*/React.createElement("div", {
+      className: "grid grid-cols-3 gap-1.5"
+    }, ALARM_DIFFICULTIES.map(level => /*#__PURE__*/React.createElement("button", {
+      key: level.id,
+      onClick: () => patch({
+        difficulty: level.id
+      }),
+      className: `py-1.5 rounded-xl text-xs font-bold ${draft.difficulty === level.id ? "bg-slate-900 text-white" : "bg-white text-slate-500 border border-slate-200"}`
+    }, level.label))), /*#__PURE__*/React.createElement("button", {
+      onClick: () => {
+        setGamePreviewOpen(true);
+        setGameChallenge(makeGameChallenge(draft.gameType, draft.difficulty, draft.cheer));
+        resetGameAnswer();
+      },
+      className: "w-full py-2.5 rounded-xl bg-white border border-blue-200 text-blue-700 text-xs font-extrabold"
+    }, "\uD83C\uDFAE \uAC8C\uC784 \uBBF8\uB9AC \uD574\uBCF4\uAE30"))))));
+  })(), (ringingAlarm || gamePreviewOpen) && (() => {
+    const isPreview = !ringingAlarm;
+    const source = ringingAlarm || {};
+    const challenge = gameChallenge;
+    const finishGame = message => {
+      setGameChallenge(null);
+      setGameUserAnswer("");
+      setGameOrderStep(1);
+      setGameColorStep(1);
+      if (isPreview) {
+        setGamePreviewOpen(false);
+        notify(message || "게임 미리보기 성공!");
       } else {
-        setGameOrderStep(1);
-        notify("순서가 틀렸습니다. 1부터 다시 누르세요!");
+        setRingingAlarm(null);
+        notify(message || "미션 성공! 알람이 해제되었습니다.");
       }
-    },
-    className: `py-3.5 rounded-2xl text-lg font-extrabold ${n < gameOrderStep ? "bg-emerald-600 text-white" : "bg-slate-800 text-white"}`
-  }, n)))), gameChallenge.type === "compare" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
-    className: "text-sm font-bold text-white"
-  }, "\uB354 \uD070 \uC22B\uC790\uB97C \uD130\uCE58\uD558\uC138\uC694!"), /*#__PURE__*/React.createElement("div", {
-    className: "grid grid-cols-2 gap-3"
+    };
+    const closePreview = () => {
+      setGamePreviewOpen(false);
+      setGameChallenge(null);
+    };
+    return /*#__PURE__*/React.createElement("div", {
+      className: "fixed inset-0 z-50 bg-slate-950 text-white flex flex-col items-center justify-center p-5 text-center overflow-y-auto"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "w-full max-w-sm"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "w-16 h-16 mx-auto rounded-full bg-amber-400 text-slate-900 flex items-center justify-center animate-bounce mb-4"
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "bell",
+      size: 32
+    })), /*#__PURE__*/React.createElement("p", {
+      className: "text-[11px] font-bold text-amber-400"
+    }, isPreview ? "게임 미리보기" : `${myGroup.name} · ${source.label || "근무 알람"}`), /*#__PURE__*/React.createElement("h2", {
+      className: "text-4xl font-extrabold tracking-tight my-1"
+    }, isPreview ? "미션 연습" : source.time), !isPreview && source.cheer && /*#__PURE__*/React.createElement("p", {
+      className: "text-sm font-bold text-amber-200 mb-1"
+    }, source.cheer), challenge && challenge.type === "math" && /*#__PURE__*/React.createElement("div", {
+      className: "mt-4 w-full p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-3"
+    }, /*#__PURE__*/React.createElement("p", {
+      className: "text-[11px] font-bold text-slate-400"
+    }, "\uC54C\uB78C\uC744 \uB044\uB824\uBA74 \uC815\uB2F5\uC744 \uC785\uB825\uD558\uC138\uC694"), /*#__PURE__*/React.createElement("div", {
+      className: "text-2xl font-extrabold text-amber-300 py-1"
+    }, challenge.question), /*#__PURE__*/React.createElement("input", {
+      type: "number",
+      value: gameUserAnswer,
+      onChange: e => setGameUserAnswer(e.target.value),
+      placeholder: "\uC815\uB2F5 \uC785\uB825",
+      className: "w-full py-3 rounded-2xl bg-slate-800 text-center text-xl font-extrabold text-white focus:outline-none focus:ring-2 focus:ring-amber-400"
+    }), /*#__PURE__*/React.createElement("button", {
+      onClick: () => {
+        if (String(gameUserAnswer).trim() === String(challenge.answer)) {
+          finishGame();
+        } else {
+          notify("오답입니다. 다시 계산해 주세요!");
+        }
+      },
+      className: "w-full py-3 rounded-2xl bg-blue-600 text-white text-sm font-extrabold"
+    }, "\uC815\uB2F5 \uD655\uC778")), challenge && challenge.type === "typing" && /*#__PURE__*/React.createElement("div", {
+      className: "mt-4 w-full p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-3"
+    }, /*#__PURE__*/React.createElement("p", {
+      className: "text-[11px] font-bold text-slate-400"
+    }, "\uC544\uB798 \uBB38\uC7A5\uC744 \uB611\uAC19\uC774 \uC785\uB825\uD558\uC138\uC694"), /*#__PURE__*/React.createElement("p", {
+      className: "text-lg font-extrabold text-amber-300"
+    }, "\"", challenge.phrase, "\""), /*#__PURE__*/React.createElement("input", {
+      type: "text",
+      value: gameUserAnswer,
+      onChange: e => setGameUserAnswer(e.target.value),
+      placeholder: "\uC5EC\uAE30\uC5D0 \uB530\uB77C \uC785\uB825",
+      className: "w-full py-3 rounded-2xl bg-slate-800 text-center text-base font-extrabold text-white focus:outline-none focus:ring-2 focus:ring-amber-400"
+    }), /*#__PURE__*/React.createElement("button", {
+      onClick: () => {
+        const typed = String(gameUserAnswer || "").replace(/\s+/g, "");
+        const target = String(challenge.phrase || "").replace(/\s+/g, "");
+        if (!typed) {
+          notify("문장을 입력해 주세요");
+          return;
+        }
+        if (typed === target) finishGame("따라쓰기 성공!");else notify("아직 달라요. 문장을 똑같이 입력해 주세요");
+      },
+      className: "w-full py-3 rounded-2xl bg-blue-600 text-white text-sm font-extrabold"
+    }, "\uD655\uC778")), challenge && challenge.type === "numbers" && /*#__PURE__*/React.createElement("div", {
+      className: "mt-4 w-full p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-2"
+    }, /*#__PURE__*/React.createElement("p", {
+      className: "text-sm font-bold text-white"
+    }, "1\uBD80\uD130 ", challenge.count, "\uAE4C\uC9C0 \uC21C\uC11C\uB300\uB85C \uB204\uB974\uC138\uC694"), /*#__PURE__*/React.createElement("p", {
+      className: "text-[11px] font-bold text-amber-300"
+    }, gameOrderStep, "\uBC88 \uCC28\uB840"), /*#__PURE__*/React.createElement("div", {
+      className: `grid ${challenge.count > 12 ? "grid-cols-4" : "grid-cols-3"} gap-2`
+    }, challenge.nums.map(n => /*#__PURE__*/React.createElement("button", {
+      key: n,
+      onClick: () => {
+        if (n === gameOrderStep) {
+          if (n === challenge.count) finishGame("숫자 순서 성공!");else setGameOrderStep(n + 1);
+        } else {
+          setGameOrderStep(1);
+          notify("순서가 틀렸습니다. 1부터 다시 누르세요!");
+        }
+      },
+      className: `py-3 rounded-2xl text-lg font-extrabold ${n < gameOrderStep ? "bg-emerald-600 text-white" : "bg-slate-800 text-white"}`
+    }, n)))), challenge && challenge.type === "colors" && /*#__PURE__*/React.createElement("div", {
+      className: "mt-4 w-full p-5 rounded-3xl bg-slate-900 border border-slate-800 space-y-2"
+    }, /*#__PURE__*/React.createElement("p", {
+      className: "text-sm font-bold text-white"
+    }, "\uC774 \uC0C9\uAE54 \uC21C\uC11C\uB300\uB85C \uD130\uCE58\uD558\uC138\uC694"), /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center justify-center gap-2 py-1"
+    }, challenge.sequence.map((id, idx) => {
+      const color = ALARM_COLORS[id] || ALARM_COLORS[0];
+      const done = idx < gameColorStep - 1;
+      return /*#__PURE__*/React.createElement("span", {
+        key: idx,
+        className: `w-9 h-9 rounded-full flex items-center justify-center text-[11px] font-extrabold text-white ${done ? "opacity-40" : ""}`,
+        style: {
+          backgroundColor: color.hex
+        }
+      }, idx + 1);
+    })), /*#__PURE__*/React.createElement("p", {
+      className: "text-[11px] font-bold text-amber-300"
+    }, Math.min(gameColorStep, challenge.sequence.length), " / ", challenge.sequence.length, " \xB7 ", gameColorStep, "\uBC88\uC9F8 \uCC28\uB840"), /*#__PURE__*/React.createElement("div", {
+      className: "grid grid-cols-3 gap-2"
+    }, ALARM_COLORS.map(color => /*#__PURE__*/React.createElement("button", {
+      key: color.id,
+      onClick: () => {
+        const expected = challenge.sequence[gameColorStep - 1];
+        if (color.id === expected) {
+          if (gameColorStep >= challenge.sequence.length) finishGame("색깔 순서 성공!");else setGameColorStep(gameColorStep + 1);
+        } else {
+          setGameColorStep(1);
+          notify("순서가 달라요. 처음 색부터 다시 눌러 주세요");
+        }
+      },
+      className: "py-3 rounded-2xl",
+      style: {
+        backgroundColor: color.hex
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "text-[11px] font-extrabold text-white"
+    }, color.name))))), isPreview ? /*#__PURE__*/React.createElement("button", {
+      onClick: closePreview,
+      className: "mt-6 px-8 py-3 rounded-full bg-slate-700 text-white text-sm font-extrabold"
+    }, "\uBBF8\uB9AC\uBCF4\uAE30 \uB2EB\uAE30") : !challenge ? /*#__PURE__*/React.createElement("button", {
+      onClick: () => setRingingAlarm(null),
+      className: "mt-8 px-10 py-4 rounded-full bg-rose-600 text-white text-base font-extrabold"
+    }, "\uC54C\uB78C \uB044\uAE30") : null));
+  })(), photoLightbox && /*#__PURE__*/React.createElement("div", {
+    className: "fixed inset-0 z-[60] bg-slate-950/95 flex flex-col",
+    onClick: () => setPhotoLightbox(null)
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between px-3 py-2.5 text-white shrink-0",
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-xs font-extrabold truncate pr-2"
+  }, photoLightbox.title || "사진"), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-1.5 shrink-0"
   }, /*#__PURE__*/React.createElement("button", {
-    onClick: () => {
-      if (gameChallenge.answer === "left") {
-        setRingingAlarm(null);
-        notify("미션 성공! 알람이 해제되었습니다.");
-      } else {
-        notify("더 큰 숫자를 선택하세요!");
-      }
-    },
-    className: "py-5 rounded-2xl bg-slate-800 text-2xl font-extrabold text-amber-300"
-  }, gameChallenge.left), /*#__PURE__*/React.createElement("button", {
-    onClick: () => {
-      if (gameChallenge.answer === "right") {
-        setRingingAlarm(null);
-        notify("미션 성공! 알람이 해제되었습니다.");
-      } else {
-        notify("더 큰 숫자를 선택하세요!");
-      }
-    },
-    className: "py-5 rounded-2xl bg-slate-800 text-2xl font-extrabold text-amber-300"
-  }, gameChallenge.right)))) : /*#__PURE__*/React.createElement("button", {
-    onClick: () => setRingingAlarm(null),
-    className: "mt-8 px-10 py-4 rounded-full bg-rose-600 text-white text-base font-extrabold"
-  }, "\uC54C\uB78C \uB044\uAE30"))));
+    onClick: () => setPhotoLightbox(prev => prev ? Object.assign({}, prev, {
+      zoom: prev.zoom === 2 ? 1 : 2
+    }) : prev),
+    className: "px-3 py-1.5 rounded-lg bg-white/15 text-[11px] font-extrabold"
+  }, photoLightbox.zoom === 2 ? "1x 보기" : "2x 확대"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setPhotoLightbox(null),
+    className: "p-1.5 rounded-lg bg-white/15"
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "close",
+    size: 18
+  })))), /*#__PURE__*/React.createElement("div", {
+    className: "flex-1 overflow-auto",
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "min-w-full min-h-full flex items-start justify-center p-2"
+  }, /*#__PURE__*/React.createElement("img", {
+    src: photoLightbox.src,
+    alt: photoLightbox.title || "",
+    onClick: () => setPhotoLightbox(prev => prev ? Object.assign({}, prev, {
+      zoom: prev.zoom === 2 ? 1 : 2
+    }) : prev),
+    className: "rounded-lg bg-white",
+    style: {
+      width: photoLightbox.zoom === 2 ? "200%" : "100%",
+      maxWidth: "none"
+    }
+  }))), /*#__PURE__*/React.createElement("p", {
+    className: "py-2 text-center text-[10px] text-slate-400 shrink-0"
+  }, "\uC0AC\uC9C4\uC744 \uB204\uB974\uBA74 1x \u2194 2x \xB7 2x\uC5D0\uC11C\uB294 \uB04C\uC5B4\uC11C \uC774\uB3D9 \xB7 \uBC30\uACBD/\uB4A4\uB85C\uAC00\uAE30\uB85C \uB2EB\uAE30"))));
 }
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(/*#__PURE__*/React.createElement(App, null));

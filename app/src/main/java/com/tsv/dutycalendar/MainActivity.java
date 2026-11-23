@@ -112,6 +112,8 @@ public class MainActivity extends Activity {
     private static final int REQ_FILE_CHOOSER = 1001;
     private static final int REQ_WRITE_STORAGE = 1002;
     private static final int REQ_SHARE_STORAGE = 1003;
+    /** v2.4 — "내 기기 음악" 알람음 파일 선택(SAF, 영구 접근 권한). */
+    private static final int REQ_ALARM_AUDIO = 1004;
 
     private static final String PICTURE_ALBUM = "TSV교대달력";
 
@@ -733,6 +735,60 @@ public class MainActivity extends Activity {
     }
 
     /**
+     * v2.4 — hands the audio file the user picked back to the page:
+     * window.onAlarmSoundPicked(displayName, contentUri).
+     */
+    private void deliverAlarmSound(Uri uri) {
+        WebView view = webView;
+        if (view == null || uri == null) {
+            return;
+        }
+        final String name = displayNameOf(uri);
+        final String js = "if (window.onAlarmSoundPicked) window.onAlarmSoundPicked("
+                + JSONObject.quote(name) + "," + JSONObject.quote(uri.toString()) + ");";
+        view.post(() -> {
+            try {
+                view.evaluateJavascript(js, null);
+            } catch (Throwable ignored) {
+                // The page may already be gone.
+            }
+        });
+        toast("알람음: " + name + " 선택됨");
+    }
+
+    /** OpenableColumns.DISPLAY_NAME, falling back to the last path segment. */
+    private String displayNameOf(Uri uri) {
+        String name = null;
+        Cursor cursor = null;
+        try {
+            cursor = getContentResolver().query(uri,
+                    new String[]{android.provider.OpenableColumns.DISPLAY_NAME},
+                    null, null, null);
+            if (cursor != null && cursor.moveToFirst()) {
+                int index = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
+                if (index >= 0) {
+                    name = cursor.getString(index);
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "displayNameOf failed", e);
+        } finally {
+            if (cursor != null) {
+                try {
+                    cursor.close();
+                } catch (Exception ignored) {
+                    // nothing to do
+                }
+            }
+        }
+        if (name == null || name.trim().isEmpty()) {
+            String last = uri.getLastPathSegment();
+            name = last == null || last.trim().isEmpty() ? "기기 음악" : last;
+        }
+        return name;
+    }
+
+    /**
      * Android 12+ keeps exact alarms, and Android 14+ full-screen intents, behind a
      * special-access switch. Without them the alarm still exists but can ring late or
      * only as a heads-up, so the first time an alarm is scheduled we point the user at
@@ -1345,6 +1401,70 @@ public class MainActivity extends Activity {
                 Log.w(TAG, "AndroidAlarm.cancelAlarms failed", e);
             }
         }
+
+        /**
+         * v2.4 — "내 기기 음악"으로 쓸 오디오 파일을 고른다. SAF(ACTION_OPEN_DOCUMENT)로
+         * 열어 영구 읽기 권한을 받아 두므로, 앱을 다시 켜도 그 파일로 알람이 울린다.
+         * 결과는 window.onAlarmSoundPicked(name, uri)로 페이지에 돌려준다.
+         */
+        @JavascriptInterface
+        public void pickAudioFile() {
+            runOnUiThread(() -> {
+                try {
+                    Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                    intent.addCategory(Intent.CATEGORY_OPENABLE);
+                    intent.setType("audio/*");
+                    intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                            | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                    startActivityForResult(intent, REQ_ALARM_AUDIO);
+                } catch (Exception e) {
+                    Log.w(TAG, "AndroidAlarm.pickAudioFile failed", e);
+                    try {
+                        Intent legacy = new Intent(Intent.ACTION_GET_CONTENT);
+                        legacy.addCategory(Intent.CATEGORY_OPENABLE);
+                        legacy.setType("audio/*");
+                        startActivityForResult(legacy, REQ_ALARM_AUDIO);
+                    } catch (Exception second) {
+                        toast("기기 음악을 열 수 없어요");
+                    }
+                }
+            });
+        }
+
+        /**
+         * v2.4 — "5초 뒤 테스트 알람". 실제 알람과 똑같은 경로(setAlarmClock → 수신기 →
+         * 포그라운드 알람 서비스 → 알람 화면)로 5초 뒤에 울리게 한다.
+         */
+        @JavascriptInterface
+        public void testAlarmNow(String json) {
+            try {
+                JSONObject spec = new JSONObject(json == null || json.trim().isEmpty()
+                        ? "{}" : json);
+                spec.put("id", "test_" + System.currentTimeMillis());
+                spec.put("label", "테스트 알람");
+                AlarmReceiver.ensureChannel(MainActivity.this);
+                AlarmReceiver.scheduleOnce(MainActivity.this, spec.toString(),
+                        System.currentTimeMillis() + 5000L);
+                toast("5초 뒤 알람이 울립니다");
+            } catch (Exception e) {
+                Log.w(TAG, "AndroidAlarm.testAlarmNow failed", e);
+            }
+        }
+
+        /** 알람음 미리듣기(설정 화면의 ▶). */
+        @JavascriptInterface
+        public void previewSound(String json) {
+            try {
+                AlarmService.preview(MainActivity.this, json);
+            } catch (Exception e) {
+                Log.w(TAG, "AndroidAlarm.previewSound failed", e);
+            }
+        }
+
+        @JavascriptInterface
+        public void stopPreview() {
+            AlarmService.stopPreview();
+        }
     }
 
     // ------------------------------------------------------ home screen widgets
@@ -1488,10 +1608,10 @@ public class MainActivity extends Activity {
             try {
                 String version = getPackageManager()
                         .getPackageInfo(getPackageName(), 0).versionName;
-                return version == null || version.trim().isEmpty() ? "2.3.1" : version;
+                return version == null || version.trim().isEmpty() ? "2.4" : version;
             } catch (Exception e) {
                 Log.w(TAG, "getAppVersion failed", e);
-                return "2.3.1";
+                return "2.4";
             }
         }
 
@@ -1773,6 +1893,20 @@ public class MainActivity extends Activity {
     @SuppressWarnings("deprecation")
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_ALARM_AUDIO) {
+            Uri picked = resultCode == RESULT_OK && data != null ? data.getData() : null;
+            if (picked != null) {
+                // 영구 읽기 권한: 앱을 다시 실행해도 이 URI를 읽을 수 있어야 알람이 울린다.
+                try {
+                    getContentResolver().takePersistableUriPermission(picked,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                } catch (Exception e) {
+                    Log.w(TAG, "takePersistableUriPermission failed", e);
+                }
+                deliverAlarmSound(picked);
+            }
+            return;
+        }
         if (requestCode != REQ_FILE_CHOOSER || filePathCallback == null) {
             return;
         }

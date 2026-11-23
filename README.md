@@ -135,6 +135,47 @@ time** (no `text/babel`, no Babel at runtime), so the app still starts with no n
   `localStorage` (`todaywork_v33_sound`) plus 톡톡/슉슉/띠링 preview buttons.
 - versionCode 12 / versionName 2.1, same fixed signing key.
 
+## v2.4 — 알람이 실제로 울리게 · 알람 구성 · 사진 확대 · 마스터 권한
+
+- **알람이 안 울리던 문제의 근본 수정**
+  - `AlarmManager.setAlarmClock(AlarmClockInfo(at, showPi), pi)`로 예약합니다. 정확한
+    알람 권한(`SCHEDULE_EXACT_ALARM`)이 없어도 정시에 울리고, 상태바 알람 아이콘이
+    뜨며, Doze·제조사 배터리 관리에서도 `setExactAndAllowWhileIdle`보다 잘 살아남습니다.
+    (거부되는 기기만 기존 `setExactAndAllowWhileIdle`/`setAndAllowWhileIdle`로 폴백)
+  - **`AlarmService`**(ForegroundService, `foregroundServiceType="mediaPlayback"`)를 새로
+    두었습니다. `AlarmReceiver`가 알람 시각에 이 서비스를 즉시 시작하므로, 백그라운드
+    액티비티 제한이나 전체 화면 알림 권한 때문에 `AlarmActivity`가 뜨지 못해도 소리와
+    진동은 100% 납니다. 서비스는 `AudioAttributes.USAGE_ALARM`으로 재생하고 진동·WakeLock·
+    자동 꺼짐·다시 울림을 맡습니다. 알람음은 ① 기기에서 고른 파일 ② 내장 멜로디
+    ③ 기기 기본 알람음 순으로, 재생 실패 시 다음 소스로 넘어가 절대 무음이 되지 않습니다.
+  - 알람 스트림 음량이 아주 낮으면 울리는 동안 70%로 올리고 끄면 원래 값으로 되돌립니다.
+  - `syncNativeAlarms`가 근무 배지와 알람 근무를 맞출 때 `주특→주`, `야특→야`로 보정하고,
+    알람에 `휴`가 들어 있으면 휴무일에도 울립니다(휴무 하드코딩 제외 삭제).
+  - 알람 탭에 **다음 알람: O/O HH:MM · O근무** 표시와 **5초 뒤 테스트 알람** 버튼 추가.
+- **알람 구성 UI** — 12시간제 오전/오후 + 시/분 −/+ 스테퍼와 분 프리셋, 적용 근무
+  `주/야/비/휴`, 자동 꺼짐(설정 안 함·1·3·5분), 다시 울림(끄면 5분 뒤 최대 3번), 응원 문구/
+  알람 메모, 진동, 알람음 토글, 음량 슬라이더(0~100%, 최소 5% 보장).
+- **알람음** — 내장 4종 `res/raw/alarm_arcade.wav`(🕹️ 아케이드), `alarm_trumpet.wav`(🎺 나팔),
+  `alarm_cuckoo.wav`(🐤 뻐꾸기), `alarm_aurora.wav`(✨ 오로라). 16-bit mono 22050 Hz, 약 8초,
+  오프라인에서도 100% 재생. ▶ 미리듣기/정지(`AndroidAlarm.previewSound`/`stopPreview`).
+  **내 기기 음악**(`AndroidAlarm.pickAudioFile`)은 SAF `ACTION_OPEN_DOCUMENT`로 열고
+  `takePersistableUriPermission`으로 영구 읽기 권한을 받아 파일명·URI를 저장합니다.
+- **알람 해제 게임 5종** — 사칙연산 · 따라쓰기(응원 문구를 그대로 입력) · 숫자 순서 터치
+  (1~9/12/16) · 색깔 순서 터치(3/4/5색) · 랜덤. 난이도 쉬움/보통/어려움. 웹 미리보기와
+  네이티브 `AlarmActivity`가 같은 규칙을 쓰고, 설정 모달에 **게임 미리 해보기**가 있습니다.
+- **설비공유·게시판 사진 확대** — 사진을 누르면 전체화면 라이트박스가 열리고, 사진/버튼으로
+  **1x ↔ 2x** 전환(2x에서는 끌어서 이동), 배경 터치·× 버튼·뒤로가기(`tsvHandleBack`)로 닫힙니다.
+  계기판의 `0098` 같은 작은 숫자도 확인할 수 있습니다.
+- **수정·삭제 권한 분리** — 앱 최초 실행 시 `deviceId`를 만들어 `localStorage`에 보관하고
+  게시글·설비 기록에 `authorId`로 저장합니다. 설정 탭 `👑 마스터 관리자 권한`에서 관리자
+  코드를 인증하면 `isMaster`가 이 기기에 저장되어 **모든 글**을 수정·삭제할 수 있고, 해제하면
+  **본인 글(authorId 일치)**만 가능합니다. 타인 글·`authorId` 없는 예전 글은 버튼이 숨겨지고
+  핸들러에서도 "본인이 작성한 글만 수정·삭제할 수 있습니다"로 막습니다. 코드 입력은
+  `type="password"`이며 화면에 노출하지 않습니다.
+- **버전** — `APP_VERSION` `2.4`, `versionCode 16`, `versionName "2.4"`, `getAppVersion()` 대체값 `2.4`.
+  v2.3.1의 2D 슬라이드 월 전환·최고 버전 업데이터·오늘 박스·메모 시안성·날씨 토글·연일 캘린더·
+  위젯 5종·Firebase 공유는 그대로입니다.
+
 ## v2.3.1 — 인앱 업데이트 확인 버그 수정
 
 - **증상** — v2.2(과 v2.3) 앱의 설정 탭 `업데이트 확인`이 v2.3이 이미 공개돼 있는데도

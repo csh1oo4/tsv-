@@ -6,18 +6,10 @@ import android.content.Context;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
-import android.media.AudioAttributes;
-import android.media.AudioManager;
-import android.media.Ringtone;
-import android.media.RingtoneManager;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.os.VibrationEffect;
-import android.os.Vibrator;
-import android.os.VibratorManager;
 import android.text.InputType;
 import android.util.Log;
 import android.view.Gravity;
@@ -26,76 +18,84 @@ import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.GridLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import org.json.JSONObject;
+
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
 import java.util.Random;
 
 /**
  * Full-screen alarm screen for 「TSV 교대달력」.
  *
- * Started by AlarmReceiver (directly and/or through its full-screen intent
- * notification) at the alarm time. It shows the alarm label and, matching the
- * web app's own settings, either
+ * v2.4: the ringtone and the vibration live in AlarmService, so this screen does not
+ * have to open for the alarm to be heard — it is the face of the alarm, not its
+ * voice. It shows the label, the time, the user's own encouragement line, and the
+ * release game the page chose:
  *
- *   - asks gameCount arithmetic questions one after another (easy = single-digit
- *     addition, normal = two-digit +/-, hard = two-digit × one-digit + two-digit);
- *     every answer has to be right before the sound and vibration stop, or
- *   - offers a plain "알람 끄기" button when the game is off.
+ *   math    — 사칙연산 (easy +, normal +/-, hard with ×)
+ *   typing  — 따라쓰기 (type the phrase exactly; the cheer message is the phrase)
+ *   numbers — 숫자 순서 터치 (tap 1..N in order on a shuffled grid)
+ *   colors  — 색깔 순서 터치 (tap the palette in the shown order)
+ *   random  — one of the four, picked when the alarm fires
  *
- * It plays the device's default TYPE_ALARM ringtone and a repeating vibration
- * pattern for as long as it is ringing. The notification posted by the receiver
- * is cancelled as soon as this screen is up, so the ringtone is heard once.
+ * Getting through the game calls AlarmService.stop(..), which also cancels the
+ * notification. With the game off the screen is a plain "알람 끄기" button.
  */
 public class AlarmActivity extends Activity {
 
     private static final String TAG = "TsvDutyAlarm";
-    private static final long REPLAY_INTERVAL_MS = 2500L;
+
+    private static final String[] COLOR_NAMES = {"빨강", "주황", "노랑", "초록", "파랑", "보라"};
+    private static final int[] COLOR_VALUES = {
+            0xFFEF4444, 0xFFF97316, 0xFFEAB308, 0xFF22C55E, 0xFF3B82F6, 0xFFA855F7
+    };
 
     private String alarmId = "";
     private String label = "근무 알람";
     private boolean gameEnabled = false;
+    private String gameType = "math";
     private String difficulty = "easy";
+    private String cheer = "";
+    private String alarmJson = "";
+
+    private String activeType = "math";
     private int totalProblems = 1;
     private int solved = 0;
-    private boolean soundOn = true;
-    private boolean vibrateOn = true;
-
-    private int answer = 0;
     private boolean dismissed = false;
 
-    private Ringtone ringtone;
-    private Vibrator vibrator;
+    // math
+    private int answer = 0;
+    // typing
+    private String phrase = "";
+    // numbers
+    private int nextNumber = 1;
+    private int numberCount = 9;
+    // colors
+    private final List<Integer> colorTarget = new ArrayList<>();
+    private int colorStep = 0;
+
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Random random = new Random();
 
+    private TextView badgeView;
+    private TextView cheerView;
     private TextView questionView;
-    private TextView progressView;
+    private TextView hintView;
     private TextView statusView;
+    private TextView progressView;
     private EditText answerView;
+    private GridLayout gridView;
     private Button primaryButton;
-
-    private final Runnable replayTick = new Runnable() {
-        @Override
-        public void run() {
-            if (dismissed) {
-                return;
-            }
-            try {
-                if (ringtone != null && !ringtone.isPlaying()) {
-                    ringtone.play();
-                }
-            } catch (Exception e) {
-                Log.w(TAG, "ringtone replay failed", e);
-            }
-            handler.postDelayed(this, REPLAY_INTERVAL_MS);
-        }
-    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -104,13 +104,17 @@ public class AlarmActivity extends Activity {
         applyWindowFlags();
         readExtras(getIntent());
         buildUi();
-        startRinging();
-        if (gameEnabled) {
-            nextProblem();
-        }
+        AlarmService.setStoppedListener(this::onAlarmStoppedElsewhere);
 
-        // The heads-up notification did its job once this screen owns the alarm.
-        cancelNotification();
+        // The service is started by the receiver; starting it here as well covers the
+        // case where the notification's full-screen intent opened this screen after
+        // the service had already been cleaned up.
+        if (!AlarmService.isRinging()) {
+            AlarmService.start(this, alarmJson);
+        }
+        if (gameEnabled) {
+            startChallenge();
+        }
     }
 
     @SuppressWarnings("deprecation")
@@ -123,30 +127,37 @@ public class AlarmActivity extends Activity {
             setShowWhenLocked(true);
             setTurnScreenOn(true);
         }
-        setVolumeControlStream(AudioManager.STREAM_ALARM);
     }
 
     private void readExtras(android.content.Intent intent) {
         if (intent == null) {
             return;
         }
-        String id = intent.getStringExtra(AlarmReceiver.EXTRA_ID);
-        if (id != null) {
-            alarmId = id;
+        String raw = intent.getStringExtra(AlarmReceiver.EXTRA_ALARM_JSON);
+        JSONObject spec = null;
+        if (raw != null && !raw.trim().isEmpty()) {
+            alarmJson = raw;
+            try {
+                spec = new JSONObject(raw);
+            } catch (Exception e) {
+                Log.w(TAG, "bad alarm json", e);
+            }
         }
-        String name = intent.getStringExtra(AlarmReceiver.EXTRA_LABEL);
-        if (name != null && !name.trim().isEmpty()) {
-            label = name.trim();
+        if (spec != null) {
+            alarmId = spec.optString("id", alarmId);
+            String name = spec.optString("label", "");
+            if (!name.trim().isEmpty()) {
+                label = name.trim();
+            }
+            gameEnabled = spec.optBoolean("gameEnabled", false);
+            gameType = spec.optString("gameType", "math");
+            difficulty = spec.optString("gameDifficulty", "easy");
+            cheer = spec.optString("cheer", "");
+            totalProblems = Math.max(1, Math.min(3, spec.optInt("gameCount", 1)));
         }
-        gameEnabled = intent.getBooleanExtra(AlarmReceiver.EXTRA_GAME_ENABLED, false);
-        String diff = intent.getStringExtra(AlarmReceiver.EXTRA_GAME_DIFFICULTY);
-        if (diff != null && !diff.trim().isEmpty()) {
-            difficulty = diff.trim();
+        if (gameType == null || gameType.trim().isEmpty()) {
+            gameType = "math";
         }
-        totalProblems = Math.max(1, Math.min(3, intent.getIntExtra(
-                AlarmReceiver.EXTRA_GAME_COUNT, 1)));
-        soundOn = intent.getBooleanExtra(AlarmReceiver.EXTRA_SOUND, true);
-        vibrateOn = intent.getBooleanExtra(AlarmReceiver.EXTRA_VIBRATE, true);
     }
 
     // ------------------------------------------------------------------- UI
@@ -174,17 +185,17 @@ public class AlarmActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.CENTER_HORIZONTAL);
-        root.setPadding(dp(24), dp(48), dp(24), dp(32));
+        root.setPadding(dp(22), dp(44), dp(22), dp(30));
         scroll.addView(root, new ScrollView.LayoutParams(
                 ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT));
 
-        TextView badge = new TextView(this);
-        badge.setText("TSV 교대달력 · 근무 알람");
-        badge.setTextColor(Color.parseColor("#93C5FD"));
-        badge.setTextSize(12f);
-        badge.setLetterSpacing(0.08f);
-        badge.setGravity(Gravity.CENTER);
-        root.addView(badge, matchWrap());
+        badgeView = new TextView(this);
+        badgeView.setText("TSV 교대달력 · 근무 알람");
+        badgeView.setTextColor(Color.parseColor("#93C5FD"));
+        badgeView.setTextSize(12f);
+        badgeView.setLetterSpacing(0.08f);
+        badgeView.setGravity(Gravity.CENTER);
+        root.addView(badgeView, matchWrap());
 
         TextView labelView = new TextView(this);
         labelView.setText(label);
@@ -199,34 +210,50 @@ public class AlarmActivity extends Activity {
         TextView clockView = new TextView(this);
         clockView.setText(new SimpleDateFormat("HH:mm", Locale.KOREAN).format(new Date()));
         clockView.setTextColor(Color.parseColor("#BFDBFE"));
-        clockView.setTextSize(46f);
+        clockView.setTextSize(44f);
         clockView.setTypeface(Typeface.DEFAULT_BOLD);
         clockView.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams clockParams = matchWrap();
         clockParams.topMargin = dp(2);
-        clockParams.bottomMargin = dp(22);
         root.addView(clockView, clockParams);
 
+        cheerView = new TextView(this);
+        cheerView.setText(cheer.trim().isEmpty() ? "" : cheer.trim());
+        cheerView.setTextColor(Color.parseColor("#FDE68A"));
+        cheerView.setTextSize(15f);
+        cheerView.setTypeface(Typeface.DEFAULT_BOLD);
+        cheerView.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams cheerParams = matchWrap();
+        cheerParams.bottomMargin = dp(16);
+        cheerParams.topMargin = dp(4);
+        cheerView.setVisibility(cheer.trim().isEmpty() ? View.GONE : View.VISIBLE);
+        root.addView(cheerView, cheerParams);
+
         LinearLayout body = card(Color.parseColor("#16233A"), 22f);
-        body.setPadding(dp(20), dp(22), dp(20), dp(22));
-        LinearLayout.LayoutParams bodyParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        root.addView(body, bodyParams);
+        body.setPadding(dp(18), dp(20), dp(18), dp(20));
+        root.addView(body, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         questionView = new TextView(this);
         questionView.setTextColor(Color.WHITE);
-        questionView.setTextSize(30f);
+        questionView.setTextSize(28f);
         questionView.setTypeface(Typeface.DEFAULT_BOLD);
         questionView.setGravity(Gravity.CENTER);
         body.addView(questionView, matchWrap());
 
+        hintView = new TextView(this);
+        hintView.setTextColor(Color.parseColor("#94A3B8"));
+        hintView.setTextSize(12f);
+        hintView.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams hintParams = matchWrap();
+        hintParams.topMargin = dp(6);
+        body.addView(hintView, hintParams);
+
         answerView = new EditText(this);
-        answerView.setInputType(InputType.TYPE_CLASS_NUMBER
-                | InputType.TYPE_NUMBER_FLAG_SIGNED);
-        answerView.setHint("정답 숫자 입력");
+        answerView.setHint("정답 입력");
         answerView.setHintTextColor(Color.parseColor("#64748B"));
         answerView.setTextColor(Color.WHITE);
-        answerView.setTextSize(22f);
+        answerView.setTextSize(21f);
         answerView.setTypeface(Typeface.DEFAULT_BOLD);
         answerView.setGravity(Gravity.CENTER);
         answerView.setSingleLine(true);
@@ -238,8 +265,15 @@ public class AlarmActivity extends Activity {
         fieldBg.setStroke(dp(1), Color.parseColor("#334155"));
         answerView.setBackground(fieldBg);
         LinearLayout.LayoutParams answerParams = matchWrap();
-        answerParams.topMargin = dp(18);
+        answerParams.topMargin = dp(14);
         body.addView(answerView, answerParams);
+
+        gridView = new GridLayout(this);
+        gridView.setColumnCount(3);
+        gridView.setAlignmentMode(GridLayout.ALIGN_MARGINS);
+        LinearLayout.LayoutParams gridParams = matchWrap();
+        gridParams.topMargin = dp(16);
+        body.addView(gridView, gridParams);
 
         statusView = new TextView(this);
         statusView.setTextColor(Color.parseColor("#FCA5A5"));
@@ -251,7 +285,7 @@ public class AlarmActivity extends Activity {
 
         progressView = new TextView(this);
         progressView.setTextColor(Color.parseColor("#93C5FD"));
-        progressView.setTextSize(13f);
+        progressView.setTextSize(12f);
         progressView.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams progressParams = matchWrap();
         progressParams.topMargin = dp(6);
@@ -269,35 +303,24 @@ public class AlarmActivity extends Activity {
         primaryButton.setPadding(dp(16), dp(14), dp(16), dp(14));
         LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        buttonParams.topMargin = dp(18);
+        buttonParams.topMargin = dp(16);
         body.addView(primaryButton, buttonParams);
-
-        View.OnClickListener listener = view -> onPrimary();
-        primaryButton.setOnClickListener(listener);
-        answerView.setOnEditorActionListener((v, actionId, event) -> {
-            if (actionId == EditorInfo.IME_ACTION_DONE) {
-                onPrimary();
-                return true;
-            }
-            return false;
-        });
+        primaryButton.setOnClickListener(view -> onPrimary());
 
         if (gameEnabled) {
-            questionView.setText("문제를 준비하는 중…");
+            questionView.setText("미션을 준비하는 중…");
             primaryButton.setText("확인");
-            answerView.setVisibility(View.VISIBLE);
         } else {
             questionView.setText("알람을 끄려면 아래 버튼을 눌러 주세요");
             questionView.setTextSize(20f);
             primaryButton.setText("알람 끄기");
             answerView.setVisibility(View.GONE);
+            gridView.setVisibility(View.GONE);
+            hintView.setVisibility(View.GONE);
             progressView.setVisibility(View.GONE);
         }
 
         setContentView(scroll);
-        if (gameEnabled) {
-            answerView.requestFocus();
-        }
     }
 
     private LinearLayout.LayoutParams matchWrap() {
@@ -305,10 +328,41 @@ public class AlarmActivity extends Activity {
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
     }
 
-    // ------------------------------------------------------------ the game
+    // ------------------------------------------------------------ the games
 
-    /** Same problem shapes as the web app's preview (makeMathProblem in index.html). */
-    private void nextProblem() {
+    private void startChallenge() {
+        solved = 0;
+        nextChallenge();
+    }
+
+    /** Resolves ''random'' and deals the first (or next) challenge. */
+    private void nextChallenge() {
+        activeType = gameType;
+        if ("random".equals(activeType)) {
+            String[] pool = {"math", "typing", "numbers", "colors"};
+            activeType = pool[random.nextInt(pool.length)];
+        }
+        statusView.setText("");
+        gridView.removeAllViews();
+        gridView.setVisibility(View.GONE);
+        answerView.setVisibility(View.GONE);
+        hintView.setVisibility(View.VISIBLE);
+        primaryButton.setText("확인");
+
+        progressView.setText("알람 해제 미션 " + (solved + 1) + " / " + totalProblems);
+
+        if ("typing".equals(activeType)) {
+            startTyping();
+        } else if ("numbers".equals(activeType)) {
+            startNumbers();
+        } else if ("colors".equals(activeType)) {
+            startColors();
+        } else {
+            startMath();
+        }
+    }
+
+    private void startMath() {
         String question;
         if ("hard".equals(difficulty)) {
             int a = 11 + random.nextInt(19);
@@ -328,15 +382,195 @@ public class AlarmActivity extends Activity {
             answer = a + b;
             question = a + " + " + b + " = ?";
         }
-
         questionView.setText(question);
-        questionView.setTextSize(30f);
-        statusView.setText("");
+        hintView.setText("정답 숫자를 입력하면 알람이 꺼져요");
+        answerView.setHint("정답 숫자 입력");
+        answerView.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_SIGNED);
         answerView.setText("");
-        progressView.setText("알람 해제 게임 " + (solved + 1) + " / " + totalProblems
-                + "  ·  정답을 입력해야 알람이 꺼져요");
+        answerView.setVisibility(View.VISIBLE);
         answerView.requestFocus();
     }
+
+    private void startTyping() {
+        if (!cheer.trim().isEmpty()) {
+            phrase = cheer.trim();
+        } else if ("hard".equals(difficulty)) {
+            phrase = "오늘도 안전근무 화이팅 힘내세요";
+        } else if ("normal".equals(difficulty)) {
+            phrase = "오늘도 안전근무 화이팅";
+        } else {
+            phrase = "안전근무";
+        }
+        questionView.setText("따라 쓰기");
+        questionView.setTextSize(22f);
+        hintView.setText("아래 문장을 똑같이 입력하세요:\n\"" + phrase + "\"");
+        answerView.setHint("여기에 따라 입력");
+        answerView.setInputType(InputType.TYPE_CLASS_TEXT);
+        answerView.setText("");
+        answerView.setVisibility(View.VISIBLE);
+        answerView.requestFocus();
+    }
+
+    private void startMathHintReset() {
+        questionView.setTextSize(28f);
+    }
+
+    private void startNumbers() {
+        numberCount = "hard".equals(difficulty) ? 16 : "normal".equals(difficulty) ? 12 : 9;
+        int columns = numberCount > 12 ? 4 : 3;
+        nextNumber = 1;
+        questionView.setTextSize(22f);
+        questionView.setText("1부터 " + numberCount + "까지 순서대로 터치!");
+        hintView.setText("숫자를 차례대로 누르면 알람이 꺼져요");
+
+        List<Integer> nums = new ArrayList<>();
+        for (int i = 1; i <= numberCount; i++) {
+            nums.add(i);
+        }
+        Collections.shuffle(nums, random);
+
+        gridView.setColumnCount(columns);
+        gridView.setVisibility(View.VISIBLE);
+        int size = dp(numberCount > 12 ? 52 : 62);
+        for (int i = 0; i < nums.size(); i++) {
+            final int value = nums.get(i);
+            Button cell = numberCell(value, size, columns);
+            cell.setOnClickListener(v -> onNumberTap(value, (Button) v));
+            GridLayout.LayoutParams params = new GridLayout.LayoutParams();
+            params.width = 0;
+            params.height = size;
+            params.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
+            params.setMargins(dp(3), dp(3), dp(3), dp(3));
+            gridView.addView(cell, params);
+        }
+    }
+
+    private Button numberCell(int value, int size, int columns) {
+        Button cell = new Button(this);
+        cell.setText(String.valueOf(value));
+        cell.setTextSize(numberCount > 12 ? 16f : 19f);
+        cell.setTypeface(Typeface.DEFAULT_BOLD);
+        cell.setTextColor(Color.WHITE);
+        cell.setAllCaps(false);
+        cell.setPadding(0, 0, 0, 0);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(Color.parseColor("#1E293B"));
+        bg.setCornerRadius(dp(14));
+        bg.setStroke(dp(1), Color.parseColor("#334155"));
+        cell.setBackground(bg);
+        return cell;
+    }
+
+    private void onNumberTap(int value, Button cell) {
+        if (dismissed) {
+            return;
+        }
+        if (value == nextNumber) {
+            GradientDrawable done = new GradientDrawable();
+            done.setColor(Color.parseColor("#059669"));
+            done.setCornerRadius(dp(14));
+            cell.setBackground(done);
+            nextNumber++;
+            statusView.setText("");
+            if (nextNumber > numberCount) {
+                completeChallenge();
+            }
+        } else {
+            statusView.setText("순서가 틀렸어요! 1부터 다시 눌러 주세요");
+            restartNumbers();
+        }
+    }
+
+    private void restartNumbers() {
+        nextNumber = 1;
+        for (int i = 0; i < gridView.getChildCount(); i++) {
+            View child = gridView.getChildAt(i);
+            if (child instanceof Button) {
+                Button cell = (Button) child;
+                GradientDrawable bg = new GradientDrawable();
+                bg.setColor(Color.parseColor("#1E293B"));
+                bg.setCornerRadius(dp(14));
+                bg.setStroke(dp(1), Color.parseColor("#334155"));
+                cell.setBackground(bg);
+            }
+        }
+    }
+
+    private void startColors() {
+        int length = "hard".equals(difficulty) ? 5 : "normal".equals(difficulty) ? 4 : 3;
+        colorTarget.clear();
+        colorStep = 0;
+        List<Integer> pool = new ArrayList<>();
+        for (int i = 0; i < COLOR_VALUES.length; i++) {
+            pool.add(i);
+        }
+        Collections.shuffle(pool, random);
+        for (int i = 0; i < length; i++) {
+            colorTarget.add(pool.get(i));
+        }
+
+        StringBuilder names = new StringBuilder();
+        for (int i = 0; i < colorTarget.size(); i++) {
+            if (i > 0) {
+                names.append(" → ");
+            }
+            names.append(COLOR_NAMES[colorTarget.get(i)]);
+        }
+        questionView.setTextSize(22f);
+        questionView.setText("이 순서대로 터치하세요");
+        hintView.setText(names + "\n(아래 색 버튼을 같은 순서로 누르면 알람이 꺼져요)");
+
+        gridView.setColumnCount(3);
+        gridView.setVisibility(View.VISIBLE);
+        int size = dp(62);
+        for (int i = 0; i < COLOR_VALUES.length; i++) {
+            final int index = i;
+            Button cell = new Button(this);
+            cell.setText("");
+            GradientDrawable bg = new GradientDrawable();
+            bg.setColor(COLOR_VALUES[i]);
+            bg.setCornerRadius(dp(14));
+            cell.setBackground(bg);
+            cell.setOnClickListener(v -> onColorTap(index));
+            GridLayout.LayoutParams params = new GridLayout.LayoutParams();
+            params.width = 0;
+            params.height = size;
+            params.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
+            params.setMargins(dp(4), dp(4), dp(4), dp(4));
+            gridView.addView(cell, params);
+        }
+    }
+
+    private void onColorTap(int index) {
+        if (dismissed || colorStep >= colorTarget.size()) {
+            return;
+        }
+        if (colorTarget.get(colorStep) == index) {
+            colorStep++;
+            statusView.setText("");
+            progressView.setText(colorStep + " / " + colorTarget.size() + " 색 맞춤");
+            if (colorStep >= colorTarget.size()) {
+                completeChallenge();
+            }
+        } else {
+            colorStep = 0;
+            statusView.setText("순서가 달라요. 처음 색부터 다시 눌러 주세요");
+            progressView.setText("0 / " + colorTarget.size() + " 색 맞춤");
+        }
+    }
+
+    private void completeChallenge() {
+        solved++;
+        if (solved >= totalProblems) {
+            statusView.setText("");
+            progressView.setText("알람 해제 성공!");
+            stopAlarm();
+        } else {
+            nextChallenge();
+        }
+    }
+
+    // ------------------------------------------------------------ the buttons
 
     private void onPrimary() {
         if (dismissed) {
@@ -344,6 +578,13 @@ public class AlarmActivity extends Activity {
         }
         if (!gameEnabled) {
             stopAlarm();
+            return;
+        }
+        if ("typing".equals(activeType)) {
+            checkTyping();
+            return;
+        }
+        if (!"math".equals(activeType)) {
             return;
         }
         String raw = answerView.getText() == null ? "" : answerView.getText().toString().trim();
@@ -364,99 +605,38 @@ public class AlarmActivity extends Activity {
             answerView.setText("");
             return;
         }
-        solved++;
-        if (solved >= totalProblems) {
-            statusView.setText("");
-            progressView.setText("알람 해제 성공!");
-            stopAlarm();
-        } else {
-            nextProblem();
-        }
+        completeChallenge();
     }
 
-    // ----------------------------------------------------------- sound & buzz
-
-    private Vibrator vibrator() {
-        if (vibrator != null) {
-            return vibrator;
+    private void checkTyping() {
+        String raw = answerView.getText() == null ? "" : answerView.getText().toString();
+        String typed = normalizeText(raw);
+        String target = normalizeText(phrase);
+        if (typed.isEmpty()) {
+            statusView.setText("문장을 입력해 주세요");
+            return;
         }
-        try {
-            if (Build.VERSION.SDK_INT >= 31) {
-                VibratorManager manager =
-                        (VibratorManager) getSystemService(Context.VIBRATOR_MANAGER_SERVICE);
-                if (manager != null) {
-                    vibrator = manager.getDefaultVibrator();
-                }
-            }
-            if (vibrator == null) {
-                vibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "vibrator unavailable", e);
+        if (!typed.equals(target)) {
+            statusView.setText("아직 달라요. 문장을 똑같이 입력해 주세요");
+            return;
         }
-        return vibrator;
+        completeChallenge();
     }
 
-    private void startRinging() {
-        if (soundOn) {
-            try {
-                Uri uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
-                if (uri == null) {
-                    uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
-                }
-                ringtone = RingtoneManager.getRingtone(this, uri);
-                if (ringtone != null) {
-                    if (Build.VERSION.SDK_INT >= 21) {
-                        ringtone.setAudioAttributes(new AudioAttributes.Builder()
-                                .setUsage(AudioAttributes.USAGE_ALARM)
-                                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                                .build());
-                    }
-                    if (Build.VERSION.SDK_INT >= 28) {
-                        ringtone.setLooping(true);
-                    }
-                    ringtone.play();
-                    handler.postDelayed(replayTick, REPLAY_INTERVAL_MS);
-                }
-            } catch (Exception e) {
-                Log.w(TAG, "ringtone failed", e);
-            }
-        }
-        if (vibrateOn) {
-            Vibrator v = vibrator();
-            if (v != null) {
-                try {
-                    long[] pattern = {0, 700, 400, 700, 900};
-                    if (Build.VERSION.SDK_INT >= 26) {
-                        v.vibrate(VibrationEffect.createWaveform(pattern, 0));
-                    } else {
-                        //noinspection deprecation
-                        v.vibrate(pattern, 0);
-                    }
-                } catch (Exception e) {
-                    Log.w(TAG, "vibrate failed", e);
-                }
-            }
-        }
+    private static String normalizeText(String value) {
+        return value == null ? "" : value.replaceAll("\\s+", "").trim();
     }
 
-    private void stopRinging() {
-        handler.removeCallbacks(replayTick);
-        try {
-            if (ringtone != null) {
-                ringtone.stop();
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "ringtone stop failed", e);
+    // -------------------------------------------------------------- lifecycle
+
+    private void onAlarmStoppedElsewhere() {
+        // The service's auto-off timer ended the alarm while this screen was up.
+        if (dismissed) {
+            return;
         }
-        ringtone = null;
-        try {
-            if (vibrator != null) {
-                vibrator.cancel();
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "vibrator cancel failed", e);
-        }
+        dismissed = true;
+        Toast.makeText(this, "알람이 자동으로 꺼졌어요", Toast.LENGTH_SHORT).show();
+        finish();
     }
 
     private void cancelNotification() {
@@ -473,40 +653,31 @@ public class AlarmActivity extends Activity {
 
     private void stopAlarm() {
         dismissed = true;
-        stopRinging();
+        AlarmService.setStoppedListener(null);
+        AlarmService.stop(this, true);
         cancelNotification();
         Toast.makeText(this, "알람을 껐어요", Toast.LENGTH_SHORT).show();
         finish();
     }
-
-    // -------------------------------------------------------------- lifecycle
 
     @Override
     protected void onNewIntent(android.content.Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
         // singleTop: a second alarm while this screen is up replaces what it shows.
-        dismissed = true;
-        stopRinging();
         dismissed = false;
         solved = 0;
         readExtras(intent);
-        if (gameEnabled) {
-            nextProblem();
-        } else {
-            questionView.setText("알람을 끄려면 아래 버튼을 눌러 주세요");
-            questionView.setTextSize(20f);
-            primaryButton.setText("알람 끄기");
-            answerView.setVisibility(View.GONE);
-            progressView.setVisibility(View.GONE);
+        if (!AlarmService.isRinging()) {
+            AlarmService.start(this, alarmJson);
         }
-        startRinging();
+        startChallenge();
     }
 
     @Override
     public void onBackPressed() {
         if (gameEnabled && solved < totalProblems) {
-            statusView.setText("문제를 모두 풀어야 알람이 꺼져요");
+            statusView.setText("미션을 완료해야 알람이 꺼져요");
             return;
         }
         stopAlarm();
@@ -515,7 +686,15 @@ public class AlarmActivity extends Activity {
     @Override
     protected void onDestroy() {
         dismissed = true;
-        stopRinging();
+        AlarmService.setStoppedListener(null);
+        handler.removeCallbacksAndMessages(null);
         super.onDestroy();
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        // Keep the screen awake only while it is visible; the sound keeps running in
+        // the service even if the activity is dismissed by the system.
     }
 }

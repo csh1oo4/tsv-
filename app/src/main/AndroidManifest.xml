@@ -16,6 +16,11 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- v2.4: the ringing alarm runs as a foreground service so its sound does not
+         depend on a background Activity start being allowed. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+
     <!-- In-app update: install the freshly downloaded APK. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
@@ -71,6 +76,15 @@
             android:taskAffinity=""
             android:theme="@style/AppTheme"
             android:turnScreenOn="true" />
+
+        <!-- v2.4: the alarm's voice. Started by AlarmReceiver at the alarm time with a
+             high-priority full-screen-intent notification; it rings (USAGE_ALARM),
+             vibrates, holds a wake lock, and stops when AlarmActivity is solved or the
+             auto-off timer ends. -->
+        <service
+            android:name=".AlarmService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
         <!-- Home-screen widgets. MainActivity's AndroidWidget bridge broadcasts
              ACTION_APPWIDGET_UPDATE to each of these after every sync. -->
