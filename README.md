@@ -135,6 +135,30 @@ time** (no `text/babel`, no Babel at runtime), so the app still starts with no n
   `localStorage` (`todaywork_v33_sound`) plus 톡톡/슉슉/띠링 preview buttons.
 - versionCode 12 / versionName 2.1, same fixed signing key.
 
+## v2.3 — 2D 가로 슬라이드(뷰페이저) 월 전환
+
+- **3D 책 넘기기 제거** — `.book-stage`(`perspective: 1800px`)와 `bookTurnNext` /
+  `bookTurnPrev` / `.book-leaf-next` / `.book-leaf-prev`(`rotateY`) 및 `flipAnim` 상태를
+  전부 걷어 냈습니다. 이제 원근감·회전 없이 평면 2D로만 넘어갑니다.
+- **3패널 수평 트랙** — 달력은 항상 `[이전 달 | 현재 달 | 다음 달]` 세 패널을 한 줄로
+  붙인 `.month-track`(폭 100%, 각 패널 `flex: 0 0 100%`)이고, 화면에는 가운데가
+  `translate3d(-100%, 0, 0)`으로 놓입니다. 패널마다 요일 헤더(`일 월 화 수 목 금 토`)와
+  42칸 그리드를 함께 그려서, 밀면 헤더와 그리드가 통째로 옆에서 따라 들어옵니다.
+  패널 경계는 1px 옅은 구분선(`#eef2f7`)과 아주 부드러운 그림자뿐입니다.
+- **실시간 터치 드래그** — `touchstart` 뒤 첫 이동에서 수평/수직을 판별해 수평일 때만
+  달력 넘김을 가로채고(`touch-action: pan-y`, `overflow: hidden`), 손가락 이동량 `dx`를
+  `translate3d(calc(-100% ± dx px))`로 그대로 반영해 인접 달이 실시간으로 밀려 들어옵니다.
+  한 패널 폭을 넘겨 끌어도 빈 공간이 보이지 않게 `dx`를 ±폭으로 제한합니다.
+- **스냅** — 컨테이너 폭의 22% 이상 끌었거나 26px 이상을 0.45px/ms보다 빠르게 플릭하면
+  `transform 280ms cubic-bezier(0.22, 1, 0.36, 1)`로 한 칸 스냅한 뒤 월 상태를 바꿉니다
+  (`ReactDOM.flushSync`로 패널 교체와 트랙 리셋을 한 프레임에 처리). 그보다 짧으면
+  같은 곡선으로 제자리에 복귀합니다.
+- **버튼·오늘 이동** — 상단 `<` / `>` 와 `오늘` 버튼도 같은 방향의 2D 슬라이드로 월을
+  바꿉니다(여러 달 점프는 한 칸 밀고 도착 월로 교체). 넘김 효과음 `playSfx("swipe")`는
+  한 번만 울리고, 스와이프 직후 450ms 안의 날짜 칸 클릭은 무시해 실수로 상세창이
+  열리지 않습니다.
+- versionCode 14 / versionName 2.3, same fixed signing key.
+
 ## v2.2 — 오늘 날짜 박스 · 메모 시안성 · 🌤️ 날씨 보기
 
 - **오늘 칸 표시** — 달력에서 오늘 날짜 칸 전체에 파란 테두리 박스(`ring-2 ring-inset
@@ -159,7 +183,7 @@ APK on every push. Locally the same thing is `gradle assembleDebug` with JDK 17
 and the Android SDK installed.
 
 - applicationId: `com.tsv.dutycalendar` (installs beside `TSV 근무표`)
-- versionCode 13 / versionName 2.2
+- versionCode 14 / versionName 2.3
 - Signing: fixed PKCS12 key `app/tsv-duty-fixed.p12` wired into
   `signingConfigs.debug`, so every rebuild installs over the previous one.
 

@@ -434,64 +434,38 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
       scrollbar-width: none;
     }
 
-    /* 왼쪽 끝(0% 50%)을 책 등으로 고정한 전체 책장 넘김 3D 애니메이션 */
-    .book-stage {
-      perspective: 1800px;
-      transform-style: preserve-3d;
+    /* v2.3 — 평면 2D 가로 슬라이드(뷰페이저) 월 전환
+       3D 책 넘기기 효과를 걷어 내고, 이전 달 · 현재 달 · 다음 달
+       세 패널을 한 줄로 이어 붙여 좌우로 밀어서 넘긴다. 원근감·회전 없음. */
+    .month-viewport {
       position: relative;
+      width: 100%;
       overflow: hidden;
-    }
-    @keyframes bookTurnNext {
-      0% {
-        transform-origin: 0% 50%;
-        transform: rotateY(0deg);
-        opacity: 1;
-        box-shadow: 0 0 0 rgba(15, 23, 42, 0);
-      }
-      45% {
-        box-shadow: 18px 0 36px rgba(15, 23, 42, 0.22);
-      }
-      100% {
-        transform-origin: 0% 50%;
-        transform: rotateY(-92deg);
-        opacity: 0;
-        box-shadow: 24px 0 44px rgba(15, 23, 42, 0.28);
-      }
-    }
-    @keyframes bookTurnPrev {
-      0% {
-        transform-origin: 0% 50%;
-        transform: rotateY(-92deg);
-        opacity: 0.15;
-        box-shadow: 24px 0 44px rgba(15, 23, 42, 0.28);
-      }
-      55% {
-        box-shadow: 16px 0 32px rgba(15, 23, 42, 0.18);
-      }
-      100% {
-        transform-origin: 0% 50%;
-        transform: rotateY(0deg);
-        opacity: 1;
-        box-shadow: 0 0 0 rgba(15, 23, 42, 0);
-      }
-    }
-    .book-leaf-next {
-      position: absolute;
-      inset: 0;
-      z-index: 15;
       background: #ffffff;
-      pointer-events: none;
-      backface-visibility: hidden;
-      border-left: 3px solid #cbd5e1;
-      animation: bookTurnNext 0.48s cubic-bezier(0.25, 0.85, 0.35, 1) forwards;
+      touch-action: pan-y;
+      -webkit-user-select: none;
+      user-select: none;
     }
-    .book-leaf-prev {
-      position: relative;
-      z-index: 15;
-      background: #ffffff;
+    .month-track {
+      display: flex;
+      width: 100%;
+      transform: translate3d(-100%, 0, 0);
+      will-change: transform;
       backface-visibility: hidden;
-      border-left: 3px solid #cbd5e1;
-      animation: bookTurnPrev 0.48s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    }
+    .month-panel {
+      flex: 0 0 100%;
+      width: 100%;
+      align-self: flex-start;
+      background: #ffffff;
+    }
+    /* 패널 경계는 옅은 구분선과 아주 부드러운 그림자 정도로만 */
+    .month-panel + .month-panel {
+      border-left: 1px solid #eef2f7;
+    }
+    .month-panel:first-child,
+    .month-panel:last-child {
+      box-shadow: 0 0 16px rgba(15, 23, 42, 0.08);
     }
 
     /* 하단 메뉴 순서 편집 모드 흔들림 애니메이션 */
@@ -557,7 +531,7 @@ const {
   useRef,
   useMemo
 } = React;
-const APP_VERSION = "2.2";
+const APP_VERSION = "2.3";
 
 // 🔊 앱 효과음 — 외부 오디오 파일 없이 Web Audio API로 만드는 짧은 소리
 const SFX_STORAGE_KEY = "todaywork_v33_sound";
@@ -1627,6 +1601,53 @@ const currentDateKey = () => {
   const n = new Date();
   return formatDateKey(n.getFullYear(), n.getMonth(), n.getDate());
 };
+
+/* ---------------------------------------------------------------- 2D 월 슬라이드 도우미
+   달력 월 이동은 '이전 달 · 현재 달 · 다음 달' 3패널을 한 줄로 붙여 놓고
+   손가락 이동량만큼 트랙을 translate3d로 밀었다가, 임계치를 넘기면 한 칸
+   스냅한 뒤 월 상태를 바꾸는 방식이다. 아래 세 함수는 화면과 무관한 순수 계산이라
+   단위 테스트로 그대로 검증한다. */
+
+// 한 칸 넘겼을 때 넘어가는 기준: 가로 폭의 22% 이상, 또는 짧고 빠른 플릭(0.45px/ms)
+const MONTH_SWIPE_RATIO = 0.22;
+const MONTH_FLICK_MIN_PX = 26;
+const MONTH_FLICK_VELOCITY = 0.45;
+const MONTH_SNAP_MS = 280;
+
+// {year, month}에서 delta개월 이동 (연 경계 처리)
+const shiftYearMonth = (date, delta) => {
+  let month = date.month + delta;
+  let year = date.year;
+  while (month > 11) {
+    month -= 12;
+    year += 1;
+  }
+  while (month < 0) {
+    month += 12;
+    year -= 1;
+  }
+  return {
+    year: year,
+    month: month
+  };
+};
+
+// 트랙에 항상 붙어 있는 세 패널: [이전 달, 현재 달, 다음 달]
+const monthPanelsOf = date => [shiftYearMonth(date, -1), {
+  year: date.year,
+  month: date.month
+}, shiftYearMonth(date, 1)];
+
+// 스와이프 결과 판정 → 1(다음 달로), -1(이전 달로), 0(제자리 복귀)
+const decideMonthSwipe = (dx, elapsedMs, width) => {
+  const dist = Math.abs(dx);
+  if (!dist) return 0;
+  const velocity = dist / Math.max(1, elapsedMs || 0);
+  const farEnough = width > 0 && dist >= width * MONTH_SWIPE_RATIO;
+  const quickFlick = dist >= MONTH_FLICK_MIN_PX && velocity >= MONTH_FLICK_VELOCITY;
+  if (!farEnough && !quickFlick) return 0;
+  return dx < 0 ? 1 : -1;
+};
 function App() {
   const loadState = (key, fallback) => {
     try {
@@ -1737,7 +1758,6 @@ function App() {
   const [selectedDateKey, setSelectedDateKey] = useState(() => currentDateKey());
 
   // 책장 넘김 애니메이션 상태
-  const [flipAnim, setFlipAnim] = useState(null);
 
   // 모달 및 드로어 상태
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -2077,54 +2097,235 @@ function App() {
   };
   const calendarDays = useMemo(() => buildMonthCells(viewDate.year, viewDate.month), [viewDate]);
 
-  // 왼쪽 끝(0% 50%) 기준 전체 책장 넘김 월 전환
-  const touchStartX = useRef(null);
-  const touchStartY = useRef(null);
-  const changeMonth = delta => {
+  // ---------------------------------------------------------------
+  // v2.3 — 2D 가로 슬라이드(뷰페이저) 월 전환
+  //   트랙은 항상 [이전 달 | 현재 달 | 다음 달] 세 패널이고 화면에는 가운데가 보인다.
+  //   드래그 중에는 DOM의 transform만 직접 만져(리렌더 없이) 손가락을 따라가고,
+  //   스냅할 때만 transition을 켠다.
+  // ---------------------------------------------------------------
+  const monthViewportRef = useRef(null);
+  const monthTrackRef = useRef(null);
+  const monthDragRef = useRef(null);
+  const monthSnapTimerRef = useRef(null);
+  const monthLockRef = useRef(false);
+  const suppressCellClickRef = useRef(0);
+  const monthPanels = monthPanelsOf(viewDate);
+  const viewportWidth = () => {
+    const el = monthViewportRef.current;
+    const w = el && el.clientWidth ? el.clientWidth : 0;
+    return w > 0 ? w : window.innerWidth || 360;
+  };
+
+  // x: 손가락 이동량(px). 트랙은 -100%(=한 패널 폭) 기준점에서 x만큼 더 움직인다.
+  const setTrackTransform = (x, animating) => {
+    const el = monthTrackRef.current;
+    if (!el) return;
+    el.style.transition = animating ? `transform ${MONTH_SNAP_MS}ms cubic-bezier(0.22, 1, 0.36, 1)` : "none";
+    const sign = Math.round(x) < 0 ? "-" : "+";
+    el.style.transform = `translate3d(calc(-100% ${sign} ${Math.abs(Math.round(x))}px), 0, 0)`;
+  };
+  const resetTrackImmediately = () => {
+    const el = monthTrackRef.current;
+    if (!el) return;
+    el.style.transition = "none";
+    el.style.transform = "";
+  };
+
+  // 제자리로 부드럽게 복귀(임계치 미만으로 살짝 밀었을 때)
+  const snapTrackBack = () => {
+    setTrackTransform(0, true);
+    if (monthSnapTimerRef.current) clearTimeout(monthSnapTimerRef.current);
+    monthSnapTimerRef.current = setTimeout(() => {
+      monthSnapTimerRef.current = null;
+      resetTrackImmediately();
+    }, MONTH_SNAP_MS);
+  };
+
+  // 한 칸(dir=±1) 슬라이드 → 스냅이 끝나면 월 상태를 바꾼다.
+  // target이 있으면(오늘 버튼 등 여러 달 점프) 도착 월로 갈아 끼운다.
+  const commitSlide = (dir, target) => {
+    if (monthLockRef.current) return;
+    const width = viewportWidth();
+    monthLockRef.current = true;
     playSfx("swipe");
-    const snapshotCells = calendarDays;
-    const snapYear = viewDate.year;
-    const snapMonth = viewDate.month;
-    setFlipAnim({
-      dir: delta > 0 ? "next" : "prev",
-      prevCells: snapshotCells,
-      prevYear: snapYear,
-      prevMonth: snapMonth,
-      key: Date.now()
-    });
-    setViewDate(prev => {
-      let m = prev.month + delta;
-      let y = prev.year;
-      if (m > 11) {
-        m = 0;
-        y += 1;
+    setTrackTransform(-dir * width, true);
+    if (monthSnapTimerRef.current) clearTimeout(monthSnapTimerRef.current);
+    monthSnapTimerRef.current = setTimeout(() => {
+      monthSnapTimerRef.current = null;
+      // 패널 교체와 트랙 리셋을 한 프레임 안에서 끝낸다(중간 그림이 보이지 않게 flushSync)
+      const applyMonth = () => setViewDate(prev => target ? {
+        year: target.year,
+        month: target.month
+      } : shiftYearMonth(prev, dir));
+      if (typeof ReactDOM !== "undefined" && ReactDOM && typeof ReactDOM.flushSync === "function") {
+        ReactDOM.flushSync(applyMonth);
+      } else {
+        applyMonth();
       }
-      if (m < 0) {
-        m = 11;
-        y -= 1;
-      }
-      return {
-        year: y,
-        month: m
-      };
-    });
-    setTimeout(() => {
-      setFlipAnim(null);
-    }, 500);
+      resetTrackImmediately();
+      monthLockRef.current = false;
+    }, MONTH_SNAP_MS);
+  };
+  const slideToMonth = target => {
+    if (!target) return;
+    const delta = (target.year - viewDate.year) * 12 + (target.month - viewDate.month);
+    if (delta === 0) return;
+    commitSlide(delta > 0 ? 1 : -1, target);
+  };
+  const changeMonth = delta => {
+    if (!delta) return;
+    if (Math.abs(delta) === 1) {
+      commitSlide(delta > 0 ? 1 : -1, null);
+      return;
+    }
+    slideToMonth(shiftYearMonth(viewDate, delta));
+  };
+
+  // 날짜 칸 클릭 — 방금 스와이프로 넘겼다면 그 클릭은 무시한다
+  const handleCellClick = dateKey => {
+    if (Date.now() < suppressCellClickRef.current) return;
+    openDayDetail(dateKey);
   };
   const handleCalendarTouchStart = e => {
-    touchStartX.current = e.touches[0].clientX;
-    touchStartY.current = e.touches[0].clientY;
+    if (monthLockRef.current) return;
+    const t = e.touches && e.touches[0] || null;
+    if (!t) return;
+    monthDragRef.current = {
+      startX: t.clientX,
+      startY: t.clientY,
+      axis: null,
+      moved: 0,
+      startTime: Date.now()
+    };
   };
-  const handleCalendarTouchEnd = e => {
-    if (touchStartX.current === null) return;
-    const dx = e.changedTouches[0].clientX - touchStartX.current;
-    const dy = e.changedTouches[0].clientY - touchStartY.current;
-    if (Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy) * 1.25) {
-      changeMonth(dx < 0 ? 1 : -1);
+  const handleCalendarTouchMove = e => {
+    const drag = monthDragRef.current;
+    if (!drag || monthLockRef.current) return;
+    const t = e.touches && e.touches[0] || null;
+    if (!t) return;
+    const dx = t.clientX - drag.startX;
+    const dy = t.clientY - drag.startY;
+    if (!drag.axis) {
+      if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+      // 첫 이동에서 수평/수직을 판별 — 수평일 때만 달력 넘김을 가로챈다
+      drag.axis = Math.abs(dx) > Math.abs(dy) * 1.15 ? "x" : "y";
+      if (drag.axis !== "x") {
+        monthDragRef.current = null;
+        return;
+      }
     }
-    touchStartX.current = null;
-    touchStartY.current = null;
+    // 한 패널 폭을 넘겨 끌어도 빈 공간이 보이지 않게 제한한다
+    const width = viewportWidth();
+    const clamped = Math.max(-width, Math.min(width, dx));
+    drag.moved = clamped;
+    setTrackTransform(clamped, false); // 실시간 추종 (transition 없음)
+  };
+  const handleCalendarTouchEnd = () => {
+    const drag = monthDragRef.current;
+    monthDragRef.current = null;
+    if (!drag || drag.axis !== "x") return;
+    const dx = drag.moved || 0;
+    const elapsed = Math.max(1, Date.now() - drag.startTime);
+    const dir = decideMonthSwipe(dx, elapsed, viewportWidth());
+    if (!dir) {
+      snapTrackBack();
+      return;
+    }
+    suppressCellClickRef.current = Date.now() + 450;
+    commitSlide(dir, null);
+  };
+  const handleCalendarTouchCancel = () => {
+    monthDragRef.current = null;
+    if (!monthLockRef.current) snapTrackBack();
+  };
+  useEffect(() => () => {
+    if (monthSnapTimerRef.current) clearTimeout(monthSnapTimerRef.current);
+  }, []);
+
+  // 한 달치 42칸을 그린다 (세 패널이 각각 호출)
+  const renderCalendarCell = (cell, idx) => {
+    const dow = idx % 7;
+    const holiday = showHolidays ? HOLIDAYS[cell.dateKey] : null;
+    const lunar = showLunar ? getLunarLabel(new Date(cell.year, cell.month, cell.day)) : "";
+    const shift = getShiftForGroupDate(myGroupId, cell.dateKey);
+    const subShift = getSubShiftForGroupDate(myGroupId, cell.dateKey);
+    const meta = SHIFT_META[shift] || SHIFT_META["휴"];
+    const isSelected = selectedDateKey === cell.dateKey;
+    const isToday = cell.dateKey === currentDateKey();
+    const dayMemos = (memos[cell.dateKey] || []).filter(m => {
+      if (m.shareType === "private") return true;
+      return showCompanyEvents;
+    });
+    return /*#__PURE__*/React.createElement("div", {
+      key: cell.dateKey,
+      onClick: () => handleCellClick(cell.dateKey),
+      "data-sfx": "tap",
+      className: `min-h-[90px] px-0.5 py-1 border-r border-b border-slate-100/90 flex flex-col items-center cursor-pointer transition relative ${isToday ? "bg-blue-50/50 ring-2 ring-inset ring-blue-600 z-[2]" : !cell.isCurrentMonth ? "opacity-35 bg-slate-50/40" : "bg-white hover:bg-slate-50"} ${isToday ? "" : isSelected ? "ring-1 ring-inset ring-slate-400 bg-slate-50/60" : ""}`
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "w-full flex items-center justify-between px-0.5 mb-0.5"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: isToday ? "shrink-0 text-[11px] font-extrabold leading-none bg-blue-600 text-white px-1.5 py-0.5 rounded-[4px] shadow-xs" : `text-[11px] font-bold leading-none ${dow === 0 || holiday && holiday.isRed ? "text-rose-500" : dow === 6 ? "text-blue-500" : "text-slate-700"}`
+    }, cell.day), (holiday || lunar) && /*#__PURE__*/React.createElement("span", {
+      className: `text-[8.5px] truncate max-w-[34px] leading-none ${holiday?.isRed ? "text-rose-500 font-semibold" : "text-slate-400"}`
+    }, holiday ? holiday.name : lunar)), /*#__PURE__*/React.createElement("div", {
+      className: "my-0.5 flex flex-col items-center justify-center"
+    }, shift === "휴" ? /*#__PURE__*/React.createElement("span", {
+      className: "w-7 h-7 flex items-center justify-center text-xs font-extrabold text-rose-500"
+    }, "\uD734") : /*#__PURE__*/React.createElement("span", {
+      className: `w-7 h-7 rounded-full flex items-center justify-center text-xs font-extrabold shadow-xs ${meta.badgeBg} ${meta.badgeText}`
+    }, shift), subShift && /*#__PURE__*/React.createElement("span", {
+      className: `mt-0.5 text-[9px] px-1.5 py-0.2 rounded font-extrabold leading-tight shadow-2xs ${SUB_SHIFT_META[subShift]?.bg || "bg-emerald-500 text-white"}`
+    }, subShift)), visibleOtherGroups.length > 0 && /*#__PURE__*/React.createElement("div", {
+      className: "flex flex-wrap justify-center gap-0.5 mt-0.5"
+    }, visibleOtherGroups.map(ogId => {
+      const og = groups.find(g => g.id === ogId);
+      if (!og) return null;
+      const oShift = getShiftForGroupDate(ogId, cell.dateKey);
+      const oStyle = OTHER_GROUP_SHIFT_STYLE[oShift] || OTHER_GROUP_SHIFT_STYLE["휴"];
+      return /*#__PURE__*/React.createElement("span", {
+        key: ogId,
+        style: {
+          backgroundColor: oStyle.backgroundColor,
+          backgroundImage: oStyle.backgroundImage,
+          color: "#ffffff"
+        },
+        className: "text-[9px] px-1 rounded font-extrabold leading-tight shadow-xs"
+      }, og.name.replace("조", ""), ":", oShift);
+    })), showWeather ? /*#__PURE__*/React.createElement("div", {
+      className: "w-full flex-1 flex flex-col items-center justify-center gap-[1px] mt-0.5 pb-0.5"
+    }, weatherCache.days[cell.dateKey] ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
+      className: "text-[17px] leading-none"
+    }, weatherIcon(weatherCache.days[cell.dateKey].c)), /*#__PURE__*/React.createElement("span", {
+      className: "text-[10px] font-extrabold leading-none tracking-[-0.03em] text-slate-700"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "text-blue-600"
+    }, weatherCache.days[cell.dateKey].mn, "\xB0"), /*#__PURE__*/React.createElement("span", {
+      className: "text-slate-300"
+    }, "/"), weatherCache.days[cell.dateKey].mx, "\xB0")) : /*#__PURE__*/React.createElement("span", {
+      className: "text-[10px] text-slate-300 leading-none"
+    }, "\xB7")) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+      className: "w-full flex flex-col gap-[2px] mt-0.5"
+    }, dayMemos.slice(0, 2).map(m => /*#__PURE__*/React.createElement("div", {
+      key: m.id,
+      style: {
+        backgroundColor: m.filled ? m.color : `${m.color}18`,
+        color: m.filled ? "#ffffff" : "#1e293b",
+        borderLeft: m.filled ? "none" : `2.5px solid ${m.color}`
+      },
+      className: "ts-cell-memo text-[10px] font-bold px-0.5 py-[2px] rounded-[3px] leading-[1.18] tracking-[-0.04em]"
+    }, m.shareType === "vacation" ? `[휴가] ${m.text}` : m.text)), dayMemos.length > 2 && /*#__PURE__*/React.createElement("span", {
+      className: "text-[8px] text-slate-400 text-center leading-none"
+    }, "+", dayMemos.length - 2)), (deviceEvents[cell.dateKey] || []).length > 0 && /*#__PURE__*/React.createElement("div", {
+      className: "w-full flex flex-col gap-[2px] mt-0.5"
+    }, (deviceEvents[cell.dateKey] || []).slice(0, 2).map((dev, devIdx) => /*#__PURE__*/React.createElement("div", {
+      key: "dev" + devIdx,
+      style: {
+        borderLeft: `2.5px solid ${dev.color || "#94a3b8"}`
+      },
+      className: "ts-cell-memo text-[10px] font-bold px-0.5 py-[2px] rounded-[3px] leading-[1.18] tracking-[-0.04em] bg-slate-100 text-slate-600"
+    }, dev.title)), (deviceEvents[cell.dateKey] || []).length > 2 && /*#__PURE__*/React.createElement("span", {
+      className: "text-[8px] text-slate-400 text-center leading-none"
+    }, "+", (deviceEvents[cell.dateKey] || []).length - 2))));
   };
 
   // 근태 요약 계산
@@ -3628,7 +3829,7 @@ function App() {
   })), /*#__PURE__*/React.createElement("button", {
     onClick: () => {
       const now = new Date();
-      setViewDate({
+      slideToMonth({
         year: now.getFullYear(),
         month: now.getMonth()
       });
@@ -3690,125 +3891,28 @@ function App() {
   }, activeTab === "calendar" && /*#__PURE__*/React.createElement("div", {
     className: "flex flex-col"
   }, /*#__PURE__*/React.createElement("div", {
+    ref: monthViewportRef,
+    className: "month-viewport bg-white",
+    onTouchStart: handleCalendarTouchStart,
+    onTouchMove: handleCalendarTouchMove,
+    onTouchEnd: handleCalendarTouchEnd,
+    onTouchCancel: handleCalendarTouchCancel
+  }, /*#__PURE__*/React.createElement("div", {
+    ref: monthTrackRef,
+    className: "month-track"
+  }, monthPanels.map((panel, panelIdx) => /*#__PURE__*/React.createElement("div", {
+    key: `${panel.year}-${panel.month}`,
+    className: "month-panel bg-white",
+    "data-month": `${panel.year}-${String(panel.month + 1).padStart(2, "0")}`,
+    "data-active": panelIdx === 1 ? "true" : "false"
+  }, /*#__PURE__*/React.createElement("div", {
     className: "grid grid-cols-7 text-center py-2 border-b border-slate-100 bg-white"
   }, ["일", "월", "화", "수", "목", "금", "토"].map((d, i) => /*#__PURE__*/React.createElement("span", {
     key: d,
     className: `text-xs font-bold ${i === 0 ? "text-rose-500" : i === 6 ? "text-blue-500" : "text-slate-500"}`
   }, d))), /*#__PURE__*/React.createElement("div", {
-    className: "book-stage bg-white",
-    onTouchStart: handleCalendarTouchStart,
-    onTouchEnd: handleCalendarTouchEnd
-  }, flipAnim && flipAnim.dir === "next" && /*#__PURE__*/React.createElement("div", {
-    key: flipAnim.key,
-    className: "book-leaf-next grid grid-cols-7 border-b border-slate-100"
-  }, flipAnim.prevCells.map((cell, idx) => {
-    const dow = idx % 7;
-    const sh = getShiftForGroupDate(myGroupId, cell.dateKey);
-    const sub = getSubShiftForGroupDate(myGroupId, cell.dateKey);
-    const meta = SHIFT_META[sh] || SHIFT_META["휴"];
-    return /*#__PURE__*/React.createElement("div", {
-      key: cell.dateKey,
-      className: `min-h-[90px] p-1 border-r border-b border-slate-100 flex flex-col items-center ${!cell.isCurrentMonth ? "opacity-35 bg-slate-50/40" : "bg-white"}`
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "w-full flex items-center justify-between px-0.5 mb-0.5"
-    }, /*#__PURE__*/React.createElement("span", {
-      className: `text-[11px] font-bold ${dow === 0 ? "text-rose-500" : dow === 6 ? "text-blue-500" : "text-slate-700"}`
-    }, cell.day)), /*#__PURE__*/React.createElement("div", {
-      className: "my-0.5 flex flex-col items-center"
-    }, sh === "휴" ? /*#__PURE__*/React.createElement("span", {
-      className: "w-7 h-7 flex items-center justify-center text-xs font-extrabold text-rose-500"
-    }, "\uD734") : /*#__PURE__*/React.createElement("span", {
-      className: `w-7 h-7 rounded-full flex items-center justify-center text-xs font-extrabold ${meta.badgeBg} ${meta.badgeText}`
-    }, sh), sub && /*#__PURE__*/React.createElement("span", {
-      className: `mt-0.5 text-[9px] px-1.5 py-0.2 rounded font-extrabold ${SUB_SHIFT_META[sub]?.bg}`
-    }, sub)));
-  })), /*#__PURE__*/React.createElement("div", {
-    key: `${viewDate.year}-${viewDate.month}-${flipAnim?.dir === "prev" ? flipAnim.key : "base"}`,
-    className: `grid grid-cols-7 border-b border-slate-100 ${flipAnim && flipAnim.dir === "prev" ? "book-leaf-prev" : ""}`
-  }, calendarDays.map((cell, idx) => {
-    const dow = idx % 7;
-    const holiday = showHolidays ? HOLIDAYS[cell.dateKey] : null;
-    const lunar = showLunar ? getLunarLabel(new Date(cell.year, cell.month, cell.day)) : "";
-    const shift = getShiftForGroupDate(myGroupId, cell.dateKey);
-    const subShift = getSubShiftForGroupDate(myGroupId, cell.dateKey);
-    const meta = SHIFT_META[shift] || SHIFT_META["휴"];
-    const isSelected = selectedDateKey === cell.dateKey;
-    const isToday = cell.dateKey === currentDateKey();
-    const dayMemos = (memos[cell.dateKey] || []).filter(m => {
-      if (m.shareType === "private") return true;
-      return showCompanyEvents;
-    });
-    return /*#__PURE__*/React.createElement("div", {
-      key: cell.dateKey,
-      onClick: () => openDayDetail(cell.dateKey),
-      "data-sfx": "tap",
-      className: `min-h-[90px] px-0.5 py-1 border-r border-b border-slate-100/90 flex flex-col items-center cursor-pointer transition relative ${isToday ? "bg-blue-50/50 ring-2 ring-inset ring-blue-600 z-[2]" : !cell.isCurrentMonth ? "opacity-35 bg-slate-50/40" : "bg-white hover:bg-slate-50"} ${isToday ? "" : isSelected ? "ring-1 ring-inset ring-slate-400 bg-slate-50/60" : ""}`
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "w-full flex items-center justify-between px-0.5 mb-0.5"
-    }, /*#__PURE__*/React.createElement("span", {
-      className: isToday ? "shrink-0 text-[11px] font-extrabold leading-none bg-blue-600 text-white px-1.5 py-0.5 rounded-[4px] shadow-xs" : `text-[11px] font-bold leading-none ${dow === 0 || holiday && holiday.isRed ? "text-rose-500" : dow === 6 ? "text-blue-500" : "text-slate-700"}`
-    }, cell.day), (holiday || lunar) && /*#__PURE__*/React.createElement("span", {
-      className: `text-[8.5px] truncate max-w-[34px] leading-none ${holiday?.isRed ? "text-rose-500 font-semibold" : "text-slate-400"}`
-    }, holiday ? holiday.name : lunar)), /*#__PURE__*/React.createElement("div", {
-      className: "my-0.5 flex flex-col items-center justify-center"
-    }, shift === "휴" ? /*#__PURE__*/React.createElement("span", {
-      className: "w-7 h-7 flex items-center justify-center text-xs font-extrabold text-rose-500"
-    }, "\uD734") : /*#__PURE__*/React.createElement("span", {
-      className: `w-7 h-7 rounded-full flex items-center justify-center text-xs font-extrabold shadow-xs ${meta.badgeBg} ${meta.badgeText}`
-    }, shift), subShift && /*#__PURE__*/React.createElement("span", {
-      className: `mt-0.5 text-[9px] px-1.5 py-0.2 rounded font-extrabold leading-tight shadow-2xs ${SUB_SHIFT_META[subShift]?.bg || "bg-emerald-500 text-white"}`
-    }, subShift)), visibleOtherGroups.length > 0 && /*#__PURE__*/React.createElement("div", {
-      className: "flex flex-wrap justify-center gap-0.5 mt-0.5"
-    }, visibleOtherGroups.map(ogId => {
-      const og = groups.find(g => g.id === ogId);
-      if (!og) return null;
-      const oShift = getShiftForGroupDate(ogId, cell.dateKey);
-      const oStyle = OTHER_GROUP_SHIFT_STYLE[oShift] || OTHER_GROUP_SHIFT_STYLE["휴"];
-      return /*#__PURE__*/React.createElement("span", {
-        key: ogId,
-        style: {
-          backgroundColor: oStyle.backgroundColor,
-          backgroundImage: oStyle.backgroundImage,
-          color: "#ffffff"
-        },
-        className: "text-[9px] px-1 rounded font-extrabold leading-tight shadow-xs"
-      }, og.name.replace("조", ""), ":", oShift);
-    })), showWeather ? /*#__PURE__*/React.createElement("div", {
-      className: "w-full flex-1 flex flex-col items-center justify-center gap-[1px] mt-0.5 pb-0.5"
-    }, weatherCache.days[cell.dateKey] ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
-      className: "text-[17px] leading-none"
-    }, weatherIcon(weatherCache.days[cell.dateKey].c)), /*#__PURE__*/React.createElement("span", {
-      className: "text-[10px] font-extrabold leading-none tracking-[-0.03em] text-slate-700"
-    }, /*#__PURE__*/React.createElement("span", {
-      className: "text-blue-600"
-    }, weatherCache.days[cell.dateKey].mn, "\xB0"), /*#__PURE__*/React.createElement("span", {
-      className: "text-slate-300"
-    }, "/"), weatherCache.days[cell.dateKey].mx, "\xB0")) : /*#__PURE__*/React.createElement("span", {
-      className: "text-[10px] text-slate-300 leading-none"
-    }, "\xB7")) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-      className: "w-full flex flex-col gap-[2px] mt-0.5"
-    }, dayMemos.slice(0, 2).map(m => /*#__PURE__*/React.createElement("div", {
-      key: m.id,
-      style: {
-        backgroundColor: m.filled ? m.color : `${m.color}18`,
-        color: m.filled ? "#ffffff" : "#1e293b",
-        borderLeft: m.filled ? "none" : `2.5px solid ${m.color}`
-      },
-      className: "ts-cell-memo text-[10px] font-bold px-0.5 py-[2px] rounded-[3px] leading-[1.18] tracking-[-0.04em]"
-    }, m.shareType === "vacation" ? `[휴가] ${m.text}` : m.text)), dayMemos.length > 2 && /*#__PURE__*/React.createElement("span", {
-      className: "text-[8px] text-slate-400 text-center leading-none"
-    }, "+", dayMemos.length - 2)), (deviceEvents[cell.dateKey] || []).length > 0 && /*#__PURE__*/React.createElement("div", {
-      className: "w-full flex flex-col gap-[2px] mt-0.5"
-    }, (deviceEvents[cell.dateKey] || []).slice(0, 2).map((dev, devIdx) => /*#__PURE__*/React.createElement("div", {
-      key: "dev" + devIdx,
-      style: {
-        borderLeft: `2.5px solid ${dev.color || "#94a3b8"}`
-      },
-      className: "ts-cell-memo text-[10px] font-bold px-0.5 py-[2px] rounded-[3px] leading-[1.18] tracking-[-0.04em] bg-slate-100 text-slate-600"
-    }, dev.title)), (deviceEvents[cell.dateKey] || []).length > 2 && /*#__PURE__*/React.createElement("span", {
-      className: "text-[8px] text-slate-400 text-center leading-none"
-    }, "+", (deviceEvents[cell.dateKey] || []).length - 2))));
-  }))), showWeather && /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-7 border-b border-slate-100"
+  }, buildMonthCells(panel.year, panel.month).map(renderCalendarCell)))))), showWeather && /*#__PURE__*/React.createElement("div", {
     className: "px-4 py-1.5 bg-blue-50/60 border-b border-blue-100 flex items-center gap-1.5"
   }, /*#__PURE__*/React.createElement("span", {
     className: "text-[11px] leading-none"
