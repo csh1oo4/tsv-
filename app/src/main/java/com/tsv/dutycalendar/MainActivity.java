@@ -202,6 +202,7 @@ public class MainActivity extends Activity {
         webView.addJavascriptInterface(new AlarmBridge(), "AndroidAlarm");
         webView.addJavascriptInterface(new UpdaterBridge(), "AndroidUpdater");
         webView.addJavascriptInterface(new WidgetBridge(), "AndroidWidget");
+        webView.addJavascriptInterface(new WeatherBridge(), "AndroidWeather");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -1378,6 +1379,90 @@ public class MainActivity extends Activity {
         }
     }
 
+    // ------------------------------------------------------------- weather bridge
+
+    /**
+     * JS-facing API: window.AndroidWeather.fetch(url)
+     *
+     * The calendar's 🌤️ mode needs one daily forecast for Cheonan (Open-Meteo, no key).
+     * A file:// WebView cannot reliably make that cross-origin request itself, so the
+     * shell fetches it and hands the JSON body back to window.__tsvWeatherApply().
+     * Only the forecast host is accepted; anything else returns an empty body and the
+     * page falls back to its own fetch or the last cached forecast.
+     */
+    public class WeatherBridge {
+
+        private static final String ALLOWED_PREFIX = "https://api.open-meteo.com/";
+        private static final int TIMEOUT_MS = 15000;
+
+        @JavascriptInterface
+        public void fetch(final String url) {
+            String target = url == null ? "" : url.trim();
+            if (!target.startsWith(ALLOWED_PREFIX)) {
+                postWeather("");
+                return;
+            }
+            new Thread(() -> postWeather(httpGet(target)), "tsv-weather").start();
+        }
+
+        private String httpGet(String url) {
+            HttpURLConnection conn = null;
+            InputStream in = null;
+            try {
+                conn = (HttpURLConnection) new URL(url).openConnection();
+                conn.setConnectTimeout(TIMEOUT_MS);
+                conn.setReadTimeout(TIMEOUT_MS);
+                conn.setInstanceFollowRedirects(true);
+                conn.setRequestProperty("Accept", "application/json");
+                int code = conn.getResponseCode();
+                if (code != HttpURLConnection.HTTP_OK) {
+                    Log.w(TAG, "weather HTTP " + code);
+                    return "";
+                }
+                in = conn.getInputStream();
+                BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(in, StandardCharsets.UTF_8));
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    sb.append(line);
+                }
+                return sb.toString();
+            } catch (Exception e) {
+                Log.w(TAG, "weather fetch failed", e);
+                return "";
+            } finally {
+                try {
+                    if (in != null) {
+                        in.close();
+                    }
+                } catch (Throwable ignored) {
+                    // Nothing to do about a failed close.
+                }
+                if (conn != null) {
+                    conn.disconnect();
+                }
+            }
+        }
+    }
+
+    /** Hands a forecast body (or "") to the page on the UI thread. */
+    private void postWeather(String body) {
+        final String js = "if (window.__tsvWeatherApply) window.__tsvWeatherApply("
+                + JSONObject.quote(body == null ? "" : body) + ");";
+        WebView view = webView;
+        if (view == null) {
+            return;
+        }
+        view.post(() -> {
+            try {
+                view.evaluateJavascript(js, null);
+            } catch (Throwable ignored) {
+                // The page may already be gone.
+            }
+        });
+    }
+
     // --------------------------------------------------------- in-app updater
 
     /**
@@ -1403,10 +1488,10 @@ public class MainActivity extends Activity {
             try {
                 String version = getPackageManager()
                         .getPackageInfo(getPackageName(), 0).versionName;
-                return version == null || version.trim().isEmpty() ? "2.1" : version;
+                return version == null || version.trim().isEmpty() ? "2.2" : version;
             } catch (Exception e) {
                 Log.w(TAG, "getAppVersion failed", e);
-                return "2.1";
+                return "2.2";
             }
         }
 

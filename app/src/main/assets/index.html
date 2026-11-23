@@ -502,6 +502,16 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
     .animate-nav-wiggle {
       animation: navWiggle 0.28s ease-in-out infinite;
     }
+    /* v2.2 — 7열 모바일 달력 칸에서도 'GTA6 open' 같은 메모가 잘리지 않고 두 줄까지 보이게 */
+    .ts-cell-memo {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      overflow: hidden;
+      white-space: normal;
+      word-break: keep-all;
+      overflow-wrap: anywhere;
+    }
   </style>
 </head>
 <body>
@@ -547,7 +557,7 @@ const {
   useRef,
   useMemo
 } = React;
-const APP_VERSION = "2.1";
+const APP_VERSION = "2.2";
 
 // 🔊 앱 효과음 — 외부 오디오 파일 없이 Web Audio API로 만드는 짧은 소리
 const SFX_STORAGE_KEY = "todaywork_v33_sound";
@@ -1540,6 +1550,83 @@ function migrateLegacyV1State() {
   }
 }
 migrateLegacyV1State();
+
+/* ---------------------------------------------------------------- 날씨
+천안 백석동(36.8297, 127.1255) 기준 오늘부터 10일치 일별 예보.
+Open-Meteo 무료 API는 키가 필요 없고, 안드로이드 WebView(file://)에서는
+CORS 제약이 있어 네이티브 AndroidWeather 브리지로 먼저 받아 온다.
+브리지가 없거나 실패하면 웹 fetch로, 그것도 안 되면 마지막 캐시로 보여 준다. */
+const WEATHER_LAT = 36.8297;
+const WEATHER_LON = 127.1255;
+const WEATHER_URL = "https://api.open-meteo.com/v1/forecast?latitude=" + WEATHER_LAT + "&longitude=" + WEATHER_LON + "&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=Asia%2FSeoul&forecast_days=10";
+const WEATHER_CACHE_KEY = "todaywork_v33_weatherCache";
+const WEATHER_TTL = 30 * 60 * 1000; // 30분
+
+// WMO 날씨 코드 → 아이콘 (☀️ 맑음 / ⛅ 구름 조금 / ☁️ 흐림 / 🌧️ 비 / ❄️ 눈)
+const weatherIcon = code => {
+  const c = Number(code);
+  if (!isFinite(c)) return "☁️";
+  if (c === 0 || c === 1) return "☀️";
+  if (c === 2) return "⛅";
+  if (c === 3) return "☁️";
+  if (c === 45 || c === 48) return "☁️";
+  if (c >= 51 && c <= 67 || c >= 80 && c <= 82) return "🌧️";
+  if (c >= 71 && c <= 77 || c === 85 || c === 86) return "❄️";
+  if (c >= 95) return "⛈️";
+  return "☁️";
+};
+const readWeatherCache = () => {
+  try {
+    const raw = localStorage.getItem(WEATHER_CACHE_KEY);
+    if (!raw) return {
+      days: {},
+      fetchedAt: 0
+    };
+    const saved = JSON.parse(raw);
+    if (saved && saved.days && typeof saved.days === "object") {
+      return {
+        days: saved.days,
+        fetchedAt: Number(saved.fetchedAt) || 0
+      };
+    }
+  } catch (e) {}
+  return {
+    days: {},
+    fetchedAt: 0
+  };
+};
+
+// Open-Meteo 응답 → { "2026-11-23": { c: 53, mx: 11, mn: 1 } }
+const parseWeatherPayload = data => {
+  try {
+    const daily = data && data.daily ? data.daily : null;
+    if (!daily || !Array.isArray(daily.time)) return null;
+    const codes = daily.weathercode || daily.weather_code || [];
+    const maxs = daily.temperature_2m_max || [];
+    const mins = daily.temperature_2m_min || [];
+    const days = {};
+    daily.time.forEach((day, i) => {
+      if (!day) return;
+      const mx = Math.round(Number(maxs[i]));
+      const mn = Math.round(Number(mins[i]));
+      if (!isFinite(mx) || !isFinite(mn)) return;
+      days[String(day)] = {
+        c: Number(codes[i]),
+        mx,
+        mn
+      };
+    });
+    return Object.keys(days).length > 0 ? days : null;
+  } catch (e) {
+    return null;
+  }
+};
+
+// 기기 로컬 날짜 기준 오늘 키 (YYYY-MM-DD)
+const currentDateKey = () => {
+  const n = new Date();
+  return formatDateKey(n.getFullYear(), n.getMonth(), n.getDate());
+};
 function App() {
   const loadState = (key, fallback) => {
     try {
@@ -1625,6 +1712,9 @@ function App() {
   const didLongPressRef = useRef(false);
   const [visibleOtherGroups, setVisibleOtherGroups] = useState(() => loadState("visibleOtherGroups", ["A"]));
   const [showCompanyEvents, setShowCompanyEvents] = useState(() => loadState("showCompanyEvents", true));
+  // 🌤️ 날씨 보기: 켜면 달력 칸의 메모·공유일정·폰 일정 대신 날씨 아이콘과 최저/최고 기온이 나온다.
+  const [showWeather, setShowWeather] = useState(() => loadState("showWeather", false));
+  const [weatherCache, setWeatherCache] = useState(() => readWeatherCache());
   const [showLunar, setShowLunar] = useState(true);
   const [showHolidays, setShowHolidays] = useState(true);
   const initialWidgetFromUrl = useMemo(() => {
@@ -1636,11 +1726,15 @@ function App() {
     }
   }, []);
   const [activeTab, setActiveTab] = useState("calendar");
-  const [viewDate, setViewDate] = useState({
-    year: 2026,
-    month: 10
+  // 앱을 열면 항상 '이번 달 · 오늘'에서 시작한다 (오늘 칸 박스가 바로 보이도록)
+  const [viewDate, setViewDate] = useState(() => {
+    const now = new Date();
+    return {
+      year: now.getFullYear(),
+      month: now.getMonth()
+    };
   });
-  const [selectedDateKey, setSelectedDateKey] = useState("2026-11-23");
+  const [selectedDateKey, setSelectedDateKey] = useState(() => currentDateKey());
 
   // 책장 넘김 애니메이션 상태
   const [flipAnim, setFlipAnim] = useState(null);
@@ -1718,14 +1812,95 @@ function App() {
       localStorage.setItem("todaywork_v33_navOrder", JSON.stringify(navItems.map(n => n.id)));
       localStorage.setItem("todaywork_v33_visibleOtherGroups", JSON.stringify(visibleOtherGroups));
       localStorage.setItem("todaywork_v33_showCompanyEvents", JSON.stringify(showCompanyEvents));
+      localStorage.setItem("todaywork_v33_showWeather", JSON.stringify(showWeather));
       localStorage.setItem("todaywork_v33_cloud", JSON.stringify(cloudSettings));
       localStorage.setItem("todaywork_v33_deviceCalIds", JSON.stringify(deviceEnabledCalIds));
     } catch (e) {}
-  }, [companyName, pattern, anchorDate, groups, myGroupId, shiftTimes, overrides, subOverrides, memos, monthlyMemos, posts, equipFolders, alarms, navItems, visibleOtherGroups, showCompanyEvents, cloudSettings, deviceEnabledCalIds]);
+  }, [companyName, pattern, anchorDate, groups, myGroupId, shiftTimes, overrides, subOverrides, memos, monthlyMemos, posts, equipFolders, alarms, navItems, visibleOtherGroups, showCompanyEvents, showWeather, cloudSettings, deviceEnabledCalIds]);
   const notify = msg => {
     setToast(msg);
     setTimeout(() => setToast(""), 2600);
   };
+
+  // ---- 날씨 예보 (네이티브 브리지 → 웹 fetch → 캐시 순)
+  const weatherBusyRef = useRef(false);
+  const weatherApplyRef = useRef(null);
+  useEffect(() => {
+    window.__tsvWeatherApply = raw => {
+      if (weatherApplyRef.current) weatherApplyRef.current(raw);
+    };
+    return () => {
+      window.__tsvWeatherApply = null;
+    };
+  }, []);
+  const loadWeather = force => {
+    if (weatherBusyRef.current) return;
+    const fetchedAt = weatherCache.fetchedAt || 0;
+    if (!force && fetchedAt && Date.now() - fetchedAt < WEATHER_TTL) return;
+    weatherBusyRef.current = true;
+    const applyPayload = raw => {
+      let data = raw;
+      if (typeof raw === "string") {
+        try {
+          data = JSON.parse(raw);
+        } catch (e) {
+          return false;
+        }
+      }
+      const days = parseWeatherPayload(data);
+      if (!days) return false;
+      const next = {
+        days,
+        fetchedAt: Date.now()
+      };
+      setWeatherCache(next);
+      try {
+        localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify(next));
+      } catch (e) {}
+      return true;
+    };
+    const useWeb = () => {
+      try {
+        fetch(WEATHER_URL, {
+          cache: "no-store"
+        }).then(r => r.json()).then(d => {
+          weatherBusyRef.current = false;
+          applyPayload(d);
+        }).catch(() => {
+          weatherBusyRef.current = false;
+        });
+      } catch (e) {
+        weatherBusyRef.current = false;
+      }
+    };
+    weatherApplyRef.current = raw => {
+      weatherBusyRef.current = false;
+      if (!applyPayload(raw)) useWeb();
+    };
+    const bridge = window.AndroidWeather;
+    if (bridge && typeof bridge.fetch === "function") {
+      try {
+        bridge.fetch(WEATHER_URL);
+        // 네이티브 응답이 끝내 없으면 웹 fetch로 한 번 더 시도한다.
+        setTimeout(() => {
+          if (weatherBusyRef.current) {
+            weatherBusyRef.current = false;
+            useWeb();
+          }
+        }, 8000);
+        return;
+      } catch (e) {}
+    }
+    useWeb();
+  };
+
+  // 앱을 열 때 한 번, 날씨 보기를 켤 때 최신 예보를 받아 둔다.
+  useEffect(() => {
+    loadWeather(false);
+  }, []);
+  useEffect(() => {
+    if (showWeather) loadWeather(false);
+  }, [showWeather]);
 
   // 🔊 앱 효과음 (설정에서 끄면 localStorage에 저장돼 다음 실행에도 유지)
   const [soundEnabled, setSoundEnabled] = useState(() => loadSfxSetting());
@@ -3507,7 +3682,10 @@ function App() {
   }), /*#__PURE__*/React.createElement("button", {
     onClick: () => setShowCompanyEvents(v => !v),
     className: `px-2.5 py-1 rounded-full text-[11px] font-semibold border transition ${showCompanyEvents ? "bg-blue-600 text-white border-blue-600" : "bg-white text-slate-600 border-slate-200"}`
-  }, showCompanyEvents ? "☑ " : "☐ ", "\uD68C\uC0AC \uC77C\uC815\uBCF4\uAE30"))), /*#__PURE__*/React.createElement("main", {
+  }, showCompanyEvents ? "☑ " : "☐ ", "\uD68C\uC0AC \uC77C\uC815\uBCF4\uAE30"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setShowWeather(v => !v),
+    className: `px-2.5 py-1 rounded-full text-[11px] font-semibold border transition ${showWeather ? "bg-blue-600 text-white border-blue-600 shadow-xs" : "bg-white text-slate-600 border-slate-200"}`
+  }, showWeather ? "🌤️ 날씨 ON" : "🌤️ 날씨"))), /*#__PURE__*/React.createElement("main", {
     className: "flex-1 overflow-y-auto pb-28"
   }, activeTab === "calendar" && /*#__PURE__*/React.createElement("div", {
     className: "flex flex-col"
@@ -3555,6 +3733,7 @@ function App() {
     const subShift = getSubShiftForGroupDate(myGroupId, cell.dateKey);
     const meta = SHIFT_META[shift] || SHIFT_META["휴"];
     const isSelected = selectedDateKey === cell.dateKey;
+    const isToday = cell.dateKey === currentDateKey();
     const dayMemos = (memos[cell.dateKey] || []).filter(m => {
       if (m.shareType === "private") return true;
       return showCompanyEvents;
@@ -3563,11 +3742,11 @@ function App() {
       key: cell.dateKey,
       onClick: () => openDayDetail(cell.dateKey),
       "data-sfx": "tap",
-      className: `min-h-[90px] p-1 border-r border-b border-slate-100/90 flex flex-col items-center cursor-pointer transition relative ${!cell.isCurrentMonth ? "opacity-35 bg-slate-50/40" : "bg-white hover:bg-slate-50"} ${isSelected ? "ring-2 ring-inset ring-blue-500 bg-blue-50/25" : ""}`
+      className: `min-h-[90px] px-0.5 py-1 border-r border-b border-slate-100/90 flex flex-col items-center cursor-pointer transition relative ${isToday ? "bg-blue-50/50 ring-2 ring-inset ring-blue-600 z-[2]" : !cell.isCurrentMonth ? "opacity-35 bg-slate-50/40" : "bg-white hover:bg-slate-50"} ${isToday ? "" : isSelected ? "ring-1 ring-inset ring-slate-400 bg-slate-50/60" : ""}`
     }, /*#__PURE__*/React.createElement("div", {
       className: "w-full flex items-center justify-between px-0.5 mb-0.5"
     }, /*#__PURE__*/React.createElement("span", {
-      className: `text-[11px] font-bold leading-none ${dow === 0 || holiday && holiday.isRed ? "text-rose-500" : dow === 6 ? "text-blue-500" : "text-slate-700"}`
+      className: isToday ? "shrink-0 text-[11px] font-extrabold leading-none bg-blue-600 text-white px-1.5 py-0.5 rounded-[4px] shadow-xs" : `text-[11px] font-bold leading-none ${dow === 0 || holiday && holiday.isRed ? "text-rose-500" : dow === 6 ? "text-blue-500" : "text-slate-700"}`
     }, cell.day), (holiday || lunar) && /*#__PURE__*/React.createElement("span", {
       className: `text-[8.5px] truncate max-w-[34px] leading-none ${holiday?.isRed ? "text-rose-500 font-semibold" : "text-slate-400"}`
     }, holiday ? holiday.name : lunar)), /*#__PURE__*/React.createElement("div", {
@@ -3594,8 +3773,20 @@ function App() {
         },
         className: "text-[9px] px-1 rounded font-extrabold leading-tight shadow-xs"
       }, og.name.replace("조", ""), ":", oShift);
-    })), /*#__PURE__*/React.createElement("div", {
-      className: "w-full flex flex-col gap-0.5 mt-0.5"
+    })), showWeather ? /*#__PURE__*/React.createElement("div", {
+      className: "w-full flex-1 flex flex-col items-center justify-center gap-[1px] mt-0.5 pb-0.5"
+    }, weatherCache.days[cell.dateKey] ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
+      className: "text-[17px] leading-none"
+    }, weatherIcon(weatherCache.days[cell.dateKey].c)), /*#__PURE__*/React.createElement("span", {
+      className: "text-[10px] font-extrabold leading-none tracking-[-0.03em] text-slate-700"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "text-blue-600"
+    }, weatherCache.days[cell.dateKey].mn, "\xB0"), /*#__PURE__*/React.createElement("span", {
+      className: "text-slate-300"
+    }, "/"), weatherCache.days[cell.dateKey].mx, "\xB0")) : /*#__PURE__*/React.createElement("span", {
+      className: "text-[10px] text-slate-300 leading-none"
+    }, "\xB7")) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+      className: "w-full flex flex-col gap-[2px] mt-0.5"
     }, dayMemos.slice(0, 2).map(m => /*#__PURE__*/React.createElement("div", {
       key: m.id,
       style: {
@@ -3603,21 +3794,29 @@ function App() {
         color: m.filled ? "#ffffff" : "#1e293b",
         borderLeft: m.filled ? "none" : `2.5px solid ${m.color}`
       },
-      className: "text-[9px] px-1 py-0.5 rounded-[3px] truncate font-medium leading-tight"
+      className: "ts-cell-memo text-[10px] font-bold px-0.5 py-[2px] rounded-[3px] leading-[1.18] tracking-[-0.04em]"
     }, m.shareType === "vacation" ? `[휴가] ${m.text}` : m.text)), dayMemos.length > 2 && /*#__PURE__*/React.createElement("span", {
-      className: "text-[8px] text-slate-400 text-center"
+      className: "text-[8px] text-slate-400 text-center leading-none"
     }, "+", dayMemos.length - 2)), (deviceEvents[cell.dateKey] || []).length > 0 && /*#__PURE__*/React.createElement("div", {
-      className: "w-full flex flex-col gap-0.5 mt-0.5"
+      className: "w-full flex flex-col gap-[2px] mt-0.5"
     }, (deviceEvents[cell.dateKey] || []).slice(0, 2).map((dev, devIdx) => /*#__PURE__*/React.createElement("div", {
       key: "dev" + devIdx,
       style: {
         borderLeft: `2.5px solid ${dev.color || "#94a3b8"}`
       },
-      className: "text-[9px] px-1 py-0.5 rounded-[3px] truncate font-medium leading-tight bg-slate-100 text-slate-600"
+      className: "ts-cell-memo text-[10px] font-bold px-0.5 py-[2px] rounded-[3px] leading-[1.18] tracking-[-0.04em] bg-slate-100 text-slate-600"
     }, dev.title)), (deviceEvents[cell.dateKey] || []).length > 2 && /*#__PURE__*/React.createElement("span", {
-      className: "text-[8px] text-slate-400 text-center"
-    }, "+", (deviceEvents[cell.dateKey] || []).length - 2)));
-  }))), /*#__PURE__*/React.createElement("div", {
+      className: "text-[8px] text-slate-400 text-center leading-none"
+    }, "+", (deviceEvents[cell.dateKey] || []).length - 2))));
+  }))), showWeather && /*#__PURE__*/React.createElement("div", {
+    className: "px-4 py-1.5 bg-blue-50/60 border-b border-blue-100 flex items-center gap-1.5"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-[11px] leading-none"
+  }, "\uD83C\uDF24\uFE0F"), /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] font-bold text-blue-800 leading-none"
+  }, Object.keys(weatherCache.days).length > 0 ? `천안 백석동 날씨 · 오늘부터 ${Object.keys(weatherCache.days).length}일 예보` : "날씨 예보를 불러오는 중입니다"), /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] text-blue-500 leading-none ml-auto"
+  }, "\uBA54\uBAA8\uB294 \uB0A0\uC528\uB97C \uB044\uBA74 \uB2E4\uC2DC \uBCF4\uC785\uB2C8\uB2E4")), /*#__PURE__*/React.createElement("div", {
     className: "px-4 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center gap-2"
   }, /*#__PURE__*/React.createElement("span", {
     className: "text-[11px] font-bold text-slate-400 shrink-0"

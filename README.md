@@ -135,14 +135,31 @@ time** (no `text/babel`, no Babel at runtime), so the app still starts with no n
   `localStorage` (`todaywork_v33_sound`) plus 톡톡/슉슉/띠링 preview buttons.
 - versionCode 12 / versionName 2.1, same fixed signing key.
 
-## Build
+## v2.2 — 오늘 날짜 박스 · 메모 시안성 · 🌤️ 날씨 보기
+
+- **오늘 칸 표시** — 달력에서 오늘 날짜 칸 전체에 파란 테두리 박스(`ring-2 ring-inset
+  ring-blue-600` + `bg-blue-50/50`)를 두르고, 날짜 숫자는 파란 사각 배지
+  (`bg-blue-600 text-white`)로 바꿨습니다. 선택한 날짜는 옅은 슬레이트 링
+  (`ring-1 ring-inset ring-slate-400 bg-slate-50/60`)이라 오늘 박스가 가장 또렷합니다.
+  앱을 열면 항상 이번 달·오늘에서 시작합니다.
+- **메모 시안성** — 셀 좌우 패딩을 `px-0.5`로 줄이고, 메모·폰 일정 바를 `text-[10px]
+  font-bold tracking-[-0.04em]`로 키워 `GTA6 open` 같은 영문/한글 메모가 7열 화면에서도
+  잘리지 않습니다. 길어도 두 줄까지(`-webkit-line-clamp: 2`) 보여 줍니다.
+- **🌤️ 날씨 보기** — 상단 `같이 보기` 줄에 `[🌤️ 날씨]` 토글을 넣었습니다. 켜면 각 날짜
+  칸의 메모·공유일정·폰 일정 대신 날씨 아이콘(☀️/⛅/☁️/🌧️/❄️/⛈️)과 최저/최고 기온
+  (`1°/11°`)이 나옵니다. 값은 `localStorage`(`todaywork_v33_showWeather`)에 저장됩니다.
+- **예보 받아오기** — 천안 백석동(36.8297, 127.1255) 기준 오늘부터 10일치를 Open-Meteo
+  무료 예보에서 받습니다. `file://` WebView의 CORS 제약을 피하려고 새 네이티브 브리지
+  **`window.AndroidWeather.fetch(url)`** 가 직접 받아 `window.__tsvWeatherApply(json)`로
+  돌려주고, 브리지가 없거나 실패하면 페이지의 `fetch` → 마지막 캐시(30분) 순으로 버팁니다.
+- versionCode 13 / versionName 2.2, same fixed signing key.
 
 The GitHub Actions workflow (`.github/workflows/build-apk.yml`) builds a debug
 APK on every push. Locally the same thing is `gradle assembleDebug` with JDK 17
 and the Android SDK installed.
 
 - applicationId: `com.tsv.dutycalendar` (installs beside `TSV 근무표`)
-- versionCode 12 / versionName 2.1
+- versionCode 13 / versionName 2.2
 - Signing: fixed PKCS12 key `app/tsv-duty-fixed.p12` wired into
   `signingConfigs.debug`, so every rebuild installs over the previous one.
 
