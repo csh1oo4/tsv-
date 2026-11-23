@@ -155,7 +155,11 @@ public final class DavClient {
                 if (Core.isHiddenName(entry.name) || isSynologyNoise(entry.name)) {
                     continue;
                 }
-                out.put(toJson(entry));
+                try {
+                    out.put(toJson(entry));
+                } catch (Exception ignored) {
+                    // a malformed entry is skipped, not fatal
+                }
             }
             return out;
         } finally {
@@ -209,7 +213,11 @@ public final class DavClient {
             List<DavXml.Entry> entries = DavXml.parse(response.readText(MAX_PROPFIND_BYTES), base);
             JSONObject out = new JSONObject();
             if (!entries.isEmpty()) {
-                out.put("entry", toJson(entries.get(0)));
+                try {
+                    out.put("entry", toJson(entries.get(0)));
+                } catch (Exception ignored) {
+                    // an unreadable propstat leaves the answer empty
+                }
             }
             return out;
         } finally {
