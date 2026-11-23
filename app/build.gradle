@@ -121,6 +121,13 @@ tasks.matching { it.name == 'testDebugUnitTest' }.configureEach {
     dependsOn 'jsTests'
 }
 
+tasks.withType(Test).configureEach {
+    testLogging {
+        events 'passed', 'failed', 'skipped'
+        exceptionFormat 'full'
+    }
+}
+
 tasks.matching { it.name == 'assembleDebug' }.configureEach {
     dependsOn 'testDebugUnitTest'
     finalizedBy 'verifyApkSignature'
