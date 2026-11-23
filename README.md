@@ -135,6 +135,22 @@ time** (no `text/babel`, no Babel at runtime), so the app still starts with no n
   `localStorage` (`todaywork_v33_sound`) plus 톡톡/슉슉/띠링 preview buttons.
 - versionCode 12 / versionName 2.1, same fixed signing key.
 
+## v2.4.2 — 아이콘 바탕을 순백(#FFFFFF)으로
+
+- **하늘색 원형 바탕 제거** — 승현 님이 요청하신 대로 v2.4.1 아이콘 뒤의 연한 하늘색 원판을
+  없애고 전체 바탕을 순백 `#FFFFFF`으로 바꿨다. 다시 그리지 않고 픽셀·마스크 처리만 했다:
+  파란 기운(`b-g`)으로 원판·그라데이션·그림자를 흰색으로 치환하고, 달력의 회색 날짜 칸·
+  은색 링·금색 필름 롤·TSV·QR·느낌표는 보호 마스크로 원본 그대로 남겼다. 필름 롤·달력
+  아래에 남아 있던 파란 그림자도 흰색으로 정리했고, 물체 경계에 남는 옅은 청록 헤어라인은
+  디스필로 지웠다.
+- **적응형 아트 비율 76% → 80%** — 여백이 살짝 넉넉했던 v2.4.1보다 아트를 키워 런처에서 더
+  시원하게 채우되, 원형 마스크에 잘리는 화소가 없도록 맞췄다(아트 내부 최대 반경 0.914).
+- `tools/generate_icons_from_art.py`가 `clear_blue_background()` → `clean_artwork()` →
+  15개 레이어(5밀도 × 스퀘어클·원형·적응형) + `icon-preview.png` 생성까지 담당한다.
+- versionCode 18 / versionName 2.4.2, 고정 서명 키 그대로. 웹앱 `APP_VERSION`과
+  `getAppVersion()` 폴백도 2.4.2.
+- 기능 변경 없음: v2.4.1의 알람·게임·권한·위젯·캘린더·Firebase 공유 그대로.
+
 ## v2.4.1 — 새 앱 아이콘 (PI 필름 롤 · 달력 · 느낌표)
 
 - **새 런처 아이콘** — the artwork the user sent on 2026-11-23 (white rounded-square
@@ -312,8 +328,8 @@ resizes it with LANCZOS into legacy squircle (`ic_launcher`), circle
 (`ic_launcher_round`) and adaptive foreground layers for all five densities and
 follows it with `icon-preview.png`. The adaptive background is plain white
 (`#FFFFFF`) so the white backdrop of the artwork blends in, and the foreground
-artwork sits at 76% of the 108dp canvas, inside the 72dp safe zone, so neither a
-circular (One UI) nor a squircle mask clips the film roll or the calendar.
+artwork sits at 80% of the 108dp canvas (v2.4.2) with every visible mark inside the
+circle inscribed in it, so neither a circular (One UI) nor a squircle mask clips it.
 - The `<monochrome>` themed-icon layer was dropped: a tint silhouette of this
 photographic artwork loses the film roll's highlights, so themed icons simply
 fall back to the full-colour icon.
@@ -326,7 +342,7 @@ builds the launcher icons from the supplied artwork and writes legacy, round and
 adaptive foreground layers for all five densities, plus a preview sheet. It does
 not redraw the artwork: it (1) flood-fills any black backdrop outside the artwork's
 rounded square with white and trims the anti-aliased edge line, (2) resizes with
-LANCZOS, (3) centres the artwork at 94% (squircle), 88% (circle) or 75% (adaptive,
+LANCZOS, (3) centres the artwork at 94% (squircle), 88% (circle) or 80% (adaptive,
 inside the 72dp safe zone) of the canvas, and (4) applies the squircle/circle mask
 for the legacy layers. The adaptive background is `#FFFFFF`
 (`values/colors.xml` → `ic_launcher_background`).

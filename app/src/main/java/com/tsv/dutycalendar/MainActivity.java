@@ -1608,10 +1608,10 @@ public class MainActivity extends Activity {
             try {
                 String version = getPackageManager()
                         .getPackageInfo(getPackageName(), 0).versionName;
-                return version == null || version.trim().isEmpty() ? "2.4.1" : version;
+                return version == null || version.trim().isEmpty() ? "2.4.2" : version;
             } catch (Exception e) {
                 Log.w(TAG, "getAppVersion failed", e);
-                return "2.4.1";
+                return "2.4.2";
             }
         }
 
