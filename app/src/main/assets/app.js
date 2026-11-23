@@ -792,7 +792,10 @@
         });
         var single = state.selection.length === 1;
         var actions = [];
-        if (isNasSide()) {
+        if (state.tab === 'fav') {
+            actions.push({act: 'unfav', icon: '★', label: '즐겨찾기 해제', danger: true});
+            actions.push({act: 'close', icon: '✕', label: '선택 해제'});
+        } else if (isNasSide()) {
             actions.push({act: 'download', icon: '⬇️', label: '내 폰에 저장', primary: true});
             actions.push({act: 'copy', icon: '📋', label: '복사'});
             actions.push({act: 'move', icon: '📦', label: '이동'});
@@ -961,6 +964,12 @@
                 if (state.selection.length === 1) {
                     detailsDialog(state.selection[0]);
                 }
+                break;
+            case 'unfav':
+                state.selection.slice().forEach(removeFavourite);
+                clearSelection(false);
+                render();
+                toast('즐겨찾기에서 뺐습니다.');
                 break;
             case 'close':
                 clearSelection();
