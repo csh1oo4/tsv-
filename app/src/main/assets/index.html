@@ -531,7 +531,7 @@ const {
   useRef,
   useMemo
 } = React;
-const APP_VERSION = "2.5.2";
+const APP_VERSION = "2.5.3";
 
 // 🔊 앱 효과음 — 외부 오디오 파일 없이 Web Audio API로 만드는 짧은 소리
 const SFX_STORAGE_KEY = "todaywork_v33_sound";
@@ -1814,6 +1814,100 @@ const normalizeTeamCode = value => {
   const raw = String(value || "").trim().toUpperCase().replace(/[^A-Z0-9_-]/g, "");
   return raw || CLOUD_DEFAULT.teamCode;
 };
+
+/* ---------------------------------------------------------------- v2.5.3 오프라인 캐시
+   인터넷이 끊기거나 오프라인으로 앱을 열어도 게시판·설비공유·공유일정이 사라지지 않도록,
+   Firebase에서 마지막으로 받은 내용을 팀 코드별로 폰(localStorage)에 저장해 둔다.
+   앱을 다시 열면 서버 응답이 오기 전에 이 캐시로 화면을 먼저 채우고, 서버가 확인해 준
+   응답으로만 덮어쓴다. 저장 공간(약 5MB)이 모자라면 ① 첨부 사진을 빼고 ② 최신 글만
+   남기는 순서로 다시 시도해, 최소한 글·폴더·일정 텍스트는 남긴다. */
+const CLOUD_CACHE_PREFIX = "tsv_cloud_cache_v1_";
+const CLOUD_CACHE_TRIM = 40; // 용량이 모자랄 때 팀별로 남기는 최신 글 수
+const CLOUD_CACHE_BUDGET = 1500000; // 사진까지 담아 이보다 커지면 처음부터 사진을 빼고 저장한다
+const cloudCacheKey = teamCode => CLOUD_CACHE_PREFIX + normalizeTeamCode(teamCode);
+const readCloudCache = teamCode => {
+  try {
+    const raw = localStorage.getItem(cloudCacheKey(teamCode));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch (e) {
+    return null;
+  }
+};
+const cloudCacheHasData = payload => !!payload && ((payload.boardPosts || []).length > 0 || (payload.equipFolders || []).length > 0 || (payload.equipPosts || []).length > 0 || (payload.equipmentPosts || []).length > 0 || (payload.sharedEvents || []).length > 0);
+const stripCloudCacheImages = payload => {
+  const clean = item => {
+    if (!item || typeof item !== "object") return item;
+    return Object.assign({}, item, {
+      image: null,
+      imageUrl: null,
+      photo: null
+    });
+  };
+  return Object.assign({}, payload, {
+    boardPosts: (payload.boardPosts || []).map(clean),
+    equipPosts: (payload.equipPosts || []).map(clean),
+    equipmentPosts: (payload.equipmentPosts || []).map(clean)
+  });
+};
+const trimCloudCache = payload => Object.assign({}, payload, {
+  boardPosts: (payload.boardPosts || []).slice(0, CLOUD_CACHE_TRIM),
+  equipPosts: (payload.equipPosts || []).slice(0, CLOUD_CACHE_TRIM),
+  equipmentPosts: (payload.equipmentPosts || []).slice(0, CLOUD_CACHE_TRIM),
+  sharedEvents: (payload.sharedEvents || []).slice(0, CLOUD_CACHE_TRIM * 2)
+});
+const writeCloudCache = (teamCode, payload) => {
+  const key = cloudCacheKey(teamCode);
+  const textOnly = stripCloudCacheImages(payload);
+  // 0) 그대로 → 1) 사진만 빼고 → 2) 사진 빼고 최신 글만. 사진까지 담으면 1.5MB를 넘는
+  //    팀은 처음부터 1)단계로 시작해, 앱의 다른 저장값(근무표·설정)이 밀려나지 않게 한다.
+  //    마지막 시도까지 실패하면 setItem이 던지므로 이미 저장된 캐시는 그대로 남는다.
+  const fullJson = JSON.stringify(payload);
+  const attempts = fullJson.length <= CLOUD_CACHE_BUDGET ? [fullJson, JSON.stringify(textOnly), JSON.stringify(trimCloudCache(textOnly))] : [JSON.stringify(textOnly), JSON.stringify(trimCloudCache(textOnly))];
+  const baseMode = attempts.length === 3 ? 0 : 1;
+  for (let i = 0; i < attempts.length; i++) {
+    try {
+      localStorage.setItem(key, attempts[i]);
+      return {
+        ok: true,
+        mode: baseMode + i
+      };
+    } catch (e) {
+      if (i === attempts.length - 1) {
+        return {
+          ok: false,
+          mode: -1,
+          error: String(e && e.name || e)
+        };
+      }
+    }
+  }
+  return {
+    ok: false,
+    mode: -1
+  };
+};
+/* 안내 배지는 '폰에 저장된 글을 보여주는 동안'에만 뜬다.
+   - 오프라인(네트워크 끊김)이면 바로
+   - 연결 중·실패 상태에서도 잠깐의 깜빡임을 피하려고 1.2초 뒤부터 */
+// Firestore 디스크 캐시(fromCache)에서 빈 목록이 내려오는 경우가 있다.
+// 서버가 확정해 준 응답(confirmed)일 때만 화면과 캐시를 갱신하고, 빈 캐시 응답은 무시한다.
+const readCloudSnapshot = snap => {
+  if (!snap || !Array.isArray(snap.docs)) return null;
+  const fromCache = !!(snap.metadata && snap.metadata.fromCache);
+  if (fromCache && snap.docs.length === 0) return null;
+  return {
+    docs: snap.docs,
+    confirmed: !fromCache
+  };
+};
+const shouldShowCloudCacheBadge = state => {
+  const s = state || {};
+  if (!s.cacheAt || s.syncEnabled === false) return false;
+  if (s.online === false) return true;
+  return s.cloudStatus !== "connected" && s.badgeReady !== false;
+};
 const parseAppVersion = v => String(v || "").replace(/^[^0-9]*/, "").split(".").map(n => parseInt(n, 10) || 0);
 const compareAppVersion = (a, b) => {
   const pa = parseAppVersion(a);
@@ -2377,6 +2471,16 @@ function App() {
     return saved && saved.teamCode || CLOUD_DEFAULT.teamCode;
   });
   const [cloudStatus, setCloudStatus] = useState("offline"); // connecting | connected | offline
+  // v2.5.3 — 오프라인 캐시: cacheAt은 폰에 저장/복원한 마지막 시각(0이면 캐시 없음)
+  const [cloudCacheAt, setCloudCacheAt] = useState(0);
+  const [navigatorOnline, setNavigatorOnline] = useState(() => {
+    try {
+      return navigator.onLine !== false;
+    } catch (e) {
+      return true;
+    }
+  });
+  const [cloudBadgeReady, setCloudBadgeReady] = useState(false);
   const [deviceCalState, setDeviceCalState] = useState({
     available: false,
     granted: false,
@@ -2394,12 +2498,19 @@ function App() {
     pct: 0,
     msg: ""
   });
+  // 캐시에는 화면 state가 아니라 서버에서 받은 원본 문서(cloudRef)를 담는다
   const cloudRef = useRef({
     db: null,
     unsubs: [],
     equip: null,
     board: null,
-    events: null
+    events: null,
+    boardPosts: [],
+    equipFolders: [],
+    equipPosts: [],
+    legacyEquipPosts: [],
+    sharedEvents: [],
+    equipmentMenuOpen: undefined
   });
   const nativeSyncRef = useRef({});
 
@@ -2567,6 +2678,19 @@ function App() {
       localStorage.setItem("todaywork_v33_deviceCalIds", JSON.stringify(deviceEnabledCalIds));
     } catch (e) {}
   }, [companyName, pattern, anchorDate, groups, myGroupId, shiftTimes, overrides, subOverrides, memos, monthlyMemos, posts, equipFolders, alarms, navItems, visibleOtherGroups, showCompanyEvents, showWeather, cloudSettings, deviceEnabledCalIds]);
+  // v2.5.3 — 네트워크 연결 여부를 따라가며, 캐시로 보여주는 동안에만 안내 배지를 띄운다.
+  useEffect(() => {
+    const goOnline = () => setNavigatorOnline(true);
+    const goOffline = () => setNavigatorOnline(false);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    const badgeTimer = setTimeout(() => setCloudBadgeReady(true), 1200);
+    return () => {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+      clearTimeout(badgeTimer);
+    };
+  }, []);
   const notify = msg => {
     setToast(msg);
     setTimeout(() => setToast(""), 2600);
@@ -4075,6 +4199,61 @@ function App() {
       }).catch(() => {});
     });
   };
+  /* ---------- v2.5.3 오프라인 캐시 (저장·복원) ---------- */
+  const cloudCacheTimerRef = useRef(null);
+  const buildCloudCachePayload = () => ({
+    v: 1,
+    teamCode: normalizeTeamCode(cloudSettings.teamCode),
+    updatedAt: Date.now(),
+    boardPosts: cloudRef.current.boardPosts || [],
+    equipFolders: cloudRef.current.equipFolders || [],
+    equipPosts: cloudRef.current.equipPosts || [],
+    equipmentPosts: cloudRef.current.legacyEquipPosts || [],
+    sharedEvents: cloudRef.current.sharedEvents || [],
+    equipmentMenuOpen: cloudRef.current.equipmentMenuOpen === undefined ? equipmentMenuOpen : cloudRef.current.equipmentMenuOpen
+  });
+  // 여러 구독이 거의 동시에 응답해도 한 번만 쓴다(0.5초 모아 쓰기)
+  const saveCloudCacheSoon = () => {
+    if (cloudCacheTimerRef.current) return;
+    cloudCacheTimerRef.current = setTimeout(() => {
+      cloudCacheTimerRef.current = null;
+      const payload = buildCloudCachePayload();
+      if (!cloudCacheHasData(payload)) return; // 빈 응답으로 캐시를 지우지 않는다
+      const res = writeCloudCache(cloudSettings.teamCode, payload);
+      if (res && res.ok) setCloudCacheAt(Date.now());
+    }, 500);
+  };
+  // 앱을 켜거나 팀 코드를 바꾸면, 서버 응답 전에 캐시를 먼저 화면에 채운다.
+  const restoreCloudCache = () => {
+    const cached = readCloudCache(cloudSettings.teamCode);
+    if (!cached || !cloudCacheHasData(cached)) return;
+    cloudRef.current.boardPosts = Array.isArray(cached.boardPosts) ? cached.boardPosts : [];
+    cloudRef.current.equipFolders = Array.isArray(cached.equipFolders) ? cached.equipFolders : [];
+    cloudRef.current.equipPosts = Array.isArray(cached.equipPosts) ? cached.equipPosts : [];
+    cloudRef.current.legacyEquipPosts = Array.isArray(cached.equipmentPosts) ? cached.equipmentPosts : [];
+    cloudRef.current.sharedEvents = Array.isArray(cached.sharedEvents) ? cached.sharedEvents : [];
+    if (typeof cached.equipmentMenuOpen === "boolean") cloudRef.current.equipmentMenuOpen = cached.equipmentMenuOpen;
+    if (cloudRef.current.boardPosts.length) {
+      setPosts(prev => {
+        const byId = new Map();
+        cloudRef.current.boardPosts.forEach(p => {
+          if (p && p.id) byId.set(p.id, mapBoardDoc(p.id, p));
+        });
+        (Array.isArray(prev) ? prev : []).forEach(p => {
+          if (p && p.id && !byId.has(p.id)) byId.set(p.id, p); // 오프라인에서 쓴 내 글은 살린다
+        });
+        return Array.from(byId.values());
+      });
+    }
+    if (cloudRef.current.equipFolders.length || cloudRef.current.equipPosts.length || cloudRef.current.legacyEquipPosts.length) {
+      setEquipFolders(prev => mergeEquipNow(prev));
+    }
+    if (cloudRef.current.sharedEvents.length) {
+      setMemos(prev => mergeSharedEvents(prev, cloudRef.current.sharedEvents));
+    }
+    if (typeof cloudRef.current.equipmentMenuOpen === "boolean") setEquipmentMenuOpen(cloudRef.current.equipmentMenuOpen);
+    setCloudCacheAt(Number(cached.updatedAt) || Date.now());
+  };
   useEffect(() => {
     cloudRef.current.unsubs.forEach(fn => {
       try {
@@ -4083,6 +4262,11 @@ function App() {
     });
     cloudRef.current.unsubs = [];
     cloudRef.current.seededFolders = false;
+    if (cloudCacheTimerRef.current) {
+      clearTimeout(cloudCacheTimerRef.current); // 팀을 바꾸면 이전 팀의 대기 중 저장은 버린다
+      cloudCacheTimerRef.current = null;
+    }
+    restoreCloudCache();
     if (!cloudSettings.enabled || typeof firebase === "undefined") {
       setCloudStatus("offline");
       return undefined;
@@ -4095,48 +4279,67 @@ function App() {
       const ws = db.collection("workspaces").doc(normalizeTeamCode(cloudSettings.teamCode));
       const unsubs = [];
       unsubs.push(ws.collection("sharedEvents").orderBy("createdAt", "desc").limit(300).onSnapshot(snap => {
-        setCloudStatus("connected");
-        const list = snap.docs.map(d => Object.assign({
+        const read = readCloudSnapshot(snap);
+        if (!read) return;
+        if (read.confirmed) setCloudStatus("connected");
+        const list = read.docs.map(d => Object.assign({
           id: d.id
         }, d.data()));
+        cloudRef.current.sharedEvents = list;
         setMemos(prev => mergeSharedEvents(prev, list));
+        saveCloudCacheSoon();
       }, err => {
         console.warn("sharedEvents error", err);
         setCloudStatus("offline");
       }));
       unsubs.push(ws.collection("equipFolders").onSnapshot(snap => {
-        setCloudStatus("connected");
-        cloudRef.current.equipFolders = snap.docs.map(d => Object.assign({
+        const read = readCloudSnapshot(snap);
+        if (!read) return;
+        if (read.confirmed) setCloudStatus("connected");
+        cloudRef.current.equipFolders = read.docs.map(d => Object.assign({
           id: d.id
         }, d.data()));
         setEquipFolders(mergeEquipNow);
-        if (snap.empty) seedEquipFolders(ws);
+        if (read.confirmed && read.docs.length === 0) seedEquipFolders(ws);
+        saveCloudCacheSoon();
       }, err => {
         console.warn("equipFolders error", err);
       }));
       unsubs.push(ws.collection("equipPosts").orderBy("createdAt", "desc").limit(200).onSnapshot(snap => {
-        setCloudStatus("connected");
-        cloudRef.current.equipPosts = snap.docs.map(d => Object.assign({
+        const read = readCloudSnapshot(snap);
+        if (!read) return;
+        if (read.confirmed) setCloudStatus("connected");
+        cloudRef.current.equipPosts = read.docs.map(d => Object.assign({
           id: d.id
         }, d.data()));
         setEquipFolders(mergeEquipNow);
+        saveCloudCacheSoon();
       }, err => {
         console.warn("equipPosts error", err);
       }));
 
       // v1.6.x에서 올린 설비 기록(equipmentPosts)도 그대로 보이게 함께 구독
       unsubs.push(ws.collection("equipmentPosts").orderBy("createdAt", "desc").limit(200).onSnapshot(snap => {
-        setCloudStatus("connected");
-        cloudRef.current.legacyEquipPosts = snap.docs.map(d => Object.assign({
+        const read = readCloudSnapshot(snap);
+        if (!read) return;
+        if (read.confirmed) setCloudStatus("connected");
+        cloudRef.current.legacyEquipPosts = read.docs.map(d => Object.assign({
           id: d.id
         }, d.data()));
         setEquipFolders(mergeEquipNow);
+        saveCloudCacheSoon();
       }, err => {
         console.warn("equipmentPosts error", err);
       }));
       unsubs.push(ws.collection("boardPosts").orderBy("createdAt", "desc").limit(200).onSnapshot(snap => {
-        setCloudStatus("connected");
-        setPosts(snap.docs.map(d => mapBoardDoc(d.id, d.data())));
+        const read = readCloudSnapshot(snap);
+        if (!read) return;
+        if (read.confirmed) setCloudStatus("connected");
+        cloudRef.current.boardPosts = read.docs.map(d => Object.assign({
+          id: d.id
+        }, d.data()));
+        setPosts(read.docs.map(d => mapBoardDoc(d.id, d.data())));
+        saveCloudCacheSoon();
       }, err => {
         console.warn("boardPosts error", err);
       }));
@@ -4144,11 +4347,16 @@ function App() {
       unsubs.push(ws.collection("appConfig").doc("settings").onSnapshot(snap => {
         const data = snap && typeof snap.data === "function" ? snap.data() || {} : {};
         const exists = snap ? typeof snap.exists === "function" ? snap.exists() : !!snap.exists : false;
+        const fromCache = !!(snap && snap.metadata && snap.metadata.fromCache);
+        if (fromCache && !exists) return; // 오프라인 빈 응답 — 저장해 둔 공개/숨김 값을 유지
+        if (!fromCache) setCloudStatus("connected");
         const open = !exists || data.equipmentMenuOpen !== false;
         setEquipmentMenuOpen(open);
+        cloudRef.current.equipmentMenuOpen = open;
         try {
           localStorage.setItem("todaywork_v33_equipmentMenuOpen", JSON.stringify(open));
         } catch (e) {}
+        saveCloudCacheSoon();
       }, err => {
         console.warn("appConfig error", err);
       }));
@@ -4793,6 +5001,15 @@ function App() {
       }))));
     }))));
   }
+  // v2.5.3 — 오프라인/캐시 표시 중에만 게시판·설비공유 위에 안내 배지를 띄운다
+  const cloudCacheBadgeVisible = shouldShowCloudCacheBadge({
+    online: navigatorOnline,
+    cloudStatus,
+    cacheAt: cloudCacheAt,
+    badgeReady: cloudBadgeReady,
+    syncEnabled: cloudSettings.enabled
+  });
+
   return /*#__PURE__*/React.createElement("div", {
     className: "min-h-screen bg-slate-100 flex justify-center"
   }, /*#__PURE__*/React.createElement("div", {
@@ -5076,7 +5293,9 @@ function App() {
     }));
   })))), activeTab === "equipment" && equipmentMenuOpen && /*#__PURE__*/React.createElement("div", {
     className: "p-4"
-  }, /*#__PURE__*/React.createElement("div", {
+  }, cloudCacheBadgeVisible ? /*#__PURE__*/React.createElement("div", {
+    className: "mb-3 flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50/80 border border-amber-100 text-[12.5px] font-bold text-amber-700"
+  }, /*#__PURE__*/React.createElement("span", null, "\uD83D\uDCE1"), /*#__PURE__*/React.createElement("span", null, "\uC624\uD504\uB77C\uC778 \xB7 \uB9C8\uC9C0\uB9C9 \uC800\uC7A5\uB41C \uAE00 \uD45C\uC2DC \uC911")) : null, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between mb-3"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h2", {
     className: "text-xl font-extrabold text-slate-900"
@@ -5364,7 +5583,9 @@ function App() {
     })));
   })(), activeTab === "board" && /*#__PURE__*/React.createElement("div", {
     className: "p-4"
-  }, /*#__PURE__*/React.createElement("div", {
+  }, cloudCacheBadgeVisible ? /*#__PURE__*/React.createElement("div", {
+    className: "mb-3 flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50/80 border border-amber-100 text-[12.5px] font-bold text-amber-700"
+  }, /*#__PURE__*/React.createElement("span", null, "\uD83D\uDCE1"), /*#__PURE__*/React.createElement("span", null, "\uC624\uD504\uB77C\uC778 \xB7 \uB9C8\uC9C0\uB9C9 \uC800\uC7A5\uB41C \uAE00 \uD45C\uC2DC \uC911")) : null, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between mb-3"
   }, /*#__PURE__*/React.createElement("h2", {
     className: "text-xl font-extrabold text-slate-900"
