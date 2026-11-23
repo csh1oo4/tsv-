@@ -926,7 +926,11 @@
             navigate(entry.path);
             return;
         }
-        openViewer(entry);
+        if (C.isImage(entry.name) || C.isVideo(entry.name)) {
+            openViewer(entry);
+        } else {
+            openExternal(entry);
+        }
     }
 
     // ------------------------------------------------------------- selection
@@ -2209,6 +2213,11 @@
         $('btnFav').onclick = toggleFavourite;
         $('btnNewFolder').onclick = newFolder;
         $('btnUpload').onclick = function () {
+            if (isNas()) {
+                switchSide('phone');
+                toast('폰 저장소에서 파일을 고른 뒤 시놀로지로 올릴 수 있습니다.');
+                return;
+            }
             var picked = selectionList();
             if (!picked.length) {
                 toast('폰 저장소에서 파일을 선택한 뒤 올릴 수 있습니다.');
