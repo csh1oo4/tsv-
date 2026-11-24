@@ -2511,8 +2511,8 @@ const PhotoZoomLightbox = ({
    · 시급·공제율·조퇴시간·예상 급여는 오직 브라우저 localStorage
      (tsv_duty_salary_v1)에만 저장한다. todaywork_v33_* 상태나 Firebase
      Firestore 로는 절대 보내지 않는다.
-   · 회사 급여 규칙(2026년 11월 명세서 + 10/16~11/15 근태표 1원 단위 검증):
-       기본급        = 기본시급 × 8 × (기간 일수 − 토요일 수)
+   · 회사 급여 규칙(2026년 9월·10월·11월 급여명세서 3개월 + 각 기간 근태표 1원 단위 검증):
+       기본급        = 기본시급 × 8 × 소정근로일수 (기간 일수 − 5일, 설정에서 직접 지정 가능)
        심야          = 통상시급 × (심야 + 토요심야) × 0.5
        연장/휴일     = 통상시급 × 연장휴일시간 × 1.5
        휴일연장      = 통상시급 × 휴일연장시간 × 2.0
@@ -2542,26 +2542,46 @@ const SALARY_PAY_ITEMS = [{
   label: "심야연장근로수당"
 }];
 
-/* 11월 명세서(지급합계 5,624,512 / 공제합계 879,620)의 항목별 실제 비율.
-   명세서 금액을 그대로 재현하도록 소수 5자리까지 맞춰 두었다. */
-const SALARY_DEDUCTION_ITEMS = [{
+/* ── 공제 방식 ───────────────────────────────────────────────────────────────
+   2026년 9·10·11월 급여명세서 3장을 대조해 확정한 실제 공제 구조:
+     · 국민연금 195,510 · 건강보험 149,230 · 장기요양보험 19,600 → 매달 같은 정액
+     · 고용보험   = 세전 지급합계 × 0.9%      (10원 미만 절사)
+     · 소득세     = 근로소득 간이세액 추정     (아래 실측표 보간)
+     · 지방소득세 = 소득세 × 10%             (10원 미만 절사)
+   세전이 같으면 공제도 같으므로, 이 구조로 3개월 명세서의 공제합계·차인지급액이
+   모두 1원 단위로 재현된다. */
+const SALARY_FIXED_DEDUCTIONS = [{
+  key: "pensionAmount",
   label: "국민연금",
-  rate: 3.48
+  amount: 195510
 }, {
+  key: "healthAmount",
   label: "건강보험",
-  rate: 2.65
+  amount: 149230
 }, {
+  key: "careAmount",
   label: "장기요양보험",
-  rate: 0.35
+  amount: 19600
+}];
+const SALARY_EMPLOYMENT_RATE = 0.9; // 고용보험 (세전 지급합계 대비 %)
+const SALARY_LOCAL_TAX_RATE = 10; // 지방소득세 = 소득세의 10%
+
+/* 소득세 실측 앵커 — 급여명세서에 찍힌 (세전 지급합계 → 소득세).
+   구간 사이는 직선 보간, 구간 밖은 가까운 구간의 기울기로 외삽한다.
+   (간이세액표는 과세표준 구간마다 기울기가 달라 한 식으로 맞지 않아,
+    실제 명세서 3장을 기준점으로 삼는 편이 오차가 가장 작다.) */
+const SALARY_TAX_TABLE = [{
+  gross: 4313000,
+  tax: 236010,
+  note: "2026.09.16~10.15"
 }, {
-  label: "고용보험",
-  rate: 0.9
+  gross: 5624512,
+  tax: 422420,
+  note: "2026.10.16~11.15"
 }, {
-  label: "소득세",
-  rate: 7.5082
-}, {
-  label: "지방소득세",
-  rate: 0.75082
+  gross: 5954384,
+  tax: 492300,
+  note: "2026.08.16~09.15"
 }];
 
 const SALARY_DEFAULT_SETTINGS = {
@@ -2570,6 +2590,12 @@ const SALARY_DEFAULT_SETTINGS = {
   deductionMode: "statement",
   // statement | simple | gross
   simpleRate: 15.64,
+  // 기본급 소정근로일수 — 0 이면 자동(기간 일수 − 5일)
+  baseDays: 0,
+  // 4대보험 정액 (명세서 실측값, 필요하면 직접 수정)
+  pensionAmount: 195510,
+  healthAmount: 149230,
+  careAmount: 19600,
   showCard: true,
   hideAmounts: false,
   earlyLeave: {}
@@ -2607,6 +2633,34 @@ const salaryHourText = n => {
 };
 const salaryRateText = r => String(Math.round(salaryNum(r) * 1000) / 1000);
 const salaryEarlyLeaveOf = (settings, dateKey) => Math.max(0, salaryNum((settings && settings.earlyLeave || {})[dateKey]));
+
+/* 10원 미만 절사 (명세서·국세청 간이세액표 표기 방식) */
+const salaryFloor10 = n => Math.max(0, Math.floor(salaryNum(n) / 10) * 10);
+
+/* 근로소득 간이세액 추정 — 명세서 실측 앵커(SALARY_TAX_TABLE) 사이를 직선 보간. */
+const salaryEstimateTax = gross => {
+  const g = salaryNum(gross);
+  const table = SALARY_TAX_TABLE;
+  if (g <= 0) return 0;
+  let tax;
+  if (g <= table[0].gross) {
+    const a = table[0],b = table[1];
+    tax = a.tax + (g - a.gross) * ((b.tax - a.tax) / (b.gross - a.gross));
+  } else if (g >= table[table.length - 1].gross) {
+    const a = table[table.length - 2],b = table[table.length - 1];
+    tax = b.tax + (g - b.gross) * ((b.tax - a.tax) / (b.gross - a.gross));
+  } else {
+    tax = table[table.length - 1].tax;
+    for (let i = 1; i < table.length; i++) {
+      if (g <= table[i].gross) {
+        const a = table[i - 1],b = table[i];
+        tax = a.tax + (g - a.gross) * ((b.tax - a.tax) / (b.gross - a.gross));
+        break;
+      }
+    }
+  }
+  return salaryFloor10(tax);
+};
 
 /* 어느 날짜가 속한 급여 산정 기간(전월 16일 ~ 당월 15일)의 연/월을 돌려준다.
    monthIndex 는 기존 summaryRangeFor() 가 받는 값과 같은 규칙(화면의 viewDate.month). */
@@ -2721,7 +2775,12 @@ const buildSalaryStatement = opts => {
     });
   }
   const normalDays = totalDays - saturdayCount;
-  const baseHours = normalDays * 8;
+  // 기본급 소정근로일수 — 회사 규칙은 '기간 총 일수 − 5일'(31일→26일, 30일→25일).
+  // 설정에서 직접 지정(override)하면 그 일수를 쓴다.
+  const autoBaseDays = totalDays - 5;
+  const baseDaysOverride = Math.round(salaryNum(settings.baseDays));
+  const baseDays = baseDaysOverride > 0 ? baseDaysOverride : autoBaseDays;
+  const baseHours = baseDays * 8;
   const baseAmount = baseHourly * baseHours;
   const amountOf = (h, mult) => Math.round(normalHourly * h * mult);
   const items = [{
@@ -2730,7 +2789,7 @@ const buildSalaryStatement = opts => {
     hours: baseHours,
     multiplier: 1,
     amount: baseAmount,
-    note: `${salaryWon(baseHourly)}원 × 8h × ${normalDays}일`
+    note: `${salaryWon(baseHourly)}원 × 8h × ${baseDays}일` + (baseDaysOverride > 0 ? " (직접 지정)" : ` (기간 ${totalDays}일 − 5일)`)
   }, {
     key: "night",
     label: "심야근로수당",
@@ -2771,11 +2830,34 @@ const buildSalaryStatement = opts => {
   const mode = settings.deductionMode || "statement";
   let deductions = [];
   if (mode === "statement") {
-    deductions = SALARY_DEDUCTION_ITEMS.map(it => ({
+    // 정액 3종(국민·건강·장기요양) + 고용보험 0.9% + 간이소득세 추정 + 지방소득세 10%
+    const fixedOf = (item, fallback) => {
+      const v = salaryNum(settings[item.key]);
+      return v > 0 ? Math.round(v) : fallback;
+    };
+    const incomeTax = salaryEstimateTax(gross);
+    deductions = SALARY_FIXED_DEDUCTIONS.map(it => ({
       label: it.label,
-      rate: it.rate,
-      amount: Math.round(gross * it.rate / 100)
+      hint: "정액",
+      amount: fixedOf(it, it.amount)
     }));
+    deductions.push({
+      label: "고용보험",
+      hint: `${SALARY_EMPLOYMENT_RATE}%`,
+      rate: SALARY_EMPLOYMENT_RATE,
+      amount: salaryFloor10(gross * SALARY_EMPLOYMENT_RATE / 100)
+    });
+    deductions.push({
+      label: "소득세",
+      hint: "간이세액 추정",
+      amount: incomeTax
+    });
+    deductions.push({
+      label: "지방소득세",
+      hint: `${SALARY_LOCAL_TAX_RATE}% (소득세 기준)`,
+      rate: SALARY_LOCAL_TAX_RATE,
+      amount: salaryFloor10(incomeTax * SALARY_LOCAL_TAX_RATE / 100)
+    });
   } else if (mode === "simple") {
     const r = salaryNum(settings.simpleRate);
     deductions = [{
@@ -2805,6 +2887,8 @@ const buildSalaryStatement = opts => {
     totalDays,
     saturdayCount,
     normalDays,
+    baseDays,
+    autoBaseDays,
     baseHours,
     baseAmount,
     hours,
@@ -2952,10 +3036,43 @@ const renderSalarySettings = p => {
   }, numInput(settings.normalHourly, v => set({
     normalHourly: v
   }))))), svEl("div", null, svEl("label", {
+    className: "text-[10.5px] font-bold text-slate-500"
+  }, "\uAE30\uBCF8\uAE09 \uC18C\uC815\uADFC\uB85C\uC77C\uC218"), svEl("div", {
+    className: "mt-1 flex items-center gap-2",
+    "data-testid": "salary-basedays"
+  }, numInput(settings.baseDays > 0 ? settings.baseDays : st ? st.baseDays : 0, v => set({
+    baseDays: v
+  })), svEl("span", {
+    className: "text-[11px] font-extrabold text-slate-500 whitespace-nowrap"
+  }, "\uC77C"), svEl("button", {
+    onClick: () => set({
+      baseDays: 0
+    }),
+    "data-testid": "salary-basedays-auto",
+    className: `px-2.5 py-2 rounded-xl text-[10.5px] font-extrabold border whitespace-nowrap ${settings.baseDays > 0 ? "border-slate-200 bg-white text-slate-600" : "border-blue-500 bg-blue-50 text-blue-700"}`
+  }, "\uC790\uB3D9")), svEl("p", {
+    className: "text-[10px] font-bold text-slate-500 mt-1",
+    "data-testid": "salary-basedays-hint"
+  }, st ? "\uC790\uB3D9 = \uAE30\uAC04 " + st.totalDays + "\uC77C \u2212 5\uC77C = " + st.autoBaseDays + "\uC77C (\uAE30\uBCF8\uAE09\uC5D0\uB294 " + st.baseDays + "\uC77C)" : "\uC790\uB3D9 = \uAE30\uAC04 \uC77C\uC218 \u2212 5\uC77C")), svEl("div", null, svEl("label", {
     className: "text-[10.5px] font-bold text-slate-500 block mb-1.5"
   }, "\uACF5\uC81C \uBC29\uC2DD"), svEl("div", {
     className: "space-y-1.5"
-  }, modeBtn("statement", "11\uC6D4 \uBA85\uC138\uC11C \uBE44\uC728 \uC790\uB3D9 \uC801\uC6A9", "\uAD6D\uBBFC\uC5F0\uAE08 3.48% \u00B7 \uAC74\uAC15 2.65% \u00B7 \uC7A5\uAE30\uC694\uC591 0.35% \u00B7 \uACE0\uC6A9 0.90% \u00B7 \uC18C\uB4DD\uC138\u00B7\uC9C0\uBC29\uC18C\uB4DD\uC138 8.259% (\uD569 15.639%)"), modeBtn("simple", "\uAC04\uC774 \uACF5\uC81C\uC728 \uC9C1\uC811 \uC785\uB825", null), settings.deductionMode === "simple" ? svEl("div", {
+  }, modeBtn("statement", "\uBA85\uC138\uC11C \uC2E4\uCE21 \uC790\uB3D9 \uC801\uC6A9", "\uAD6D\uBBFC 195,510 \u00B7 \uAC74\uAC15 149,230 \u00B7 \uC7A5\uAE30\uC694\uC591 19,600 \uC815\uC561 \u00B7 \uACE0\uC6A9 0.9% \u00B7 \uC18C\uB4DD\uC138 \uAC04\uC774\uC138\uC561 \uCD94\uC815 \u00B7 \uC9C0\uBC29\uC18C\uB4DD\uC138 10%"), settings.deductionMode === "statement" ? svEl("div", {
+    className: "rounded-xl bg-white border border-slate-200 p-2 space-y-1.5",
+    "data-testid": "salary-fixed-deductions"
+  }, svEl("p", {
+    className: "text-[10px] font-bold text-slate-500"
+  }, "4\uB300\uBCF4\uD5D8 \uC815\uC561 (\uBA85\uC138\uC11C \uC2E4\uCE21 \u00B7 \uC9C1\uC811 \uC218\uC815 \uAC00\uB2A5)"), svEl("div", {
+    className: "grid grid-cols-3 gap-1.5"
+  }, SALARY_FIXED_DEDUCTIONS.map(it => svEl("div", {
+    key: it.key
+  }, svEl("label", {
+    className: "text-[9.5px] font-bold text-slate-500"
+  }, it.label), svEl("div", {
+    className: "mt-0.5"
+  }, numInput(settings[it.key] !== undefined ? settings[it.key] : it.amount, v => set({
+    [it.key]: v
+  }))))))) : null, modeBtn("simple", "\uAC04\uC774 \uACF5\uC81C\uC728 \uC9C1\uC811 \uC785\uB825", null), settings.deductionMode === "simple" ? svEl("div", {
     className: "flex items-center gap-2 pl-5"
   }, numInput(Math.round(salaryNum(settings.simpleRate) * 100) / 100, v => set({
     simpleRate: v
@@ -3006,7 +3123,7 @@ const renderSalaryModal = p => {
     className: "text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-extrabold"
   }, "\uC608\uC0C1")), svEl("p", {
     className: "text-[10.5px] text-slate-500 mt-0.5"
-  }, st.title, " \u00B7 \uAE09\uC5EC\uAE30\uC900 ", st.rangeLabel, " \u00B7 ", st.normalDays, "\uC77C \uC18C\uC815")), svEl("div", {
+  }, st.title, " \u00B7 \uAE09\uC5EC\uAE30\uC900 ", st.rangeLabel, " \u00B7 ", st.baseDays, "\uC77C \uC18C\uC815")), svEl("div", {
     className: "flex items-center gap-1 shrink-0"
   }, svEl("button", {
     onClick: p.onToggleHide,
@@ -3065,7 +3182,7 @@ const renderSalaryModal = p => {
     className: "text-[11px] font-bold text-slate-600"
   }, it.label, svEl("span", {
     className: "text-[9.5px] text-slate-400 font-bold ml-1"
-  }, salaryRateText(it.rate), "%"), st.mode === "simple" ? svEl("span", {
+  }, it.hint || (it.rate ? salaryRateText(it.rate) + "%" : "")), st.mode === "simple" ? svEl("span", {
     className: "text-[9.5px] text-slate-400 font-bold ml-1"
   }, "(\uC9C1\uC811 \uC785\uB825)") : null), svEl("span", {
     className: "text-[11.5px] font-extrabold text-rose-600"
