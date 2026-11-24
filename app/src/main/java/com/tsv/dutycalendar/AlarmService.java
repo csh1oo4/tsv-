@@ -6,7 +6,9 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ServiceInfo;
 import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
 import android.media.AudioManager;
 import android.media.MediaPlayer;
 import android.media.RingtoneManager;
@@ -68,6 +70,9 @@ public class AlarmService extends Service {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private int savedStreamVolume = -1;
     private int notificationId = NOTIFICATION_ID;
+    private AudioManager focusAudioManager;
+    private AudioFocusRequest focusRequest;
+    private AudioManager.OnAudioFocusChangeListener focusListener;
 
     private String alarmJson = "";
     private boolean soundOn = true;
@@ -84,9 +89,14 @@ public class AlarmService extends Service {
 
     // ------------------------------------------------------------- entry points
 
-    public static void start(Context context, String json) {
+    /**
+     * v2.5.4 — returns false when Android refused the foreground start, so the caller
+     * (AlarmReceiver) can still surface the alarm through a notification instead of
+     * failing silently and leaving the user with no ringing at all.
+     */
+    public static boolean start(Context context, String json) {
         if (context == null) {
-            return;
+            return false;
         }
         try {
             Intent intent = new Intent(context, AlarmService.class);
@@ -97,8 +107,10 @@ public class AlarmService extends Service {
             } else {
                 context.startService(intent);
             }
+            return true;
         } catch (Exception e) {
             Log.w(TAG, "AlarmService.start failed", e);
+            return false;
         }
     }
 
@@ -245,6 +257,13 @@ public class AlarmService extends Service {
         MediaPlayer mp = null;
         try {
             mp = new MediaPlayer();
+            // v2.5.4 — keep the CPU awake for the whole ringtone, not only while the
+            // service holds its own lock; some One UI builds doze the player first.
+            try {
+                mp.setWakeMode(context.getApplicationContext(), PowerManager.PARTIAL_WAKE_LOCK);
+            } catch (Exception wakeError) {
+                Log.w(TAG, "setWakeMode failed", wakeError);
+            }
             mp.setAudioAttributes(new AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_ALARM)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
@@ -296,24 +315,32 @@ public class AlarmService extends Service {
         String json = intent == null ? "" : intent.getStringExtra(EXTRA_ALARM_JSON);
         alarmJson = json == null ? "" : json;
 
+        // v2.5.4 — the notification id must be settled before startForeground(): the
+        // stop path cancels nm.cancel(notificationId) and a mismatched id left the
+        // 'ringing' notification behind after the alarm was dismissed.
+        String incomingId = "";
+        try {
+            incomingId = new JSONObject(alarmJson).optString("id", "");
+        } catch (Exception ignored) {
+            // treated as an unknown alarm below
+        }
+        notificationId = AlarmReceiver.notificationId(incomingId);
+
         // A foreground service must post its notification right away.
         Notification notification = buildNotification(alarmJson);
-        try {
-            startForeground(notificationId, notification);
-        } catch (Exception e) {
-            Log.w(TAG, "startForeground failed", e);
+        if (!postForeground(notificationId, notification)) {
+            Log.w(TAG, "could not enter foreground; ringing anyway");
         }
 
         // The receiver starts the service and AlarmActivity may start it again as a
         // safety net; only the first one should begin playing.
         if (ringing) {
-            String incoming = "";
-            try {
-                incoming = new JSONObject(alarmJson).optString("id", "");
-            } catch (Exception ignored) {
-                // treat as a different alarm below
+            String incoming = incomingId;
+            if (incoming.isEmpty()) {
+                Log.i(TAG, "already ringing, ignoring duplicate start");
+                return START_NOT_STICKY;
             }
-            if (incoming.isEmpty() || incoming.equals(ringingId)) {
+            if (incoming.equals(ringingId)) {
                 Log.i(TAG, "already ringing, ignoring duplicate start");
                 return START_NOT_STICKY;
             }
@@ -322,6 +349,31 @@ public class AlarmService extends Service {
 
         startRinging(alarmJson);
         return START_NOT_STICKY;
+    }
+
+    /**
+     * v2.5.4 — API 29+ (and Android 14's targetSdk 34 rules) need the foreground
+     * service type spelled out here; without it the alarm service can be killed or
+     * refused right after it starts, which is the '알람이 안 울린다' symptom.
+     */
+    private boolean postForeground(int id, Notification notification) {
+        try {
+            if (Build.VERSION.SDK_INT >= 29) {
+                startForeground(id, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+            } else {
+                startForeground(id, notification);
+            }
+            return true;
+        } catch (Exception e) {
+            Log.w(TAG, "startForeground(type) failed, retrying plain", e);
+            try {
+                startForeground(id, notification);
+                return true;
+            } catch (Exception second) {
+                Log.w(TAG, "startForeground failed", second);
+                return false;
+            }
+        }
     }
 
     private void startRinging(String json) {
@@ -338,6 +390,7 @@ public class AlarmService extends Service {
         notificationId = AlarmReceiver.notificationId(ringingId);
 
         acquireWakeLock();
+        requestAlarmAudioFocus();
         boostAlarmStreamIfNeeded();
 
         if (soundOn) {
@@ -397,6 +450,56 @@ public class AlarmService extends Service {
         }
     }
 
+    /**
+     * v2.5.4 — alarm audio is a request for transient exclusive focus: another app's
+     * music ducks instead of the alarm being mixed into silence.
+     */
+    private void requestAlarmAudioFocus() {
+        try {
+            focusAudioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            if (focusAudioManager == null) {
+                return;
+            }
+            focusListener = change -> Log.d(TAG, "alarm audio focus change " + change);
+            if (Build.VERSION.SDK_INT >= 26) {
+                AudioAttributes attributes = new AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build();
+                focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                        .setAudioAttributes(attributes)
+                        .setWillPauseWhenDucked(false)
+                        .setOnAudioFocusChangeListener(focusListener)
+                        .build();
+                focusAudioManager.requestAudioFocus(focusRequest);
+            } else {
+                //noinspection deprecation
+                focusAudioManager.requestAudioFocus(focusListener, AudioManager.STREAM_ALARM,
+                        AudioManager.AUDIOFOCUS_GAIN_TRANSIENT);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "alarm audio focus request failed", e);
+        }
+    }
+
+    private void abandonAlarmAudioFocus() {
+        try {
+            if (focusAudioManager != null) {
+                if (Build.VERSION.SDK_INT >= 26 && focusRequest != null) {
+                    focusAudioManager.abandonAudioFocusRequest(focusRequest);
+                } else if (focusListener != null) {
+                    //noinspection deprecation
+                    focusAudioManager.abandonAudioFocus(focusListener);
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "alarm audio focus abandon failed", e);
+        }
+        focusRequest = null;
+        focusListener = null;
+        focusAudioManager = null;
+    }
+
     private void acquireWakeLock() {
         try {
             PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
@@ -412,8 +515,8 @@ public class AlarmService extends Service {
     }
 
     /**
-     * If the phone's alarm stream is very low the ringtone would stay inaudible, so
-     * raise it to 70% while ringing and put the user's level back afterwards.
+     * If the phone's alarm stream is low the ringtone would stay inaudible, so raise it
+     * to 90% while ringing and put the user's level back afterwards.
      */
     private void boostAlarmStreamIfNeeded() {
         try {
@@ -423,9 +526,9 @@ public class AlarmService extends Service {
             }
             int max = am.getStreamMaxVolume(AudioManager.STREAM_ALARM);
             int current = am.getStreamVolume(AudioManager.STREAM_ALARM);
-            if (max > 0 && current * 100 < max * 55) {
+            if (max > 0 && current * 100 < max * 70) {
                 savedStreamVolume = current;
-                am.setStreamVolume(AudioManager.STREAM_ALARM, Math.round(max * 0.7f), 0);
+                am.setStreamVolume(AudioManager.STREAM_ALARM, Math.round(max * 0.9f), 0);
             }
         } catch (Exception e) {
             Log.w(TAG, "alarm stream boost failed", e);
@@ -473,6 +576,7 @@ public class AlarmService extends Service {
         }
         vibrator = null;
 
+        abandonAlarmAudioFocus();
         if (wakeLock != null) {
             try {
                 if (wakeLock.isHeld()) {

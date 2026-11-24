@@ -23,6 +23,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.PowerManager;
 import android.provider.CalendarContract;
 import android.provider.MediaStore;
 import android.provider.Settings;
@@ -800,9 +801,26 @@ public class MainActivity extends Activity {
      * special-access switch. Without them the alarm still exists but can ring late or
      * only as a heads-up, so the first time an alarm is scheduled we point the user at
      * the switch — once per install, never again after they decide.
+     *
+     * v2.5.4 adds the battery-optimization step: Samsung One UI dozes apps that are still
+     * 'optimized', and a dozed app neither rings on time nor keeps its alarm screen.
      */
     private void maybeAskAlarmPermissions() {
         SharedPreferences asked = getSharedPreferences(AlarmReceiver.PREFS, MODE_PRIVATE);
+
+        if (!isIgnoringBatteryOptimizations() && !asked.getBoolean("asked_battery_optimization", false)) {
+            asked.edit().putBoolean("asked_battery_optimization", true).apply();
+            new AlertDialog.Builder(this)
+                    .setTitle("알람이 제때 울리게 하려면")
+                    .setMessage("휴대폰 설정에서 이 앱을 '배터리 사용량 최적화 제외(제한 없음)'로 "
+                            + "지정하면, 화면이 꺼져 있거나 앱을 닫아 둬도 근무 알람이 제때 울립니다.\n"
+                            + "허용하지 않으면 알람이 늦거나 조용히 지나갈 수 있어요.")
+                    .setPositiveButton("설정 열기", (dialog, which) -> openSpecialAccess(
+                            "android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"))
+                    .setNegativeButton("나중에", null)
+                    .show();
+            return;
+        }
 
         if (Build.VERSION.SDK_INT >= 31) {
             AlarmManager am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
@@ -847,6 +865,17 @@ public class MainActivity extends Activity {
                         .setNegativeButton("나중에", null)
                         .show();
             }
+        }
+    }
+
+    /** True when this app is exempt from Doze battery optimization (API 23+). */
+    private boolean isIgnoringBatteryOptimizations() {
+        try {
+            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            return pm != null && pm.isIgnoringBatteryOptimizations(getPackageName());
+        } catch (Exception e) {
+            Log.w(TAG, "isIgnoringBatteryOptimizations failed", e);
+            return true; // never nag the user because of a failed lookup
         }
     }
 
@@ -1382,6 +1411,9 @@ public class MainActivity extends Activity {
     /** JS-facing API: window.AndroidAlarm.* */
     public class AlarmBridge {
 
+        /** v2.5.4 — the same alarm must not be fired twice by two near-simultaneous calls. */
+        private volatile long lastFireAlarmNowMs = 0L;
+
         /**
          * Replaces the whole native alarm schedule. The page sends the occurrences it
          * already filtered to the next 30 days as a JSON array of
@@ -1436,6 +1468,52 @@ public class MainActivity extends Activity {
                     }
                 }
             });
+        }
+
+        /**
+         * v2.5.4 — "지금 울리기". The web page's 1-second timer used to show a silent
+         * modal of its own when the alarm minute arrived; now it hands the same alarm to
+         * this method, and the real AlarmService rings with sound and vibration.
+         * A ringing alarm is left alone, and the same alarm id as the scheduled
+         * occurrence means the AlarmManager copy of this alarm is ignored as a duplicate.
+         */
+        @JavascriptInterface
+        public void fireAlarmNow(String json) {
+            try {
+                JSONObject spec = new JSONObject(json == null || json.trim().isEmpty()
+                        ? "{}" : json);
+                long now = System.currentTimeMillis();
+                if (AlarmService.isRinging()) {
+                    Log.i(TAG, "fireAlarmNow ignored: already ringing " + AlarmService.ringingId());
+                    return;
+                }
+                if (now - lastFireAlarmNowMs < 1000L) {
+                    Log.i(TAG, "fireAlarmNow ignored: duplicate call within a second");
+                    return;
+                }
+                lastFireAlarmNowMs = now;
+                if (spec.optString("id", "").trim().isEmpty()) {
+                    spec.put("id", "now_" + now);
+                }
+                spec.put("triggerAtMs", now);
+                AlarmReceiver.ensureChannel(MainActivity.this);
+                String payload = spec.toString();
+                boolean started = AlarmService.start(MainActivity.this, payload);
+                if (!started) {
+                    Log.w(TAG, "fireAlarmNow: AlarmService refused to start");
+                }
+                Intent activity = new Intent(MainActivity.this, AlarmActivity.class);
+                activity.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                activity.putExtra(AlarmReceiver.EXTRA_ALARM_JSON, payload);
+                activity.putExtra(AlarmReceiver.EXTRA_FIRED, true);
+                try {
+                    startActivity(activity);
+                } catch (Exception activityError) {
+                    Log.w(TAG, "fireAlarmNow: AlarmActivity start refused", activityError);
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "AndroidAlarm.fireAlarmNow failed", e);
+            }
         }
 
         /**
@@ -1690,10 +1768,10 @@ public class MainActivity extends Activity {
             try {
                 String version = getPackageManager()
                         .getPackageInfo(getPackageName(), 0).versionName;
-                return version == null || version.trim().isEmpty() ? "2.4.3" : version;
+                return version == null || version.trim().isEmpty() ? "2.5.4" : version;
             } catch (Exception e) {
                 Log.w(TAG, "getAppVersion failed", e);
-                return "2.4.3";
+                return "2.5.4";
             }
         }
 

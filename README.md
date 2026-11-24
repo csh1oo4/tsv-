@@ -31,6 +31,7 @@ A third bridge, `window.AndroidAlarm`, carries the shift alarms to the platform:
 | method | purpose |
 | --- | --- |
 | `scheduleAlarms(json): void` | replaces the whole native alarm schedule from a JSON array of `{id, triggerAtMs, label, gameEnabled, gameDifficulty, gameCount, sound, vibrate}` |
+| `fireAlarmNow(json): void` | v2.5.4 — rings that alarm right now through `AlarmService` (sound + vibration) and opens `AlarmActivity`; ignored while an alarm is already ringing |
 | `cancelAlarms(): void` | clears the schedule |
 
 The repository stores that list and keeps `AlarmManager` in sync with it
@@ -167,6 +168,42 @@ time** (no `text/babel`, no Babel at runtime), so the app still starts with no n
 - 검증: `tmp/v251/check251.py`가 v2.4 회귀 84종 + v2.5 기능(설비공유·급여기준·기상나팔 브리지)
   + v2.5.1 신규(키패드 시/분 포커스·덮어쓰기 단위/렌더, 설정 탭 순서·삭제 요소 부재, MP3/WAV
   리소스)를 전수 통과.
+
+## v2.5.4 — 알람 무음·미발동 수정(웹 타이머가 네이티브 알람을 울린다)
+
+`versionCode 24`, `versionName 2.5.4`. 승현 님 보고("교대근무 어플 알람이 안울리는 문제가 있어
+앱 들어갔을때먼 내부적으로 팝업은 뜨는데 소리 안나 문제점 수정해줘")에 대한 수정이다.
+
+- **🔔 원인** — 앱 안에서 알람 시각이 되면 `index.html`의 1초 타이머가 웹 모달(`setRingingAlarm`)만
+  띄웠다. 웹 모달에는 소리 재생 코드가 아예 없어서 '팝업은 뜨는데 무음'이었다. 백그라운드 쪽도
+  `AlarmReceiver.onReceive()`가 깨어난 직후 CPU가 다시 잠들 수 있었고, `AlarmService`의
+  `startForeground()`에 서비스 타입을 넘기지 않아 targetSdk 34 기기에서 포그라운드 승격이
+  거절될 여지가 있었다.
+- **📲 웹 타이머 → 네이티브 직행** — `AndroidAlarm` 브리지가 있으면(앱) 타이머가 모달을 띄우지 않고
+  `window.AndroidAlarm.fireAlarmNow(JSON.stringify(spec))`를 호출해 실제 `AlarmService`가 소리·진동으로
+  울린다. 스펙 id는 예약 알람과 같은 `알람id_날짜` 형식이라, 같은 분에 AlarmManager 쪽 예약도 같이
+  도착해도 `AlarmService`가 같은 id를 중복으로 보고 무시한다. 같은 분에 1초 타이머가 여러 번 돌지
+  않도록 `firedAlarmMinuteRef` 가드도 넣었다. 웹 미리보기(APK 아님)에서는 모달이 뜨는 동안
+  Web Audio 차임이 울리고, `알람 끄기`/게임 성공으로 닫으면 즉시 멈춘다(`startWebAlarmSound`·
+  `stopWebAlarmSound`).
+- **⏰ AlarmReceiver** — `onReceive()` 진입 즉시 `PARTIAL_WAKE_LOCK`(15초)을 잡아 서비스가 뜨기 전에
+  CPU가 잠들지 않게 하고, `AlarmService.start()`가 boolean을 돌려주도록 바꿔 실패하면 풀스크린
+  알림(`postFallbackNotification`)으로 최소한 알람 화면은 뜨게 했다. 웨이크락은 1.5초 뒤 해제한다.
+- **🔊 AlarmService** — `startForeground()` 전에 `AlarmReceiver.notificationId(id)`로 알림 id를 먼저
+  확정(끄고 나서 알림이 남던 id 불일치 제거), API 29+는
+  `FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK` 타입을 명시. `MediaPlayer.setWakeMode(PARTIAL_WAKE_LOCK)`,
+  `requestAudioFocus(USAGE_ALARM, AUDIOFOCUS_GAIN_TRANSIENT)`(+종료 시 `abandonAudioFocus`),
+  알람 스트림이 70% 미만이면 90%로 올렸다가 끌 때 원래대로 복구.
+- **🔋 배터리 최적화 안내** — `maybeAskAlarmPermissions()`가
+  `PowerManager.isIgnoringBatteryOptimizations()`가 false면 1회성으로 '배터리 사용량 최적화
+  제외(제한 없음)' 설정 안내를 띄운다(`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` 권한 추가). 삼성 One UI
+  절전에서 앱이 잠들어 알람이 늦거나 조용히 지나가는 것을 막는다.
+- versionCode 24 / versionName 2.5.4, 고정 서명 키(`app/tsv-duty-fixed.p12`) 그대로라 덮어쓰기
+  설치된다. 웹앱 `APP_VERSION`도 2.5.4, `getAppVersion()` 폴백도 2.5.4.
+- 검증: `tmp/v254/check254.py` — <script> 7블록 파싱 + v2.4 UI 회귀 + V8 기능(발사 스펙·앱/웹 분기·
+  웹 알람음 재생/정지/무음·근무 불일치) + Java 계약(웨이크락·포그라운드 타입·오디오 포커스·볼륨
+  상향·fireAlarmNow·배터리 최적화) + `javalang` Java 구문 11파일 **81/81 통과**. 에뮬레이터가 없어
+  실기기 알람 소리·진동은 미검증이다.
 
 ## v2.5.3 — 오프라인 캐시 저장(게시판·설비공유가 끊겨도 그대로)
 

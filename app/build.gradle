@@ -10,8 +10,8 @@ android {
         applicationId "com.tsv.dutycalendar"
         minSdk 24
         targetSdk 34
-        versionCode 23
-        versionName "2.5.3"
+        versionCode 24
+        versionName "2.5.4"
     }
 
     // Fixed debug key: keeps the signing certificate identical across every build so

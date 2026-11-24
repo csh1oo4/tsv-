@@ -12,6 +12,9 @@ import android.content.SharedPreferences;
 import android.media.AudioAttributes;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.PowerManager;
 import android.util.Log;
 
 import org.json.JSONArray;
@@ -373,6 +376,95 @@ public class AlarmReceiver extends BroadcastReceiver {
         nm.createNotificationChannel(channel);
     }
 
+    /**
+     * v2.5.4 — held for a few seconds from the moment the alarm is delivered.
+     * AlarmManager wakes the CPU only long enough to call onReceive(); without this the
+     * device could go back to sleep before AlarmService's own wake lock is in place,
+     * which is one way an alarm ends up silent or never rings.
+     */
+    private static volatile PowerManager.WakeLock fireWakeLock;
+
+    private static void acquireFireWakeLock(Context context) {
+        try {
+            PowerManager pm = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
+            if (pm == null) {
+                return;
+            }
+            PowerManager.WakeLock lock = fireWakeLock;
+            if (lock != null && lock.isHeld()) {
+                return;
+            }
+            lock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "tsv:duty-alarm-fire");
+            lock.setReferenceCounted(false);
+            lock.acquire(15L * 1000L);
+            fireWakeLock = lock;
+        } catch (Exception e) {
+            Log.w(TAG, "fire wake lock failed", e);
+        }
+    }
+
+    private static void releaseFireWakeLockAfter(long delayMs) {
+        final PowerManager.WakeLock lock = fireWakeLock;
+        if (lock == null) {
+            return;
+        }
+        fireWakeLock = null;
+        try {
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                try {
+                    if (lock.isHeld()) {
+                        lock.release();
+                    }
+                } catch (Exception ignored) {
+                    // already released by its timeout
+                }
+            }, Math.max(500L, delayMs));
+        } catch (Exception e) {
+            Log.w(TAG, "fire wake lock release failed", e);
+        }
+    }
+
+    /** Last-resort notification when the alarm service could not be started. */
+    private static void postFallbackNotification(Context context, String json) {
+        try {
+            NotificationManager nm =
+                    (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm == null) {
+                return;
+            }
+            String label = "근무 알람";
+            try {
+                label = new JSONObject(json == null ? "{}" : json).optString("label", label);
+            } catch (Exception ignored) {
+                // keep the default label
+            }
+            Intent open = new Intent(context, AlarmActivity.class);
+            open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            open.putExtra(EXTRA_ALARM_JSON, json);
+            open.putExtra(EXTRA_FIRED, true);
+            PendingIntent pi = PendingIntent.getActivity(context, notificationId(label + "_fallback"),
+                    open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            Notification.Builder builder = Build.VERSION.SDK_INT >= 26
+                    ? new Notification.Builder(context, CHANNEL_ID)
+                    : new Notification.Builder(context);
+            builder.setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+                    .setContentTitle(label)
+                    .setContentText("알람 화면을 열어 주세요")
+                    .setCategory(Notification.CATEGORY_ALARM)
+                    .setVisibility(Notification.VISIBILITY_PUBLIC)
+                    .setOngoing(true)
+                    .setAutoCancel(true)
+                    .setContentIntent(pi)
+                    .setFullScreenIntent(pi, true);
+            if (Build.VERSION.SDK_INT < 26) {
+                builder.setPriority(Notification.PRIORITY_MAX);
+            }
+            nm.notify(notificationId(label + "_fallback"), builder.build());
+        } catch (Exception e) {
+            Log.w(TAG, "fallback notification failed", e);
+        }
+    }
+
     static int notificationId(String id) {
         return id == null ? 730001 : 730000 + (id.hashCode() & 0xFFFF);
     }
@@ -406,9 +498,17 @@ public class AlarmReceiver extends BroadcastReceiver {
 
         ensureChannel(context);
 
+        // 0) v2.5.4 — hold the CPU awake until the ringing service is up.
+        acquireFireWakeLock(context);
+
         // 1) The sound lives in the foreground service: this start is allowed from an
-        //    alarm delivery and does not need a background Activity launch.
-        AlarmService.start(context, json);
+        //    alarm delivery and does not need a background Activity launch. If Android
+        //    still refuses it, a full-screen notification at least surfaces the alarm.
+        boolean serviceStarted = AlarmService.start(context, json);
+        if (!serviceStarted) {
+            Log.w(TAG, "AlarmService refused to start; posting fallback notification");
+            postFallbackNotification(context, json);
+        }
 
         // 2) Wake the screen with the alarm screen when the system lets us; the
         //    notification's full-screen intent is the fallback.
@@ -421,5 +521,7 @@ public class AlarmReceiver extends BroadcastReceiver {
         } catch (Exception e) {
             Log.w(TAG, "AlarmActivity start refused; full-screen intent takes over", e);
         }
+
+        releaseFireWakeLockAfter(serviceStarted ? 1500L : 500L);
     }
 }

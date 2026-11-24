@@ -531,7 +531,7 @@ const {
   useRef,
   useMemo
 } = React;
-const APP_VERSION = "2.5.3";
+const APP_VERSION = "2.5.4";
 
 // 🔊 앱 효과음 — 외부 오디오 파일 없이 Web Audio API로 만드는 짧은 소리
 const SFX_STORAGE_KEY = "todaywork_v33_sound";
@@ -1740,6 +1740,72 @@ const alarmSoundLabel = alarm => {
   const found = ALARM_SOUNDS.find(s => s.id === a.soundId);
   return found ? found.name : "기본 알람음";
 };
+
+/* ---------------------------------------------------------------- v2.5.4 알람 소리
+   앱(APK)에서는 네이티브 AlarmService가 USAGE_ALARM으로 울리므로 웹 쪽은 조용히 있고,
+   웹 미리보기(index.html을 브라우저에서 열었을 때)에서는 이 Web Audio 벨이 대신 울린다.
+   예전에는 웹 타이머가 모달만 띄우고 소리가 없어 '팝업은 뜨는데 무음'이었다. */
+const webAlarmAudio = {
+  ctx: null,
+  timer: null
+};
+const stopWebAlarmSound = () => {
+  if (webAlarmAudio.timer) {
+    try {
+      clearInterval(webAlarmAudio.timer);
+    } catch (e) {}
+    webAlarmAudio.timer = null;
+  }
+  const ctx = webAlarmAudio.ctx;
+  webAlarmAudio.ctx = null;
+  if (ctx) {
+    try {
+      ctx.close();
+    } catch (e) {}
+  }
+};
+const startWebAlarmSound = alarm => {
+  stopWebAlarmSound();
+  // 앱에서는 네이티브 알람이 소리를 맡는다(두 번 울리지 않게 웹은 무음).
+  if (typeof window.AndroidAlarm !== "undefined" && window.AndroidAlarm !== null) return;
+  const a = normalizeAlarm(alarm);
+  if (a.soundEnabled === false) return;
+  const AudioCtor = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtor) return;
+  let ctx = null;
+  try {
+    ctx = new AudioCtor();
+  } catch (e) {
+    return;
+  }
+  const level = Math.max(0.1, Math.min(1, (Number(a.volume) || 80) / 100)) * 0.5;
+  const ring = () => {
+    if (!ctx || ctx.state === "closed") return;
+    try {
+      const now = ctx.currentTime;
+      // 올라가는 세 음 차임을 1.4초마다 반복해 알람처럼 들리게 한다.
+      [[1046, 0], [1318, 0.18], [1568, 0.36]].forEach(pair => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(pair[0], now + pair[1]);
+        gain.gain.setValueAtTime(0.0001, now + pair[1]);
+        gain.gain.exponentialRampToValueAtTime(level, now + pair[1] + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + pair[1] + 0.28);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + pair[1]);
+        osc.stop(now + pair[1] + 0.32);
+      });
+    } catch (e) {}
+  };
+  try {
+    if (ctx.state === "suspended") ctx.resume();
+  } catch (e) {}
+  webAlarmAudio.ctx = ctx;
+  ring();
+  webAlarmAudio.timer = setInterval(ring, 1400);
+};
 const INITIAL_ALARMS = [normalizeAlarm({
   id: "al1",
   time: "06:40",
@@ -2618,6 +2684,7 @@ function App() {
   const [alarmModalOpen, setAlarmModalOpen] = useState(false);
   const [editingAlarm, setEditingAlarm] = useState(null);
   const [ringingAlarm, setRingingAlarm] = useState(null);
+  const firedAlarmMinuteRef = useRef(""); // v2.5.4 — 같은 분에 알람이 여러 번 울리지 않게
   const [gameChallenge, setGameChallenge] = useState(null);
   const [gameUserAnswer, setGameUserAnswer] = useState("");
   const [gameOrderStep, setGameOrderStep] = useState(1);
@@ -3284,18 +3351,59 @@ function App() {
     subOverrides
   }), [viewDate, myGroupId, groups, pattern, anchorDate, overrides, subOverrides]);
 
-  // 알람 울림 & 게임 생성 (v2.4 — 사칙연산·따라쓰기·숫자·색깔·랜덤)
-  const triggerAlarmTest = alarm => {
+  // 알람 하나를 네이티브(AlarmService)로 넘길 때 쓰는 스펙 (v2.5.4)
+  const buildAlarmFireSpec = (alarm, dateKey) => {
     const a = normalizeAlarm(alarm);
-    const todayShift = getShiftForGroupDate(myGroupId, selectedDateKey);
+    const key = dateKey || formatDateKey(new Date());
+    const shift = getShiftForGroupDate(myGroupId, key);
+    const sub = getSubShiftForGroupDate(myGroupId, key);
+    const badge = sub === "특근" ? shift === "야" ? "야특" : "주특" : shift;
+    return {
+      id: `${a.id}_${key}`,
+      triggerAtMs: Date.now(),
+      label: `${a.label || "근무 알람"} (${badge})`,
+      shift: badge,
+      time: a.time,
+      gameEnabled: !!a.gameEnabled,
+      gameType: a.gameType,
+      gameDifficulty: a.difficulty,
+      gameCount: 1,
+      sound: !!a.soundEnabled,
+      vibrate: !!a.vibrate,
+      volume: a.volume,
+      soundType: a.soundType,
+      soundId: a.soundId,
+      soundUri: a.soundUri,
+      autoOff: a.autoOff,
+      repeat: !!a.repeat,
+      cheer: a.cheer
+    };
+  };
+
+  // 울림·게임 테스트
+  // v2.5.4 — 앱에서는 웹 모달 대신 네이티브 알람(소리·진동)을 직접 울리고,
+  // 웹 미리보기에서만 모달을 띄운다(모달이 뜨는 동안 소리는 startWebAlarmSound가 맡는다).
+  const triggerAlarmTest = (alarm, options) => {
+    const opts = options || {};
+    const dateKey = opts.dateKey || selectedDateKey;
+    const a = normalizeAlarm(alarm);
+    const todayShift = getShiftForGroupDate(myGroupId, dateKey);
     const baseShift = todayShift === "주특" ? "주" : todayShift === "야특" ? "야" : todayShift;
     const allowed = a.shifts.some(code => {
       const c = code === "주특" ? "주" : code === "야특" ? "야" : code;
       return c === baseShift || c === todayShift;
     });
-    if (!allowed) {
-      notify(`선택일(${selectedDateKey})은 '${todayShift}' 근무이므로 알람이 울리지 않습니다.`);
+    if (!allowed && !opts.force) {
+      notify(`선택일(${dateKey})은 '${todayShift}' 근무이므로 알람이 울리지 않습니다.`);
       return;
+    }
+    if (hasAndroidAlarm() && typeof window.AndroidAlarm.fireAlarmNow === "function") {
+      try {
+        window.AndroidAlarm.fireAlarmNow(JSON.stringify(buildAlarmFireSpec(a, dateKey)));
+        return;
+      } catch (e) {
+        console.warn("fireAlarmNow failed, falling back to the web alarm", e);
+      }
     }
     setRingingAlarm({
       id: a.id,
@@ -3329,12 +3437,25 @@ function App() {
           return c === baseShift || c === todayShift;
         });
       });
-      if (matched && !ringingAlarm) {
-        triggerAlarmTest(matched);
-      }
+      if (!matched) return;
+      if (ringingAlarm) return;
+      // 1초 타이머가 초 0·1·2에 세 번 돌아도 이번 분에는 한 번만 울린다
+      const minuteKey = `${todayKey}_${nowStr}_${matched.id || ""}`;
+      if (firedAlarmMinuteRef.current === minuteKey) return;
+      firedAlarmMinuteRef.current = minuteKey;
+      triggerAlarmTest(matched, { force: true, dateKey: todayKey });
     }, 1000);
     return () => clearInterval(timer);
   }, [alarms, myGroupId, ringingAlarm, pattern, anchorDate, groups, overrides]);
+
+  // 웹 미리보기에서 알람 모달이 떠 있는 동안은 소리를 내고, 끄면 바로 멈춘다 (v2.5.4)
+  useEffect(() => {
+    if (ringingAlarm) {
+      startWebAlarmSound(ringingAlarm);
+    } else {
+      stopWebAlarmSound();
+    }
+  }, [ringingAlarm]);
 
   // 앱 업데이트 실행
   const handleAppUpdate = () => {
@@ -3923,10 +4044,12 @@ function App() {
     notify("5초 뒤 테스트 알람이 울립니다 (웹 미리보기)");
     setTimeout(() => {
       setRingingAlarm({
+        id: "web_test",
         time: base.time,
         label: "테스트 알람",
         cheer: base.cheer,
-        soundEnabled: false
+        volume: base.volume,
+        soundEnabled: base.soundEnabled
       });
       setGameChallenge(base.gameEnabled ? makeGameChallenge(base.gameType, base.difficulty, base.cheer) : null);
       resetGameAnswer();
