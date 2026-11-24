@@ -1497,20 +1497,24 @@ public class MainActivity extends Activity {
                 }
                 spec.put("triggerAtMs", now);
                 AlarmReceiver.ensureChannel(MainActivity.this);
-                String payload = spec.toString();
+                final String payload = spec.toString();
                 boolean started = AlarmService.start(MainActivity.this, payload);
                 if (!started) {
                     Log.w(TAG, "fireAlarmNow: AlarmService refused to start");
                 }
-                Intent activity = new Intent(MainActivity.this, AlarmActivity.class);
-                activity.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                activity.putExtra(AlarmReceiver.EXTRA_ALARM_JSON, payload);
-                activity.putExtra(AlarmReceiver.EXTRA_FIRED, true);
-                try {
-                    startActivity(activity);
-                } catch (Exception activityError) {
-                    Log.w(TAG, "fireAlarmNow: AlarmActivity start refused", activityError);
-                }
+                // The bridge runs on the WebView's JS thread; only the UI thread may
+                // start an Activity.
+                runOnUiThread(() -> {
+                    Intent activity = new Intent(MainActivity.this, AlarmActivity.class);
+                    activity.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                    activity.putExtra(AlarmReceiver.EXTRA_ALARM_JSON, payload);
+                    activity.putExtra(AlarmReceiver.EXTRA_FIRED, true);
+                    try {
+                        startActivity(activity);
+                    } catch (Exception activityError) {
+                        Log.w(TAG, "fireAlarmNow: AlarmActivity start refused", activityError);
+                    }
+                });
             } catch (Exception e) {
                 Log.w(TAG, "AndroidAlarm.fireAlarmNow failed", e);
             }
