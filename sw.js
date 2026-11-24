@@ -57,6 +57,9 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return; // Firebase·Open-Meteo 등은 그대로 통과
 
+  // 미리보기(/preview/)는 이 SW가 가로채지 않는다 — 프리뷰 페이지는 자체 SW(scope ./preview/)를 쓴다
+  if (url.pathname.includes("/preview/")) return;
+
   // 화면(문서) 요청은 항상 index.html 하나로 수렴 (해시 라우팅 앱)
   if (request.mode === "navigate") {
     event.respondWith(networkFirst("./index.html"));
