@@ -8427,5 +8427,13 @@ function App() {
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(/*#__PURE__*/React.createElement(App, null));
   </script>
+  <script>
+    /* 프리뷰 전용 Service Worker — scope 를 ./ (= /preview/) 로 제한해 루트 앱과 섞이지 않게 한다 */
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", function () {
+        navigator.serviceWorker.register("./sw.js", { scope: "./" }).catch(function () {});
+      });
+    }
+  </script>
 </body>
 </html>
