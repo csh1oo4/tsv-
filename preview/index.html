@@ -4100,10 +4100,18 @@ const OnboardingScreen = p => {
       name: name.trim()
     };
     if (saveOptional) {
-      patch.annualLeaveDays = svLeaveRound(leave);
+      // 빈 칸은 0으로 덮지 않고 지금 값을 그대로 둔다(연차를 실수로 0일로 날리는 일 방지)
+      const leaveRaw = String(leave === null || leave === undefined ? "" : leave).trim();
+      const baseRaw = String(baseHourly === null || baseHourly === undefined ? "" : baseHourly).trim();
+      const normalRaw = String(normalHourly === null || normalHourly === undefined ? "" : normalHourly).trim();
+      patch.annualLeaveDays = leaveRaw === "" ? svLeaveRound(p.annualLeaveDays) : svLeaveRound(leaveRaw);
+      const prevSalary = {
+        baseHourly: p.baseHourly,
+        normalHourly: p.normalHourly
+      };
       patch.salary = {
-        baseHourly: Math.max(0, Math.round(salaryNum(baseHourly))),
-        normalHourly: Math.max(0, Math.round(salaryNum(normalHourly)))
+        baseHourly: baseRaw === "" ? Math.round(salaryNum(prevSalary.baseHourly)) : Math.max(0, Math.round(salaryNum(baseRaw))),
+        normalHourly: normalRaw === "" ? Math.round(salaryNum(prevSalary.normalHourly)) : Math.max(0, Math.round(salaryNum(normalRaw)))
       };
     }
     p.onComplete(patch);
