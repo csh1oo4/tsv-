@@ -2957,12 +2957,20 @@ const renderSalaryCard = p => {
     className: "text-[23px] leading-none font-extrabold tracking-tight text-blue-700",
     "data-testid": "salary-net"
   }, money(st.net))), hidden ? null : svEl("span", {
-    className: "mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10.5px] text-slate-500 font-bold"
-  }, svEl("span", null, "\uC138\uC804 ", salaryWon(st.gross), "\uC6D0"), svEl("span", {
-    className: "text-slate-300"
-  }, "\u00B7"), svEl("span", null, "\uACF5\uC81C ", salaryWon(st.deductionTotal), "\uC6D0"), svEl("span", {
-    className: "text-slate-300"
-  }, "\u00B7"), svEl("span", null, st.earlyLeaveDays.length, "\uC77C \uC870\uD1F4 \uBC18\uC601")), svEl("span", {
+    className: "mt-2 flex items-end justify-between gap-2 rounded-xl bg-white border border-blue-200 px-3 py-2",
+    "data-testid": "salary-gross-row"
+  }, svEl("span", {
+    className: "min-w-0"
+  }, svEl("span", {
+    className: "block text-[10.5px] font-extrabold text-slate-500"
+  }, "\uC138\uC804 (\uC9C0\uAE09\uD569\uACC4)"), svEl("span", {
+    className: "mt-0.5 block text-[19px] leading-none font-extrabold tracking-tight text-slate-900",
+    "data-testid": "salary-gross"
+  }, money(st.gross))), svEl("span", {
+    className: "text-right text-[10.5px] font-bold text-slate-500 whitespace-nowrap"
+  }, "\uACF5\uC81C ", hidden ? "\u2022\u2022\u2022" : `${salaryWon(st.deductionTotal)}\uC6D0`, st.earlyLeaveDays.length > 0 ? svEl("span", {
+    className: "mt-0.5 block text-[10px] font-extrabold text-orange-600"
+  }, "\uC870\uD1F4 ", st.earlyLeaveDays.length, "\uC77C \uBC18\uC601") : null)), svEl("span", {
     className: "mt-2 flex items-center justify-between gap-2 rounded-xl bg-white border border-blue-100 px-3 py-2"
   }, svEl("span", {
     className: "text-[10.5px] font-bold text-slate-500"
@@ -3019,7 +3027,7 @@ const renderSalarySettings = p => {
     className: "flex items-center justify-between gap-2"
   }, svEl("div", null, svEl("h3", {
     className: "text-sm font-extrabold text-slate-900"
-  }, "\uD83D\uDCB0 \uAE09\uC5EC \uACC4\uC0B0\uAE30"), svEl("p", {
+  }, p.title || "\uD83D\uDCB0 \uAE09\uC5EC \uACC4\uC0B0\uAE30"), svEl("p", {
     className: "text-[10.5px] text-slate-500 mt-0.5"
   }, "\uAE09\uC5EC\uAE30\uC900 ", st ? st.rangeLabel : "", " \u00B7 \uC774 \uAE30\uAE30 \uBE0C\uB77C\uC6B0\uC800\uC5D0\uB9CC \uC800\uC7A5"))), svEl("div", {
     className: "grid grid-cols-2 gap-2"
@@ -3137,8 +3145,20 @@ const renderSalaryModal = p => {
   }, "\u2715"))), svEl("div", {
     className: "px-5 py-3 space-y-4"
   }, svEl("div", {
-    className: "grid grid-cols-3 gap-1.5"
-  }, box("\uC9C0\uAE09\uD569\uACC4", money(st.gross), "bg-blue-50 text-blue-800 border border-blue-100"), box("\uACF5\uC81C\uD569\uACC4", money(st.deductionTotal), "bg-rose-50 text-rose-700 border border-rose-100"), box("\uCC28\uC778\uC9C0\uAE09\uC561", money(st.net), "bg-slate-900 text-white")), svEl("div", {
+    className: "rounded-2xl bg-gradient-to-r from-blue-600 to-blue-500 text-white px-3.5 py-3 flex items-end justify-between gap-2",
+    "data-testid": "salary-modal-gross-row"
+  }, svEl("div", {
+    className: "min-w-0"
+  }, svEl("div", {
+    className: "text-[10.5px] font-extrabold text-blue-100"
+  }, "\uC9C0\uAE09\uD569\uACC4 (\uC138\uC804)"), svEl("div", {
+    className: "mt-1 text-[22px] leading-none font-extrabold tracking-tight",
+    "data-testid": "salary-modal-gross"
+  }, money(st.gross))), svEl("div", {
+    className: "text-right text-[10px] font-bold text-blue-100/90"
+  }, st.baseDays, "\uC77C \uC18C\uC815 \u00B7 ", st.totalDays, "\uC77C \uAE30\uAC04")), svEl("div", {
+    className: "grid grid-cols-2 gap-1.5"
+  }, box("\uACF5\uC81C\uD569\uACC4", money(st.deductionTotal), "bg-rose-50 text-rose-700 border border-rose-100"), box("\uCC28\uC778\uC9C0\uAE09\uC561", money(st.net), "bg-slate-900 text-white")), svEl("div", {
     className: "rounded-2xl border border-slate-200 overflow-hidden"
   }, svEl("div", {
     className: "px-3 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between"
@@ -3165,8 +3185,8 @@ const renderSalaryModal = p => {
   }, svEl("span", {
     className: "text-[11px] font-extrabold text-blue-800"
   }, "\uC9C0\uAE09\uD569\uACC4"), svEl("span", {
-    className: "text-[13px] font-extrabold text-blue-800",
-    "data-testid": "salary-modal-gross"
+    className: "text-[16px] font-extrabold text-blue-800",
+    "data-testid": "salary-modal-gross-footer"
   }, money(st.gross)))), svEl("div", {
     className: "rounded-2xl border border-slate-200 overflow-hidden"
   }, svEl("div", {
@@ -3231,7 +3251,11 @@ const renderSalaryModal = p => {
   }) : svEl("button", {
     onClick: p.onToggleSettings,
     className: "w-full py-2.5 rounded-xl bg-slate-100 text-[11.5px] font-extrabold text-slate-700"
-  }, "\u2699 \uAE09\uC5EC \uACC4\uC0B0\uAE30 \uC124\uC815 (\uC2DC\uAE09\u00B7\uACF5\uC81C \uBC29\uC2DD)"), svEl("p", {
+  }, "\u2699 \uAE09\uC5EC \uACC4\uC0B0\uAE30 \uC124\uC815 (\uC2DC\uAE09\u00B7\uACF5\uC81C \uBC29\uC2DD)"), svEl("button", {
+    onClick: p.onOpenCompare,
+    "data-testid": "salary-open-compare",
+    className: "w-full py-2.5 rounded-xl bg-white border border-slate-200 text-[11.5px] font-extrabold text-slate-700"
+  }, "\uD83D\uDCF8 \uADFC\uD0DC\uD45C \uC0AC\uC9C4 \uB300\uC870 \u2192 \uC124\uC815 \uAE09\uC5EC \uACC4\uC0B0\uAE30"), svEl("p", {
     className: "text-[10px] leading-relaxed text-slate-400 pb-1"
   }, "\u203B \uC774 \uACC4\uC0B0\uAE30\uB294 \uCC38\uACE0\uC6A9 \uC608\uC0C1\uCE58\uC785\uB2C8\uB2E4. \uC2E4\uC81C \uAE09\uC5EC\uB294 \uD68C\uC0AC \uADFC\uD0DC\u00B7\uC218\uB2F9 \uACC4\uC0B0 \uAE30\uC900\uC5D0 \uB530\uB77C \uB2EC\uB77C\uC9C8 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uC785\uB825\uD55C \uAE09\uC5EC \uC815\uBCF4\uB294 \uC774 \uAE30\uAE30 \uBE0C\uB77C\uC6B0\uC800\uC5D0\uB9CC \uC800\uC7A5\uB418\uACE0 \uC11C\ubc84\uB85c \uC804\uC1A1\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."))));
 };
@@ -3305,6 +3329,602 @@ const renderEarlyLeaveBlock = p => {
   }, dayInfo.label, hourLine ? ` \u2192 ${hourLine}` : " \u2192 \uC5F0\uC7A5\uC218\uB2F9 \uC5C6\uC74C", dayInfo.sub === "\uBC18\uCC28" ? " \u00B7 \uBC18\uCC28\uB294 4\uC2DC\uAC04 \uCC28\uAC10\uC73C\uB85C \uACC4\uC0B0\uB429\uB2C8\uB2E4." : ""));
 };
 
+/* ─────────────── v2.6-preview · 설정 탭 상위 메뉴(정보입력 · 급여 계산기) + 연차 일수 ───────────────
+   2026-11-26 승현 님 요청:
+     · "설정에 앱업데이트는 항상 최상단에 위치"
+     · "설정에서 앱업데이트 다음 메뉴로 정보입력이라는 상위 메뉴 … 회사/현장명, 본인근무조 선택,
+        실시간 공유, 근무패턴주기, 연차일수 넣어줘"
+     · "설정에서 급여 계산기 상위 메뉴를 만들어서 클릭하면 상세 입력란 나오게 (설정에 너무 다 나열돼서 복잡함)"
+     · "연차 일수 입력란을 만들고 연차 사용하면 남는 횟수 표시해줘"
+   두 상위 메뉴는 접이식(기본 접힘)이고, 접힌 상태에서도 요약 한 줄이 보인다.
+   연차 사용일은 달력의 근무 변경에 등록된 `연차`(1일)·`반차`(0.5일)를 그 해 기준으로 세어 계산한다. */
+
+const svAccordionArrow = open => (open ? "\u25B2" : "\u25BC");
+
+const SettingsAccordion = p => {
+  const open = !!p.open;
+  return svEl("section", {
+    "data-accordion": p.id,
+    className: "rounded-2xl bg-white border border-slate-200/80 overflow-hidden shadow-2xs"
+  }, svEl("button", {
+    type: "button",
+    onClick: p.onToggle,
+    "data-accordion-toggle": p.id,
+    "aria-expanded": open ? "true" : "false",
+    className: "w-full flex items-center justify-between gap-3 px-4 py-3.5 text-left active:bg-slate-50 transition"
+  }, svEl("span", {
+    className: "min-w-0"
+  }, svEl("span", {
+    className: "flex items-center gap-1.5"
+  }, svEl("span", {
+    className: "text-sm leading-none"
+  }, p.icon), svEl("span", {
+    className: "text-sm font-extrabold text-slate-900"
+  }, p.title)), p.summary ? svEl("span", {
+    className: "mt-1 block text-[11px] font-bold text-slate-500 truncate",
+    "data-accordion-summary": p.id
+  }, p.summary) : null), svEl("span", {
+    className: `shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-extrabold ${open ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-500 border border-slate-200"}`
+  }, svAccordionArrow(open))), open ? svEl("div", {
+    className: "px-2.5 pb-2.5 pt-0.5 bg-slate-50/70 border-t border-slate-100",
+    "data-accordion-body": p.id
+  }, p.children || null) : null);
+};
+
+/* ── 연차 일수 계산 ─────────────────────────────────────────────────────────── */
+const svLeaveValue = v => {
+  const n = Math.round(salaryNum(v) * 10) / 10;
+  return String(n);
+};
+const svLeaveRound = v => Math.round(salaryNum(v) * 2) / 2; // 0.5일 단위
+
+const buildAnnualLeaveStats = o => {
+  const opts = o || {};
+  const year = String(Number(opts.year) || new Date().getFullYear());
+  const prefix = String(opts.groupId || "") + "_";
+  const map = opts.subOverrides || {};
+  let annual = 0;
+  let half = 0;
+  const days = [];
+  Object.keys(map).forEach(key => {
+    if (key.indexOf(prefix) !== 0) return;
+    const dateKey = key.slice(prefix.length);
+    if (dateKey.slice(0, 4) !== year) return;
+    const sub = map[key];
+    if (sub === "연차") {
+      annual += 1;
+      days.push({
+        dateKey,
+        amount: 1
+      });
+    } else if (sub === "반차") {
+      half += 1;
+      days.push({
+        dateKey,
+        amount: 0.5
+      });
+    }
+  });
+  days.sort((a, b) => a.dateKey < b.dateKey ? -1 : a.dateKey > b.dateKey ? 1 : 0);
+  const usedDays = annual + half * 0.5;
+  const total = svLeaveRound(opts.total);
+  const remaining = Math.max(0, Math.round((total - usedDays) * 10) / 10);
+  return {
+    year,
+    annual,
+    half,
+    usedDays,
+    total,
+    remaining,
+    days
+  };
+};
+
+/* ── 정보입력 안 '연차 일수' 카드 ───────────────────────────────────────────── */
+const renderAnnualLeaveBlock = p => {
+  const stats = p.stats;
+  const total = stats.total;
+  const pct = total > 0 ? Math.min(100, Math.round(stats.usedDays / total * 100)) : 0;
+  return svEl("div", {
+    className: "p-4 rounded-2xl bg-white border border-emerald-200/80 space-y-2.5",
+    "data-testid": "annual-leave"
+  }, svEl("div", {
+    className: "flex items-start justify-between gap-2"
+  }, svEl("div", {
+    className: "min-w-0"
+  }, svEl("h3", {
+    className: "text-xs font-extrabold text-slate-800"
+  }, "\uD83C\uDF34 \uC5F0\uCC28 \uC77C\uC218"), svEl("p", {
+    className: "text-[10px] text-slate-500 mt-0.5 leading-relaxed"
+  }, stats.year, "\uB144 \uAE30\uC900 \u00B7 \uBCF4\uC720 \uC77C\uC218\uB97C 0.5\uC77C \uB2E8\uC704\uB85C \uC785\uB825")), svEl("div", {
+    className: "flex items-center gap-1 shrink-0"
+  }, svEl("input", {
+    type: "number",
+    inputMode: "decimal",
+    step: "0.5",
+    min: "0",
+    max: "365",
+    value: svLeaveValue(total),
+    onChange: e => {
+      const v = svLeaveRound(e.target.value);
+      p.onChange(v < 0 ? 0 : v > 365 ? 365 : v);
+    },
+    "aria-label": "\uBCF4\uC720 \uC5F0\uCC28 \uC77C\uC218",
+    "data-testid": "annual-leave-total",
+    className: "w-[74px] px-2.5 py-2 rounded-xl bg-white border border-emerald-200 text-[14px] font-extrabold text-slate-900 text-right"
+  }), svEl("span", {
+    className: "text-[11px] font-extrabold text-slate-500"
+  }, "\uC77C"))), svEl("div", {
+    className: "rounded-xl bg-emerald-50/80 border border-emerald-100 px-3 py-2.5",
+    "data-testid": "annual-leave-remaining"
+  }, svEl("div", {
+    className: "flex items-end justify-between gap-2"
+  }, svEl("span", {
+    className: "text-[10.5px] font-extrabold text-emerald-700"
+  }, "\uC794\uC5EC \uC5F0\uCC28"), svEl("span", {
+    className: "text-right leading-none"
+  }, svEl("span", {
+    className: "text-[19px] font-extrabold tracking-tight text-emerald-800"
+  }, svLeaveValue(stats.remaining), "\uC77C"), svEl("span", {
+    className: "ml-1 text-[11px] font-extrabold text-emerald-700/80"
+  }, "/ \uCD1D ", svLeaveValue(total), "\uC77C"))), svEl("div", {
+    className: "mt-2 h-1.5 rounded-full bg-white overflow-hidden border border-emerald-100"
+  }, svEl("div", {
+    className: `h-full transition-all ${pct >= 100 ? "bg-rose-400" : "bg-emerald-500"}`,
+    style: {
+      width: Math.max(2, pct) + "%"
+    }
+  })), svEl("p", {
+    className: "mt-1.5 text-[10.5px] font-bold text-emerald-700/90"
+  }, "\uC0AC\uC6A9 ", svLeaveValue(stats.usedDays), "\uC77C (\uC5F0\uCC28 ", stats.annual, "\uC77C \u00B7 \uBC18\uCC28 ", stats.half, "\uD68C)")), svEl("p", {
+    className: "text-[10px] leading-relaxed text-slate-400"
+  }, "\u203B \uB2EC\uB825\uC5D0\uC11C \uADFC\uBB34\uB97C \uC5F0\uCC28\u00B7\uBC18\uCC28\uB85C \uBC14\uAFB8\uBA74 \uC0AC\uC6A9\uC77C\uACFC \uC794\uC5EC \uC77C\uC218\uAC00 \uC790\uB3D9\uC73C\uB85C \uBCC0\uACBD\uB429\uB2C8\uB2E4."));
+};
+
+/* ─────────────── v2.6-preview · 📸 근태표 사진 대조 (Gemini API 연동) ───────────────
+   2026-11-26 승현 님 승인: 급여 계산기 안에서 근태시간표 사진을 읽어
+   계산기가 계산한 항목별 시간과 1:1로 맞는지 확인하는 메뉴.
+   · Gemini API 키는 이 브라우저 localStorage(tsv_duty_gemini_key_v1)에만 저장한다.
+     (소스·저장소·Firebase 어디에도 키를 넣지 않는다.)
+   · 사진은 브라우저에서 최대 변 2000px JPEG로 줄인 뒤 Gemini에 한 번 보내고 저장하지 않는다.
+   · 키가 없어도 6개 시간을 직접 입력해 대조할 수 있다. */
+
+const SV_GEMINI_MODEL = "gemini-2.5-flash";
+const SV_GEMINI_KEY_STORE = "tsv_duty_gemini_key_v1";
+const SV_GEMINI_KEY_HELP = "https://aistudio.google.com/apikey";
+
+const loadGeminiApiKey = () => {
+  try {
+    return localStorage.getItem(SV_GEMINI_KEY_STORE) || "";
+  } catch (e) {
+    return "";
+  }
+};
+const saveGeminiApiKey = key => {
+  try {
+    const v = String(key || "").trim();
+    if (v) localStorage.setItem(SV_GEMINI_KEY_STORE, v);else localStorage.removeItem(SV_GEMINI_KEY_STORE);
+  } catch (e) {}
+};
+
+/* 근태시간표의 6개 시간 열 (급여 계산기 항목과 같은 순서·배수) */
+const SV_PHOTO_FIELDS = [{
+  key: "night",
+  label: "\uC2EC\uC57C",
+  mult: 0.5
+}, {
+  key: "satNight",
+  label: "\uD1A0\uC694\uC2EC\uC57C",
+  mult: 0.5
+}, {
+  key: "ot",
+  label: "\uC5F0\uC7A5",
+  mult: 1.5
+}, {
+  key: "nightEx",
+  label: "\uC2EC\uC57C\uC5F0\uC7A5",
+  mult: 1.5
+}, {
+  key: "holEx",
+  label: "\uD734\uC77C\uC5F0\uC7A5",
+  mult: 2
+}, {
+  key: "holNightEx",
+  label: "\uD734\uC77C\uC2EC\uC57C\uC5F0\uC7A5",
+  mult: 2
+}];
+const svPhotoEmptyHours = () => ({
+  night: "",
+  satNight: "",
+  ot: "",
+  nightEx: "",
+  holEx: "",
+  holNightEx: ""
+});
+const svPhotoNum = v => v === "" || v === null || v === undefined ? null : salaryNum(v);
+const svHourLabel = v => v === null ? "\u2014" : salaryHourText(v) + "h";
+const svDiffLabel = d => d === null ? "\u2014" : d === 0 ? "0h" : (d > 0 ? "+" : "") + salaryHourText(d) + "h";
+
+/* 사진(또는 직접 입력) 시간 vs 계산기 시간 비교 */
+const buildPhotoComparison = (photoHours, statement, normalHourly) => {
+  const normal = salaryNum(normalHourly);
+  const fields = SV_PHOTO_FIELDS.map(f => {
+    const photo = svPhotoNum(photoHours[f.key]);
+    const calc = statement && statement.hours ? salaryNum(statement.hours[f.key]) : 0;
+    const diff = photo === null ? null : Math.round((photo - calc) * 10) / 10;
+    return Object.assign({}, f, {
+      photo,
+      calc,
+      diff
+    });
+  });
+  const baseItem = statement ? (statement.items || []).find(it => it.key === "base") : null;
+  const baseAmount = baseItem ? salaryNum(baseItem.amount) : 0;
+  const anyPhoto = fields.some(f => f.photo !== null);
+  const photoGross = !anyPhoto ? 0 : baseAmount + fields.reduce((sum, f) => sum + Math.round(normal * (f.photo === null ? f.calc : f.photo) * f.mult), 0);
+  const calcGross = statement ? salaryNum(statement.gross) : 0;
+  const grossDiff = anyPhoto ? Math.round(photoGross - calcGross) : 0;
+  const matched = !!anyPhoto && fields.every(f => f.diff === null || f.diff === 0);
+  return {
+    fields,
+    anyPhoto,
+    photoGross,
+    calcGross,
+    grossDiff,
+    matched
+  };
+};
+
+/* 사진 → 최대 변 2000px JPEG dataURL */
+const svReadPhotoFile = file => new Promise(resolve => {
+  try {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new window.Image();
+      img.onload = () => {
+        try {
+          const max = 2000;
+          const scale = Math.min(1, max / Math.max(img.width || 1, img.height || 1));
+          const w = Math.max(1, Math.round((img.width || 1) * scale));
+          const h = Math.max(1, Math.round((img.height || 1) * scale));
+          const canvas = document.createElement("canvas");
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, w, h);
+          resolve({
+            dataUrl: canvas.toDataURL("image/jpeg", 0.9),
+            width: w,
+            height: h,
+            fileName: file.name || "attendance.jpg"
+          });
+        } catch (e) {
+          resolve(null);
+        }
+      };
+      img.onerror = () => resolve(null);
+      img.src = reader.result;
+    };
+    reader.onerror = () => resolve(null);
+    reader.readAsDataURL(file);
+  } catch (e) {
+    resolve(null);
+  }
+});
+
+const svGeminiPrompt = name => ["\uCC99\uBD80\uD55C \uADFC\uD0DC\uC2DC\uAC04\uD45C(\uCD9C\uD1F4\uADFC \uAE30\uB85D\uD45C) \uC0AC\uC9C4\uC5D0\uC11C \"" + name + "\" \uB2D8\uC758 \uD589\uC744 \uCC3E\uC544 \uD569\uACC4(\uACC4) \uC5F4\uC758 \uAC12\uC744 \uC77D\uC5B4\uC918.",
+  "",
+  "\uC0AC\uC9C4\uC774 90\uB3C4 \uB610\uB294 \uC5EC\uB7EC \uBC29\uD5A5\uC73C\uB85C \uD68C\uC804\uB418\uC5B4 \uC788\uC744 \uC218 \uC788\uB2E4. \uD45C \uBA38\uB9AC\uAE00\uC758 \uC5F4 \uC774\uB984\uACFC \uBC30\uC218\uB97C \uAE30\uC900\uC73C\uB85C \uC5F4\uC744 \uB9DE\uCDB0\uB77C:",
+  "\uC2EC\uC57C(0.5), \uD1A0\uC694\uC2EC\uC57C(0.5), \uC5F0\uC7A5(1.5), \uC2EC\uC57C\uC5F0\uC7A5(1.5), \uD734\uC77C\uC5F0\uC7A5(2.0), \uD734\uC77C\uC2EC\uC57C\uC5F0\uC7A5(2.0), \uC18C\uACC4(\uACC4)",
+  "",
+  "\uC775\uB2E4\uC74C JSON \uD615\uC2DD\uB9CC \uCD9C\uB825\uD574. \uAC12\uC740 \uC2DC\uAC04(h) \uC22B\uC790\uB9CC \uC4F0\uACE0, \uD45C\uC5D0 \uC801\uD78C \uADF8\uB300\uB85C \uC801\uC5B4. \uBE48\uCE78\uC740 0, \uD574\uB2F9 \uC774\uB984\uC744 \uCC3E\uC9C0 \uBABB\uD558\uBA74 \uBAA8\uB4E0 \uAC12\uC744 null.",
+  '{"name":"' + name + '","night":0,"satNight":0,"ot":0,"nightEx":0,"holEx":0,"holNightEx":0,"total":0,"confidence":"high|medium|low"}',
+  "",
+  "\uC8FC\uC758: \uC606\uAC04 \uD589\uC744 \uB2E4\uB978 \uC0AC\uB78C\uACFC \uD5F7\uAC08\uB9AC\uC9C0 \uB9D0\uACE0 \uC774\uB984\uC774 \uC815\uD655\uD788 \uC77C\uCE58\uD558\uB294 \uD589\uB9CC \uC77D\uB294\uB2E4. \uC22B\uC790\uB97C \uCD94\uCE21\uD558\uC9C0 \uB9D0\uACE0 \uBCF4\uC774\uB294 \uAC12\uC744 \uADF8\uB300\uB85C \uC801\uB294\uB2E4."].join("\n");
+
+/* Gemini REST 호출 — 사진에서 이름 행의 6개 시간 + 소계를 JSON으로 받는다 */
+const svGeminiReadAttendance = async opts => {
+  const apiKey = String(opts.apiKey || "").trim();
+  const name = String(opts.name || "").trim();
+  if (!apiKey) throw new Error("Gemini API \uD0A4\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4. AI Studio\uC5D0\uC11C \uBB34\uB8CC \uD0A4\uB97C \uBC1C\uAE09\uBC1B\uC544 \uC785\uB825\uD574 \uC8FC\uC138\uC694.");
+  if (!name) throw new Error("\uC774\uB984\uC744 \uC785\uB825\uD574 \uC8FC\uC138\uC694.");
+  const dataUrl = opts.image && opts.image.dataUrl;
+  if (!dataUrl) throw new Error("\uADFC\uD0DC\uD45C \uC0AC\uC9C4\uC744 \uBA3C\uC800 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.");
+  const base64 = String(dataUrl).split(",")[1] || "";
+  const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + SV_GEMINI_MODEL + ":generateContent?key=" + encodeURIComponent(apiKey), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      contents: [{
+        role: "user",
+        parts: [{
+          text: svGeminiPrompt(name)
+        }, {
+          inline_data: {
+            mime_type: "image/jpeg",
+            data: base64
+          }
+        }]
+      }],
+      generationConfig: {
+        temperature: 0,
+        responseMimeType: "application/json"
+      }
+    })
+  });
+  let data = null;
+  try {
+    data = await res.json();
+  } catch (e) {}
+  if (!res.ok) {
+    const msg = data && data.error && data.error.message ? data.error.message : "HTTP " + res.status;
+    throw new Error("Gemini \uC751\uB2F5 \uC624\uB958: " + msg);
+  }
+  const parts = data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts || [];
+  const text = parts.map(pp => pp && pp.text || "").join("");
+  let parsed = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch (e) {
+    const m = String(text).match(/\{[\s\S]*\}/);
+    if (m) {
+      try {
+        parsed = JSON.parse(m[0]);
+      } catch (e2) {}
+    }
+  }
+  if (!parsed) throw new Error("\uC0AC\uC9C4\uC5D0\uC11C \uD45C\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uD45C\uAC00 \uC120\uBA85\uD558\uAC8C \uB098\uC624\uB3C4\uB85D \uB2E4\uC2DC \uCC0D\uC5B4 \uC8FC\uC138\uC694.");
+  return parsed;
+};
+
+/* 📸 근태표 사진 대조 패널 (자체 상태를 가진 컴포넌트) */
+const AttendanceComparePanel = props => {
+  const statement = props.statement;
+  const normalHourly = props.normalHourly;
+  const [apiKey, setApiKey] = React.useState(() => loadGeminiApiKey());
+  const [nameInput, setNameInput] = React.useState(() => (props.defaultName || "").trim());
+  const [image, setImage] = React.useState(null);
+  const [photoHours, setPhotoHours] = React.useState(svPhotoEmptyHours);
+  const [status, setStatus] = React.useState({
+    state: "idle",
+    message: ""
+  });
+  const [busy, setBusy] = React.useState(false);
+  const comparison = buildPhotoComparison(photoHours, statement, normalHourly);
+  const setHoursField = (key, value) => {
+    setPhotoHours(prev => Object.assign({}, prev, {
+      [key]: value
+    }));
+  };
+  const onPickFile = async e => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setStatus({
+      state: "busy",
+      message: "\uC0AC\uC9C4\uC744 \uC815\uB9AC\uD558\uB294 \uC911\u2026"
+    });
+    const photo = await svReadPhotoFile(file);
+    if (!photo) {
+      setImage(null);
+      setStatus({
+        state: "error",
+        message: "\uC774\uBBF8\uC9C0\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. JPG\u00B7PNG \uD30C\uC77C\uB85C \uB2E4\uC2DC \uC120\uD0DD\uD574 \uC8FC\uC138\uC694."
+      });
+      return;
+    }
+    setImage(photo);
+    setStatus({
+      state: "idle",
+      message: "\uC0AC\uC9C4 \uC900\uBE44 \uC644\uB8CC (" + photo.width + "\u00D7" + photo.height + "px)"
+    });
+  };
+  const onRead = async () => {
+    setBusy(true);
+    setStatus({
+      state: "busy",
+      message: "\uC0AC\uC9C4\uC744 \uC77D\uB294 \uC911\uC785\uB2C8\uB2E4\u2026 10~20\uCD08 \uAC78\uB9B4 \uC218 \uC788\uC2B5\uB2C8\uB2E4."
+    });
+    try {
+      const parsed = await svGeminiReadAttendance({
+        apiKey: apiKey,
+        name: nameInput,
+        image: image
+      });
+      const next = svPhotoEmptyHours();
+      SV_PHOTO_FIELDS.forEach(f => {
+        const v = parsed[f.key];
+        next[f.key] = v === null || v === undefined || v === "" ? "" : String(Math.round(salaryNum(v) * 10) / 10);
+      });
+      setPhotoHours(next);
+      const read = SV_PHOTO_FIELDS.filter(f => next[f.key] !== "").length;
+      setStatus({
+        state: read ? "ok" : "warn",
+        message: read ? nameInput + " \uB2D8 " + read + "\uAC1C \uD56D\uBAA9\uC744 \uC77D\uC5C8\uC2B5\uB2C8\uB2E4. \uAC12\uC774 \uB9DE\uB294\uC9C0 \uD655\uC778\uD574 \uC8FC\uC138\uC694." + (parsed && parsed.confidence ? " (\uC2E0\uB8B0\uB3C4 " + parsed.confidence + ")" : "") : "\uC774\uB984\uC744 \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC774\uB984\uC744 \uD655\uC778\uD558\uAC70\uB098 \uC9C1\uC811 \uC785\uB825\uD574 \uC8FC\uC138\uC694."
+      });
+    } catch (err) {
+      setStatus({
+        state: "error",
+        message: String(err && err.message || err)
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const resetHours = () => {
+    setPhotoHours(svPhotoEmptyHours());
+    setStatus({
+      state: "idle",
+      message: ""
+    });
+  };
+  const toneOf = state => state === "error" ? "bg-rose-50 border-rose-200 text-rose-700" : state === "ok" ? "bg-emerald-50 border-emerald-200 text-emerald-700" : state === "warn" ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-slate-50 border-slate-200 text-slate-500";
+  return svEl("section", {
+    className: "p-4 rounded-2xl bg-white border border-indigo-200/80 space-y-3",
+    "data-testid": "compare-panel"
+  }, svEl("div", {
+    className: "flex items-start justify-between gap-2"
+  }, svEl("div", {
+    className: "min-w-0"
+  }, svEl("h3", {
+    className: "text-sm font-extrabold text-slate-900"
+  }, "\uD83D\uDCF8 \uADFC\uD0DC\uD45C \uC0AC\uC9C4 \uB300\uC870"), svEl("p", {
+    className: "text-[10.5px] text-slate-500 mt-0.5 leading-relaxed"
+  }, "\uADFC\uD0DC\uC2DC\uAC04\uD45C \uC0AC\uC9C4\uC5D0\uC11C \uB0B4 \uC904\uC744 \uC77D\uC5B4 \uACC4\uC0B0\uAE30\uC640 \uD56D\uBAA9\uBCC4 \uC2DC\uAC04\uC774 \uB9DE\uB294\uC9C0 \uD655\uC778\uD569\uB2C8\uB2E4.")), svEl("span", {
+    className: "shrink-0 px-2 py-0.5 rounded-full bg-indigo-50 border border-indigo-200 text-[9.5px] font-extrabold text-indigo-700 whitespace-nowrap"
+  }, statement ? statement.rangeLabel : "\uAE30\uAC04 \uACC4\uC0B0 \uC804")), svEl("div", {
+    className: "rounded-xl bg-indigo-50/60 border border-indigo-100 p-2.5 space-y-1.5"
+  }, svEl("label", {
+    className: "text-[10.5px] font-extrabold text-indigo-800"
+  }, "Gemini API \uD0A4 (\uC774 \uAE30\uAE30\uC5D0\uB9CC \uC800\uC7A5)"), svEl("div", {
+    className: "flex items-center gap-1.5"
+  }, svEl("input", {
+    type: "password",
+    value: apiKey,
+    onChange: e => {
+      setApiKey(e.target.value);
+      saveGeminiApiKey(e.target.value);
+    },
+    placeholder: "AIza\u2026",
+    autoComplete: "off",
+    spellCheck: false,
+    "data-testid": "compare-api-key",
+    className: "flex-1 min-w-0 px-2.5 py-2 rounded-xl bg-white border border-indigo-200 text-[12px] font-bold text-slate-900"
+  }), svEl("a", {
+    href: SV_GEMINI_KEY_HELP,
+    target: "_blank",
+    rel: "noopener noreferrer",
+    className: "px-2.5 py-2 rounded-xl bg-white border border-indigo-200 text-[10.5px] font-extrabold text-indigo-700 whitespace-nowrap"
+  }, "\uD0A4 \uBC1C\uAE09")), svEl("p", {
+    className: "text-[9.5px] leading-relaxed text-indigo-700/80"
+  }, "Google AI Studio(aistudio.google.com/apikey)\uC5D0\uC11C \uD3C9\uC0DD \uBB34\uB8CC \uD0A4\uB97C \uBC1C\uAE09\uBC1B\uC744 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uD0A4\uB294 \uC774 \uBE0C\uB77C\uC6B0\uC800\uC5D0\uB9CC \uC800\uC7A5\uB418\uACE0 \uC11C\uBC84\u00B7\uD300 \uACF5\uC720\uB85C \uC804\uC1A1\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.")), svEl("div", {
+    className: "grid grid-cols-2 gap-1.5"
+  }, svEl("div", null, svEl("label", {
+    className: "text-[10px] font-bold text-slate-500"
+  }, "\uC774\uB984"), svEl("input", {
+    type: "text",
+    value: nameInput,
+    onChange: e => setNameInput(e.target.value),
+    placeholder: "\uC608: \uCD5C\uC2B9\uD604",
+    "data-testid": "compare-name",
+    className: "mt-0.5 w-full px-2.5 py-2 rounded-xl bg-white border border-slate-200 text-[12px] font-bold text-slate-900"
+  })), svEl("div", null, svEl("label", {
+    className: "text-[10px] font-bold text-slate-500"
+  }, "\uADFC\uD0DC\uD45C \uC0AC\uC9C4"), svEl("label", {
+    "data-testid": "compare-file-label",
+    className: "mt-0.5 w-full px-2.5 py-2 rounded-xl bg-white border border-slate-200 text-[11px] font-extrabold text-slate-700 flex items-center justify-center gap-1 cursor-pointer truncate"
+  }, "\uD83D\uDCF7 " + (image ? "\uC0AC\uC9C4 \uBCC0\uACBD" : "\uC0AC\uC9C4 \uC120\uD0DD"), svEl("input", {
+    type: "file",
+    accept: "image/*",
+    onChange: onPickFile,
+    "data-testid": "compare-file",
+    className: "hidden"
+  })))), image ? svEl("img", {
+    src: image.dataUrl,
+    alt: "\uADFC\uD0DC\uD45C \uC0AC\uC9C4",
+    "data-testid": "compare-preview",
+    className: "w-full max-h-40 object-contain rounded-xl border border-slate-200 bg-slate-50"
+  }) : null, svEl("div", {
+    className: "flex items-center gap-1.5"
+  }, svEl("button", {
+    type: "button",
+    onClick: onRead,
+    disabled: busy,
+    "data-testid": "compare-read",
+    className: `flex-1 py-2.5 rounded-xl text-[12px] font-extrabold text-white ${busy ? "bg-indigo-300" : "bg-indigo-600"}`
+  }, busy ? "\uC77D\uB294 \uC911\u2026" : "\uD83D\uDD0D \uC0AC\uC9C4 \uC77D\uACE0 \uB300\uC870\uD558\uAE30"), svEl("button", {
+    type: "button",
+    onClick: resetHours,
+    className: "px-3 py-2.5 rounded-xl bg-white border border-slate-200 text-[11px] font-extrabold text-slate-600 whitespace-nowrap"
+  }, "\uCD08\uAE30\uD654")), status.state !== "idle" && status.message ? svEl("p", {
+    className: `px-2.5 py-2 rounded-xl border text-[10.5px] font-bold leading-relaxed ${toneOf(status.state)}`,
+    "data-testid": "compare-status"
+  }, status.message) : null, svEl("div", null, svEl("div", {
+    className: "flex items-center justify-between mb-1"
+  }, svEl("span", {
+    className: "text-[10.5px] font-extrabold text-slate-700"
+  }, "\uD45C\uC5D0\uC11C \uC77D\uC740 \uC2DC\uAC04 (\uC9C1\uC811 \uC218\uC815 \uAC00\uB2A5)"), svEl("span", {
+    className: "text-[9.5px] font-bold text-slate-400"
+  }, "\uC2DC\uAC04(h)")), svEl("div", {
+    className: "grid grid-cols-3 gap-1.5"
+  }, SV_PHOTO_FIELDS.map(f => svEl("div", {
+    key: f.key
+  }, svEl("label", {
+    className: "text-[9.5px] font-bold text-slate-500 whitespace-nowrap"
+  }, f.label, svEl("span", {
+    className: "text-slate-300"
+  }, " ", "(", f.mult, ")")), svEl("input", {
+    type: "number",
+    inputMode: "decimal",
+    step: "0.5",
+    min: "0",
+    value: photoHours[f.key],
+    onChange: e => setHoursField(f.key, e.target.value),
+    placeholder: "\u2014",
+    "data-testid": "compare-hour-" + f.key,
+    className: "mt-0.5 w-full px-2 py-1.5 rounded-lg bg-white border border-slate-200 text-[12px] font-extrabold text-slate-900 text-right"
+  }))))), comparison.anyPhoto ? svEl("div", {
+    className: "rounded-2xl border border-slate-200 overflow-hidden",
+    "data-testid": "compare-table"
+  }, svEl("div", {
+    className: "px-3 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-2"
+  }, svEl("span", {
+    className: "text-[11px] font-extrabold text-slate-700"
+  }, "\uD56D\uBAA9\uBCC4 \uB300\uC870"), svEl("span", {
+    className: `px-2 py-0.5 rounded-full text-[10px] font-extrabold ${comparison.matched ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}`,
+    "data-testid": "compare-badge"
+  }, comparison.matched ? "\u2705 \uC77C\uCE58" : "\u26A0\uFE0F \uCC28\uC774 \uC788\uC74C")), svEl("div", {
+    className: "px-3 py-1.5 bg-white border-b border-slate-100 grid grid-cols-[1fr,44px,50px,46px] gap-1 text-[9.5px] font-extrabold text-slate-400"
+  }, svEl("span", null, "\uD56D\uBAA9"), svEl("span", {
+    className: "text-right"
+  }, "\uC0AC\uC9C4"), svEl("span", {
+    className: "text-right"
+  }, "\uACC4\uC0B0\uAE30"), svEl("span", {
+    className: "text-right"
+  }, "\uCC28\uC774")), svEl("div", {
+    className: "divide-y divide-slate-100"
+  }, comparison.fields.map(f => svEl("div", {
+    key: f.key,
+    className: "px-3 py-1.5 grid grid-cols-[1fr,44px,50px,46px] gap-1 items-center",
+    "data-testid": "compare-row-" + f.key
+  }, svEl("span", {
+    className: "text-[10.5px] font-extrabold text-slate-700 truncate"
+  }, f.label, svEl("span", {
+    className: "text-slate-300 font-bold"
+  }, " ", "(", f.mult, ")")), svEl("span", {
+    className: "text-right text-[11px] font-extrabold text-slate-800",
+    "data-testid": "compare-photo-" + f.key
+  }, svHourLabel(f.photo)), svEl("span", {
+    className: "text-right text-[11px] font-bold text-slate-500",
+    "data-testid": "compare-calc-" + f.key
+  }, svHourLabel(f.calc)), svEl("span", {
+    className: `text-right text-[11px] font-extrabold ${f.diff === null ? "text-slate-300" : f.diff === 0 ? "text-emerald-600" : "text-rose-600"}`,
+    "data-testid": "compare-diff-" + f.key
+  }, svDiffLabel(f.diff))))), svEl("div", {
+    className: "px-3 py-2 bg-slate-50 border-t border-slate-200 space-y-1"
+  }, svEl("div", {
+    className: "flex items-center justify-between gap-2"
+  }, svEl("span", {
+    className: "text-[10.5px] font-bold text-slate-500"
+  }, "\uC608\uC0C1 \uC138\uC804 (\uAE30\uBCF8\uAE09 \uD3EC\uD568)"), svEl("span", {
+    className: "text-[11.5px] font-extrabold text-slate-800 text-right",
+    "data-testid": "compare-gross"
+  }, salaryWon(comparison.photoGross), "\uC6D0 / ", salaryWon(comparison.calcGross), "\uC6D0")), svEl("div", {
+    className: "flex items-center justify-between gap-2"
+  }, svEl("span", {
+    className: "text-[10.5px] font-bold text-slate-500"
+  }, "\uCC28\uC774"), svEl("span", {
+    className: `text-[12px] font-extrabold ${comparison.grossDiff === 0 ? "text-emerald-600" : "text-rose-600"}`,
+    "data-testid": "compare-gross-diff"
+  }, comparison.grossDiff === 0 ? "\uC77C\uCE58 (+0\uC6D0)" : (comparison.grossDiff > 0 ? "+" : "\u2212") + salaryWon(Math.abs(comparison.grossDiff)) + "\uC6D0")))) : svEl("p", {
+    className: "px-2.5 py-3 rounded-xl bg-slate-50 border border-dashed border-slate-200 text-[10.5px] font-bold text-slate-400 text-center",
+    "data-testid": "compare-empty"
+  }, "\uC0AC\uC9C4\uC744 \uC77D\uAC70\uB098 \uC704 6\uAC1C \uC2DC\uAC04\uC744 \uC785\uB825\uD558\uBA74 \uACC4\uC0B0\uAE30\uC640 \uBE44\uAD50\uD45C\uAC00 \uB098\uD0C0\uB0A9\uB2C8\uB2E4."), svEl("p", {
+    className: "text-[9.5px] leading-relaxed text-slate-400"
+  }, "\u203B \uC0AC\uC9C4\uC740 \uC774 \uAE30\uAE30\uC5D0\uC11C \uCD5C\uB300 \uBCC0 2000px JPEG\uB85C \uC904\uC5EC Gemini\uC5D0 \uD55C \uBC88 \uBCF4\uB0B4\uACE0 \uC800\uC7A5\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uAE30\uBCF8\uAE09\uC740 \uC0AC\uC9C4\uC5D0 \uC5C6\uC5B4 \uACC4\uC0B0\uAE30 \uAC12\uC744 \uADF8\uB300\uB85C \uC4F1\uB2C8\uB2E4."));
+};
+
 function App() {
   const loadState = (key, fallback) => {
     try {
@@ -3328,6 +3948,10 @@ function App() {
   const [anchorDate, setAnchorDate] = useState(() => loadState("anchorDate", "2026-11-22"));
   const [groups, setGroups] = useState(() => loadState("groups", INITIAL_GROUPS));
   const [myGroupId, setMyGroupId] = useState(() => loadState("myGroupId", "B"));
+  // v2.6-preview — 설정 > 정보입력의 보유 연차 일수 · 상위 메뉴 접힘 상태
+  const [annualLeaveDays, setAnnualLeaveDays] = useState(() => loadState("annualLeaveDays", 15));
+  const [infoInputOpen, setInfoInputOpen] = useState(false);
+  const [salarySectionOpen, setSalarySectionOpen] = useState(false);
   const [shiftTimes, setShiftTimes] = useState(() => loadState("shiftTimes", INITIAL_SHIFT_TIMES));
   const [overrides, setOverrides] = useState(() => loadState("overrides", {}));
   const [subOverrides, setSubOverrides] = useState(() => loadState("subOverrides", {}));
@@ -3566,8 +4190,9 @@ function App() {
       localStorage.setItem("tsvprev_v1_todaywork_v33_showWeather", JSON.stringify(showWeather));
       localStorage.setItem("tsvprev_v1_todaywork_v33_cloud", JSON.stringify(cloudSettings));
       localStorage.setItem("tsvprev_v1_todaywork_v33_deviceCalIds", JSON.stringify(deviceEnabledCalIds));
+      localStorage.setItem("tsvprev_v1_todaywork_v33_annualLeaveDays", JSON.stringify(annualLeaveDays));
     } catch (e) {}
-  }, [companyName, pattern, anchorDate, groups, myGroupId, shiftTimes, overrides, subOverrides, memos, monthlyMemos, posts, equipFolders, alarms, navItems, visibleOtherGroups, showCompanyEvents, showWeather, cloudSettings, deviceEnabledCalIds]);
+  }, [companyName, pattern, anchorDate, groups, myGroupId, shiftTimes, overrides, subOverrides, memos, monthlyMemos, posts, equipFolders, alarms, navItems, visibleOtherGroups, showCompanyEvents, showWeather, cloudSettings, deviceEnabledCalIds, annualLeaveDays]);
   // v2.5.3 — 네트워크 연결 여부를 따라가며, 캐시로 보여주는 동안에만 안내 배지를 띄운다.
   useEffect(() => {
     const goOnline = () => setNavigatorOnline(true);
@@ -4187,6 +4812,14 @@ function App() {
     subOverrides,
     settings: salarySettings
   }), [viewDate, myGroupId, groups, pattern, anchorDate, overrides, subOverrides, salarySettings]);
+
+  // 🏖️ v2.6-preview — 연차 사용·잔여 (달력 근무 변경의 연차·반차를 그 해 기준으로 집계)
+  const annualLeaveStats = useMemo(() => buildAnnualLeaveStats({
+    year: viewDate.year,
+    groupId: myGroupId,
+    subOverrides,
+    total: annualLeaveDays
+  }), [viewDate.year, myGroupId, subOverrides, annualLeaveDays]);
 
   // 알람 하나를 네이티브(AlarmService)로 넘길 때 쓰는 스펙 (v2.5.4)
   const buildAlarmFireSpec = (alarm, dateKey) => {
@@ -6008,6 +6641,11 @@ function App() {
       hideAmounts: !salarySettings.hideAmounts
     }),
     onClose: () => setSalaryModalOpen(false),
+    onOpenCompare: () => {
+      setSalaryModalOpen(false);
+      setActiveTab("settings");
+      setSalarySectionOpen(true);
+    },
     onReset: () => setSalarySettings(Object.assign({}, SALARY_DEFAULT_SETTINGS, {
       earlyLeave: {}
     }))
@@ -6019,12 +6657,30 @@ function App() {
     onChange: setSalarySettings
   });
   const salarySettingsEl = renderSalarySettings({
+    title: "급여 기준 · 공제 상세",
     settings: salarySettings,
     statement: salaryStatement,
     onChange: setSalarySettings,
     onReset: () => setSalarySettings(Object.assign({}, SALARY_DEFAULT_SETTINGS, {
       earlyLeave: {}
     }))
+  });
+
+  // 🏖️·📸 v2.6-preview — 정보입력(연차) 요소 · 설정 상위 메뉴 요약 · 근태표 사진 대조 패널
+  const annualLeaveEl = renderAnnualLeaveBlock({
+    stats: annualLeaveStats,
+    onChange: setAnnualLeaveDays
+  });
+  const annualLeaveBadgeEl = /*#__PURE__*/React.createElement("span", {
+    className: "px-2 py-1 rounded-lg bg-white border border-emerald-200 text-[10px] font-extrabold text-emerald-700",
+    "data-testid": "annual-leave-badge"
+  }, "🏖 연차 잔여 ", svLeaveValue(annualLeaveStats.remaining), "일 / ", svLeaveValue(annualLeaveStats.total), "일");
+  const infoInputSummary = `${companyName} · ${myGroup.name} · 연차 잔여 ${svLeaveValue(annualLeaveStats.remaining)}일`;
+  const paySummary = `${salaryWon(salarySettings.baseHourly)}원/시급 · ${salarySettings.deductionMode === "gross" ? "세전만 보기" : salarySettings.deductionMode === "simple" ? "간이 공제율 " + Math.round(salaryNum(salarySettings.simpleRate) * 100) / 100 + "%" : "명세서 실측 자동"}`;
+  const geminiCompareEl = /*#__PURE__*/React.createElement(AttendanceComparePanel, {
+    statement: salaryStatement,
+    normalHourly: salarySettings.normalHourly,
+    defaultName: cloudSettings.authorName || ""
   });
 
   return /*#__PURE__*/React.createElement("div", {
@@ -6214,7 +6870,7 @@ function App() {
     className: "mt-2 flex flex-wrap items-center gap-1.5"
   }, /*#__PURE__*/React.createElement("span", {
     className: "px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-100 text-[10px] font-extrabold text-emerald-700"
-  }, "🌴 연차 ", monthSummary.annual, "일"), monthSummary.halfDay > 0 && /*#__PURE__*/React.createElement("span", {
+  }, "🌴 연차 ", monthSummary.annual, "일"), annualLeaveBadgeEl, monthSummary.halfDay > 0 && /*#__PURE__*/React.createElement("span", {
     className: "px-2 py-1 rounded-lg bg-teal-50 border border-teal-100 text-[10px] font-extrabold text-teal-700"
   }, "반차 ", monthSummary.halfDay, "회"), monthSummary.training > 0 && /*#__PURE__*/React.createElement("span", {
     className: "px-2 py-1 rounded-lg bg-indigo-50 border border-indigo-100 text-[10px] font-extrabold text-indigo-700"
@@ -6675,7 +7331,7 @@ function App() {
     })))));
   }))), activeTab === "settings" && /*#__PURE__*/React.createElement("div", {
     className: "p-4 space-y-5"
-  }, salarySettingsEl, /*#__PURE__*/React.createElement("section", {
+  }, /*#__PURE__*/React.createElement("section", {
     className: "p-4 rounded-2xl bg-gradient-to-r from-slate-900 to-slate-700 text-white space-y-2.5"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between gap-2"
@@ -6703,7 +7359,17 @@ function App() {
   }, updateState.pct, "% \xB7 ", updateState.msg || "다운로드 중...")), updateState.latest && updateState.latest.isNewer && !updateState.downloading && /*#__PURE__*/React.createElement("button", {
     onClick: startAppUpdate,
     className: "w-full py-2.5 rounded-xl bg-blue-500 text-white text-xs font-extrabold"
-  }, "\uC9C0\uAE08 \uC5C5\uB370\uC774\uD2B8 (v", updateState.latest.version, ")")), /*#__PURE__*/React.createElement("section", {
+  }, "\uC9C0\uAE08 \uC5C5\uB370\uC774\uD2B8 (v", updateState.latest.version, ")")),
+  /*#__PURE__*/React.createElement(SettingsAccordion, {
+    id: "info-input",
+    icon: "📝",
+    title: "정보입력",
+    summary: infoInputSummary,
+    open: infoInputOpen,
+    onToggle: () => setInfoInputOpen(v => !v)
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "space-y-2.5"
+  }, /*#__PURE__*/React.createElement("section", {
     className: "p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
     className: "text-xs font-bold text-slate-500"
@@ -6794,7 +7460,8 @@ function App() {
       }]);
     },
     className: "mt-2 w-full py-2 rounded-xl border border-dashed border-slate-300 text-xs font-bold text-slate-600 hover:bg-white"
-  }, "+ \uADFC\uBB34\uC870 \uCD94\uAC00 (4\uC870 \uC774\uC0C1 \uD655\uC7A5)"))), /*#__PURE__*/React.createElement("section", {
+  }, "+ \uADFC\uBB34\uC870 \uCD94\uAC00 (4\uC870 \uC774\uC0C1 \uD655\uC7A5)"))),
+  /*#__PURE__*/React.createElement("section", {
     className: "p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between"
@@ -6846,7 +7513,48 @@ function App() {
     className: "accent-blue-600 w-4 h-4"
   })), /*#__PURE__*/React.createElement("p", {
     className: "text-[10px] text-slate-400 leading-relaxed"
-  }, "\uAC1C\uC778 \uC77C\uC815(\uD83D\uDD12)\uC740 \uC774 \uAE30\uAE30\uC5D0\uB9CC \uC800\uC7A5\uB418\uACE0, \uD68C\uC0AC \uACF5\uD1B5\xB7\uD734\uAC00 \uC77C\uC815\uACFC \uC124\uBE44\xB7\uAC8C\uC2DC\uAE00\uC774 \uD300 \uCF54\uB4DC\uB85C \uACF5\uC720\uB429\uB2C8\uB2E4.")), /*#__PURE__*/React.createElement("section", {
+  }, "\uAC1C\uC778 \uC77C\uC815(\uD83D\uDD12)\uC740 \uC774 \uAE30\uAE30\uC5D0\uB9CC \uC800\uC7A5\uB418\uACE0, \uD68C\uC0AC \uACF5\uD1B5\xB7\uD734\uAC00 \uC77C\uC815\uACFC \uC124\uBE44\xB7\uAC8C\uC2DC\uAE00\uC774 \uD300 \uCF54\uB4DC\uB85C \uACF5\uC720\uB429\uB2C8\uB2E4.")),
+  /*#__PURE__*/React.createElement("section", {
+    className: "p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "text-xs font-extrabold text-slate-800"
+  }, "\uADFC\uBB34 \uD328\uD134 \uC8FC\uAE30 (", pattern.length, "\uC77C \uC21C\uD658)"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setPattern(DEFAULT_PATTERN),
+    className: "text-[11px] text-blue-600 font-bold"
+  }, "\uAE30\uBCF8(\uC8FC4\xB7\uD7342\xB7\uC57C4\xB7\uD7342)")), /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap gap-1.5"
+  }, pattern.map((sh, i) => {
+    const meta = SHIFT_META[sh] || SHIFT_META["휴"];
+    return /*#__PURE__*/React.createElement("button", {
+      key: i,
+      onClick: () => {
+        const order = ["주", "야", "오", "휴"];
+        const next = order[(order.indexOf(sh) + 1) % order.length];
+        setPattern(prev => prev.map((item, idx) => idx === i ? next : item));
+      },
+      className: `w-8 h-8 rounded-full text-xs font-extrabold flex items-center justify-center shadow-2xs ${meta.badgeBg} ${meta.badgeText}`
+    }, sh);
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setPattern(prev => [...prev, "휴"]),
+    className: "w-8 h-8 rounded-full border border-dashed border-slate-300 text-slate-500 text-xs font-bold"
+  }, "+"), pattern.length > 2 && /*#__PURE__*/React.createElement("button", {
+    onClick: () => setPattern(prev => prev.slice(0, -1)),
+    className: "w-8 h-8 rounded-full border border-slate-200 text-slate-400 text-xs font-bold"
+  }, "-"))),
+  annualLeaveEl)),
+  /*#__PURE__*/React.createElement(SettingsAccordion, {
+    id: "salary-calc",
+    icon: "💰",
+    title: "급여 계산기",
+    summary: paySummary,
+    open: salarySectionOpen,
+    onToggle: () => setSalarySectionOpen(v => !v)
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "space-y-2.5"
+  }, salarySettingsEl, geminiCompareEl)),
+  /*#__PURE__*/React.createElement("section", {
     className: "p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2.5"
   }, /*#__PURE__*/React.createElement("label", {
     className: "flex items-center justify-between gap-3 cursor-pointer"
@@ -6864,16 +7572,8 @@ function App() {
     },
     "data-sfx": "none",
     className: "accent-blue-600 w-5 h-5 shrink-0"
-  }))), /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center justify-between"
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h2", {
-    className: "text-lg font-extrabold text-slate-900"
-  }, "\uADFC\uBB34\uC870 \uBC0F \uD658\uACBD \uC124\uC815"), /*#__PURE__*/React.createElement("p", {
-    className: "text-xs text-slate-500"
-  }, "\uBCF8\uC778 \uADFC\uBB34\uC870\uB97C \uC800\uC7A5\uD558\uBA74 \uB2EC\uB825\uACFC \uC54C\uB78C\uC774 \uC5F0\uB3D9\uB429\uB2C8\uB2E4.")), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setUpdateModalOpen(true),
-    className: "px-3 py-1.5 rounded-xl bg-blue-50 text-blue-700 text-xs font-extrabold border border-blue-200"
-  }, "\uC5C5\uB370\uC774\uD2B8 (", APP_VERSION, ")")), /*#__PURE__*/React.createElement("section", {
+  }))),
+  /*#__PURE__*/React.createElement("section", {
     className: "p-4 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white flex items-center justify-between"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h3", {
     className: "text-sm font-extrabold"
@@ -6882,7 +7582,8 @@ function App() {
   }, "\uD558\uB8E8\xB72\uC77C\xB74\uC77C\xB7\uB3D9\uB8CC4\uC77C\xB7\uD55C\uB2EC\xB7\uC804\uCCB4\uC870 \uC704\uC82F \uC9C0\uC6D0")), /*#__PURE__*/React.createElement("button", {
     onClick: () => setWidgetHubOpen(true),
     className: "px-3.5 py-2 rounded-xl bg-white text-blue-700 text-xs font-extrabold shrink-0"
-  }, "\uC704\uC82F \uC5F4\uAE30")), /*#__PURE__*/React.createElement("section", {
+  }, "\uC704\uC82F \uC5F4\uAE30")),
+  /*#__PURE__*/React.createElement("section", {
     className: "p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2.5"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h3", {
     className: "text-xs font-extrabold text-slate-800"
@@ -6908,7 +7609,8 @@ function App() {
     className: "text-[10px] text-slate-400 leading-relaxed"
   }, "홈 화면 반영까지 1~2초 걸릴 수 있고, 기기에 따라 앱이 잠깐 닫힐 수 있습니다.") : /*#__PURE__*/React.createElement("p", {
     className: "text-[10px] text-amber-600 leading-relaxed"
-  }, "웹 미리보기에서는 아이콘을 바꿀 수 없습니다.")), /*#__PURE__*/React.createElement("section", {
+  }, "웹 미리보기에서는 아이콘을 바꿀 수 없습니다.")),
+  /*#__PURE__*/React.createElement("section", {
     className: "p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 flex items-center justify-between"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h3", {
     className: "text-xs font-extrabold text-slate-800"
@@ -6917,7 +7619,8 @@ function App() {
   }, "\uD558\uB2E8 \uBA54\uB274\uB97C \uAE38\uAC8C \uB204\uB974\uAC70\uB098 \uC5EC\uAE30\uC11C \uC21C\uC11C\uB97C \uBC14\uAFC0 \uC218 \uC788\uC2B5\uB2C8\uB2E4.")), /*#__PURE__*/React.createElement("button", {
     onClick: () => setIsReorderingNav(v => !v),
     className: "px-3 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-bold shrink-0"
-  }, isReorderingNav ? "편집 완료" : "순서 이동")), /*#__PURE__*/React.createElement("section", {
+  }, isReorderingNav ? "편집 완료" : "순서 이동")),
+  /*#__PURE__*/React.createElement("section", {
     className: "p-4 rounded-2xl bg-amber-50 border border-amber-200 space-y-2.5"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between"
@@ -6966,35 +7669,8 @@ function App() {
     className: "text-[10px] text-amber-700/70"
   }, "끄면 모든 폰에서 즉시 사라지고, 다시 켜면 즉시 나타납니다. (기본: 공개)")), /*#__PURE__*/React.createElement("p", {
     className: "text-[10px] text-amber-700/70"
-  }, "\uC778\uC99D \uC0C1\uD0DC\uB294 \uC774 \uAE30\uAE30\uC5D0\uB9CC \uC800\uC7A5\uB429\uB2C8\uB2E4.")), /*#__PURE__*/React.createElement("section", {
-    className: "p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center justify-between"
-  }, /*#__PURE__*/React.createElement("h3", {
-    className: "text-xs font-extrabold text-slate-800"
-  }, "\uADFC\uBB34 \uD328\uD134 \uC8FC\uAE30 (", pattern.length, "\uC77C \uC21C\uD658)"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setPattern(DEFAULT_PATTERN),
-    className: "text-[11px] text-blue-600 font-bold"
-  }, "\uAE30\uBCF8(\uC8FC4\xB7\uD7342\xB7\uC57C4\xB7\uD7342)")), /*#__PURE__*/React.createElement("div", {
-    className: "flex flex-wrap gap-1.5"
-  }, pattern.map((sh, i) => {
-    const meta = SHIFT_META[sh] || SHIFT_META["휴"];
-    return /*#__PURE__*/React.createElement("button", {
-      key: i,
-      onClick: () => {
-        const order = ["주", "야", "오", "휴"];
-        const next = order[(order.indexOf(sh) + 1) % order.length];
-        setPattern(prev => prev.map((item, idx) => idx === i ? next : item));
-      },
-      className: `w-8 h-8 rounded-full text-xs font-extrabold flex items-center justify-center shadow-2xs ${meta.badgeBg} ${meta.badgeText}`
-    }, sh);
-  }), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setPattern(prev => [...prev, "휴"]),
-    className: "w-8 h-8 rounded-full border border-dashed border-slate-300 text-slate-500 text-xs font-bold"
-  }, "+"), pattern.length > 2 && /*#__PURE__*/React.createElement("button", {
-    onClick: () => setPattern(prev => prev.slice(0, -1)),
-    className: "w-8 h-8 rounded-full border border-slate-200 text-slate-400 text-xs font-bold"
-  }, "-"))), /*#__PURE__*/React.createElement("section", {
+  }, "\uC778\uC99D \uC0C1\uD0DC\uB294 \uC774 \uAE30\uAE30\uC5D0\uB9CC \uC800\uC7A5\uB429\uB2C8\uB2E4.")),
+  /*#__PURE__*/React.createElement("section", {
     className: "p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2.5"
   }, /*#__PURE__*/React.createElement("h3", {
     className: "text-xs font-extrabold text-slate-800"
