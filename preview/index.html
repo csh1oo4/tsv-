@@ -1259,6 +1259,9 @@ const buildAttendanceSummary = (opts) => {
   let annual = 0;
   let halfDay = 0;
   let training = 0;
+  let vacation = 0;
+  let official = 0;
+  let unpaid = 0;
   const dayOvertime = [];
   const nightOvertime = [];
   const start = parseDateKey(range.startKey);
@@ -1294,7 +1297,7 @@ const buildAttendanceSummary = (opts) => {
         }));
       }
     }
-    if (sub === "연차") annual++;else if (sub === "반차") halfDay++;else if (sub === "교육") training++;
+    if (sub === "연차") annual++;else if (sub === "반차") halfDay++;else if (sub === "교육") training++;else if (sub === "휴가") vacation++;else if (sub === "공가") official++;else if (sub === "무급휴가") unpaid++;
   }
   return {
     year,
@@ -1312,7 +1315,10 @@ const buildAttendanceSummary = (opts) => {
     offTotal,
     annual,
     halfDay,
-    training
+    training,
+    vacation,
+    official,
+    unpaid
   };
 };
 /* ---------------------------------------------------------------- v2.5 알람 시간 키패드
@@ -1480,6 +1486,21 @@ const SUB_SHIFT_META = {
     short: "특근",
     bg: "bg-violet-600 text-white",
     border: "border-violet-600"
+  },
+  "휴가": {
+    short: "휴가",
+    bg: "bg-sky-500 text-white",
+    border: "border-sky-500"
+  },
+  "공가": {
+    short: "공가",
+    bg: "bg-amber-500 text-white",
+    border: "border-amber-500"
+  },
+  "무급휴가": {
+    short: "무급휴가",
+    bg: "bg-slate-500 text-white",
+    border: "border-slate-500"
   }
 };
 const DEFAULT_PATTERN = ["주", "주", "주", "주", "휴", "휴", "야", "야", "야", "야", "휴", "휴"];
@@ -2634,6 +2655,16 @@ const salaryHourText = n => {
 const salaryRateText = r => String(Math.round(salaryNum(r) * 1000) / 1000);
 const salaryEarlyLeaveOf = (settings, dateKey) => Math.max(0, salaryNum((settings && settings.earlyLeave || {})[dateKey]));
 
+/* ── 근태 추가 표시 중 '휴가 계열' (2026-11-26 승현 님 요청) ───────────────────
+   휴가 · 공가 : 유급 — 소정근로일수(기본급)는 그대로, 출근하지 않았으므로 연장·심야·특근 수당 0원.
+                 연차 사용 일수에는 넣지 않는다(연차 1일 · 반차 0.5일만 차감).
+   무급휴가    : 무급 — 기본급에서 1일분(기본시급 × 8시간)을 빼고, 수당 0원. */
+const SALARY_PAID_LEAVE_TAGS = ["휴가", "공가"];
+const SALARY_UNPAID_LEAVE_TAG = "무급휴가";
+const SALARY_LEAVE_TAGS = SALARY_PAID_LEAVE_TAGS.concat([SALARY_UNPAID_LEAVE_TAG]);
+const salaryIsPaidLeave = sub => SALARY_PAID_LEAVE_TAGS.indexOf(sub) >= 0;
+const salaryIsLeaveTag = sub => SALARY_LEAVE_TAGS.indexOf(sub) >= 0;
+
 /* 10원 미만 절사 (명세서·국세청 간이세액표 표기 방식) */
 const salaryFloor10 = n => Math.max(0, Math.floor(salaryNum(n) / 10) * 10);
 
@@ -2706,6 +2737,9 @@ const buildSalaryStatement = opts => {
     const deduct = Math.max(earlyLeave, sub === "반차" ? 4 : 0);
     const isDayShift = shift === "주" || shift === "오" || shift === "휴" && sub === "특근";
     const isNightShift = shift === "야";
+    // 근무표에 실제로 배정된 날(주·야·오)인지 — 휴가 계열은 이 날에만 급여에 반영한다
+    const scheduledShift = shift === "주" || shift === "오" || shift === "야";
+    const leaveTag = salaryIsLeaveTag(sub) && scheduledShift ? sub : "";
     const kind = dow === 6 ? "sat" : dow === 0 || isRedHoliday ? "holiday" : "weekday";
     const dayHours = {
       night: 0,
@@ -2717,7 +2751,11 @@ const buildSalaryStatement = opts => {
     };
     let label = "휴무";
     let worked = false;
-    if ((isDayShift || isNightShift) && sub === "연차") {
+    if (leaveTag) {
+      // 휴가·공가 = 유급(기본급 유지) · 무급휴가 = 기본급 1일분 차감 — 둘 다 수당은 0원
+      worked = salaryIsPaidLeave(leaveTag);
+      label = `${leaveTag} (${salaryIsPaidLeave(leaveTag) ? "유급" : "무급"})`;
+    } else if ((isDayShift || isNightShift) && sub === "연차") {
       // 연차는 소정근로일 정상 근무로 보고 연장 없이 기본급에만 포함한다.
       worked = true;
       label = "연차 (소정근로)";
@@ -2768,12 +2806,16 @@ const buildSalaryStatement = opts => {
       sub,
       kind,
       label,
+      leaveTag,
+      scheduled: scheduledShift,
       deduct,
       hours: dayHours,
       amount: dayAmount,
       holidayName: holiday ? holiday.name : ""
     });
   }
+  const unpaidLeaveDays = days.filter(x => x.leaveTag === SALARY_UNPAID_LEAVE_TAG).length;
+  const paidLeaveDays = days.filter(x => salaryIsPaidLeave(x.leaveTag)).length;
   const normalDays = totalDays - saturdayCount;
   // 기본급 소정근로일수 — 회사 규칙은 '기간 총 일수 − 5일'(31일→26일, 30일→25일).
   // 설정에서 직접 지정(override)하면 그 일수를 쓴다.
@@ -2782,14 +2824,17 @@ const buildSalaryStatement = opts => {
   const baseDays = baseDaysOverride > 0 ? baseDaysOverride : autoBaseDays;
   const baseHours = baseDays * 8;
   const baseAmount = baseHourly * baseHours;
+  // 무급휴가 1일분 = 기본시급 × 8시간 (유급인 휴가·공가는 차감 없음)
+  const baseLeaveDeduction = Math.round(baseHourly * 8 * unpaidLeaveDays);
+  const basePayAmount = baseAmount - baseLeaveDeduction;
   const amountOf = (h, mult) => Math.round(normalHourly * h * mult);
   const items = [{
     key: "base",
     label: "기본급",
-    hours: baseHours,
+    hours: baseHours - unpaidLeaveDays * 8,
     multiplier: 1,
-    amount: baseAmount,
-    note: `${salaryWon(baseHourly)}원 × 8h × ${baseDays}일` + (baseDaysOverride > 0 ? " (직접 지정)" : ` (기간 ${totalDays}일 − 5일)`)
+    amount: basePayAmount,
+    note: `${salaryWon(baseHourly)}원 × 8h × ${baseDays}일` + (baseDaysOverride > 0 ? " (직접 지정)" : ` (기간 ${totalDays}일 − 5일)`) + (unpaidLeaveDays > 0 ? ` · 무급휴가 ${unpaidLeaveDays}일 −${salaryWon(baseLeaveDeduction)}원` : "")
   }, {
     key: "night",
     label: "심야근로수당",
@@ -2872,7 +2917,7 @@ const buildSalaryStatement = opts => {
   if (todayKey >= range.endKey) accumulated = gross;else if (todayKey >= range.startKey) {
     const today = parseDateKey(todayKey);
     const elapsed = Math.round((today - start) / 86400000) + 1;
-    accumulated = Math.round(baseAmount * elapsed / totalDays) + days.filter(x => x.dateKey <= todayKey).reduce((s, x) => s + x.amount, 0);
+    accumulated = Math.round(basePayAmount * elapsed / totalDays) + days.filter(x => x.dateKey <= todayKey).reduce((s, x) => s + x.amount, 0);
   }
   const labelMonthIndex = monthIndex === 12 ? 1 : monthIndex + 1;
   const labelYear = monthIndex === 12 ? year + 1 : year;
@@ -2891,6 +2936,10 @@ const buildSalaryStatement = opts => {
     autoBaseDays,
     baseHours,
     baseAmount,
+    basePayAmount,
+    baseLeaveDeduction,
+    unpaidLeaveDays,
+    paidLeaveDays,
     hours,
     days,
     items,
@@ -2902,7 +2951,7 @@ const buildSalaryStatement = opts => {
     accumulatedComplete: todayKey >= range.endKey,
     mode,
     earlyLeaveDays: days.filter(x => x.deduct > 0),
-    workedDays: days.filter(x => x.amount > 0 || x.label === "연차 (소정근로)")
+    workedDays: days.filter(x => x.amount > 0 || x.label === "연차 (소정근로)" || !!x.leaveTag)
   };
 };
 /* ───────────────────────────── 화면 요소 ───────────────────────────── */
@@ -2968,9 +3017,10 @@ const renderSalaryCard = p => {
     "data-testid": "salary-gross"
   }, money(st.gross))), svEl("span", {
     className: "text-right text-[10.5px] font-bold text-slate-500 whitespace-nowrap"
-  }, "\uACF5\uC81C ", hidden ? "\u2022\u2022\u2022" : `${salaryWon(st.deductionTotal)}\uC6D0`, st.earlyLeaveDays.length > 0 ? svEl("span", {
-    className: "mt-0.5 block text-[10px] font-extrabold text-orange-600"
-  }, "\uC870\uD1F4 ", st.earlyLeaveDays.length, "\uC77C \uBC18\uC601") : null)), svEl("span", {
+  }, "\uACF5\uC81C ", hidden ? "\u2022\u2022\u2022" : `${salaryWon(st.deductionTotal)}\uC6D0`, st.earlyLeaveDays.length > 0 || st.unpaidLeaveDays > 0 ? svEl("span", {
+    className: "mt-0.5 block text-[10px] font-extrabold text-orange-600",
+    "data-testid": "salary-leave-note"
+  }, [st.earlyLeaveDays.length > 0 ? `\uC870\uD1F4 ${st.earlyLeaveDays.length}\uC77C \uBC18\uC601` : "", st.unpaidLeaveDays > 0 ? `\uBB34\uAE09 ${st.unpaidLeaveDays}\uC77C \uCC28\uAC10` : ""].filter(Boolean).join(" \u00B7 ")) : null)), svEl("span", {
     className: "mt-2 flex items-center justify-between gap-2 rounded-xl bg-white border border-blue-100 px-3 py-2"
   }, svEl("span", {
     className: "text-[10.5px] font-bold text-slate-500"
@@ -3234,7 +3284,10 @@ const renderSalaryModal = p => {
     className: "text-[10px] font-bold text-slate-500"
   }, dd.label), dd.deduct > 0 ? svEl("span", {
     className: "text-[9px] font-extrabold text-orange-600 bg-orange-50 border border-orange-100 rounded px-1"
-  }, "\uC870\uD1F4 ", salaryHourText(dd.deduct), "h") : null), svEl("span", {
+  }, "\uC870\uD1F4 ", salaryHourText(dd.deduct), "h") : null, dd.leaveTag ? svEl("span", {
+    className: `text-[9px] font-extrabold rounded px-1 border ${dd.leaveTag === "\uBB34\uAE09\uD734\uAC00" ? "text-slate-700 bg-slate-100 border-slate-200" : "text-emerald-700 bg-emerald-50 border-emerald-100"}`,
+    "data-testid": "salary-day-leave-" + dd.dateKey
+  }, dd.leaveTag === "\uBB34\uAE09\uD734\uAC00" ? "\uAE30\uBCF8\uAE09 1\uC77C \uCC28\uAC10" : "\uC720\uAE09") : null), svEl("span", {
     className: "text-[10.5px] font-extrabold text-slate-700 whitespace-nowrap"
   }, hidden ? "•••" : dd.amount > 0 ? `+${salaryWon(dd.amount)}` : "-"))))), svEl("div", {
     className: "flex items-center justify-between rounded-xl bg-slate-50 border border-slate-200 px-3 py-2"
@@ -3326,7 +3379,7 @@ const renderEarlyLeaveBlock = p => {
   }, "\uC2DC\uAC04 \u00B7 \uC9C1\uC811 \uC785\uB825\uB3C4 \uAC00\uB2A5 (0.5h \uB2E8\uC704)")), svEl("p", {
     className: "text-[10px] font-bold text-slate-500 leading-relaxed",
     "data-testid": "early-leave-hint"
-  }, dayInfo.label, hourLine ? ` \u2192 ${hourLine}` : " \u2192 \uC5F0\uC7A5\uC218\uB2F9 \uC5C6\uC74C", dayInfo.sub === "\uBC18\uCC28" ? " \u00B7 \uBC18\uCC28\uB294 4\uC2DC\uAC04 \uCC28\uAC10\uC73C\uB85C \uACC4\uC0B0\uB429\uB2C8\uB2E4." : ""));
+  }, dayInfo.label, hourLine ? ` \u2192 ${hourLine}` : " \u2192 \uC5F0\uC7A5\uC218\uB2F9 \uC5C6\uC74C", dayInfo.sub === "\uBC18\uCC28" ? " \u00B7 \uBC18\uCC28\uB294 4\uC2DC\uAC04 \uCC28\uAC10\uC73C\uB85C \uACC4\uC0B0\uB429\uB2C8\uB2E4." : "", salaryIsLeaveTag(dayInfo.sub) ? (dayInfo.sub === SALARY_UNPAID_LEAVE_TAG ? " \u00B7 \uBB34\uAE09\uD734\uAC00\uB294 \uAE30\uBCF8\uAE09\uC5D0\uC11C 1\uC77C\uBD84(\uAE30\uBCF8\uC2DC\uAE09 \u00D7 8h)\uC774 \uCC28\uAC10\uB429\uB2C8\uB2E4." : " \u00B7 \uC720\uAE09\uC774\uB77C \uAE30\uBCF8\uAE09\uC740 \uADF8\uB300\uB85C\uC774\uACE0 \uC218\uB2F9\uB9CC 0\uC6D0\uC785\uB2C8\uB2E4.") : ""));
 };
 
 /* ─────────────── v2.6-preview · 설정 탭 상위 메뉴(정보입력 · 급여 계산기) + 연차 일수 ───────────────
@@ -4379,6 +4432,207 @@ const OnboardingScreen = p => {
   }, step === 1 ? stepOneBody : stepTwoBody), footer));
 };
 
+/* ─────────────── v2.6-preview · 📖 앱 사용 가이드(튜토리얼) ───────────────
+   2026-11-26 승현 님 요청:
+     "처음 어플 깔았을때 튜토리얼 만들어줘 좋은 기능 설명 쉽게 알수 있게 건너뛰기 할수 있고
+      이건 설정에서 다시 볼수 있게 튜토리얼 추가해주고 위치는 마스터관리자권한 위에 놓아줘 /
+      알람기능과 급여명세서 대조 기능은 꼭 넣어줘"
+   · 첫 설치(1회 선입력 온보딩)를 마치고 앱 화면으로 들어올 때, localStorage
+     ['tsv_duty_tutorial_done_v1'] 이 없으면 딱 1회 자동으로 뜬다.
+   · 어느 페이지에서든 '건너뛰기' 또는 닫기(✕)로 끄면 '1'을 저장해 다시 자동으로 뜨지 않는다.
+   · 설정 탭 '👑 마스터 관리자 권한' 바로 위의 '📖 앱 사용 가이드(튜토리얼 다시 보기)' 카드로
+     언제든 1페이지부터 다시 볼 수 있다.
+   · 4페이지: ① 달력·전체 조·날씨 ② 교대 알람 ③ 급여 계산기·명세서·근태표 사진 대조 ④ 조원 공유·게시판·위젯 */
+
+const SV_TUTORIAL_KEY = "tsv_duty_tutorial_done_v1";
+
+const svTutorialDone = () => {
+  try {
+    return localStorage.getItem(SV_TUTORIAL_KEY) === "1";
+  } catch (e) {
+    return true; // 저장소를 못 쓰는 환경(사생활 보호 모드 등)에서는 매번 띄우지 않는다
+  }
+};
+const svSetTutorialDone = () => {
+  try {
+    localStorage.setItem(SV_TUTORIAL_KEY, "1");
+  } catch (e) {}
+};
+
+/* 페이지 4장 — 승현 님이 꼭 넣으라고 한 알람(②)·급여명세서 대조(③)를 가운데에 두었다. */
+const SV_TUTORIAL_PAGES = [{
+  id: "calendar",
+  icon: "📅",
+  title: "내 근무 달력 한눈에",
+  lead: "A·B·C조 12일 패턴(주4·휴2·야4·휴2)이 달력에 자동으로 그려집니다.",
+  points: [{
+    icon: "🗓",
+    text: "날짜를 누르면 근무 변경 · 연차 · 반차 · 교육 · 특근 · 휴가 · 공가 · 무급휴가를 바로 지정"
+  }, {
+    icon: "👥",
+    text: "'전체 조'에서 다른 조 일정을 내 달력 위에 겹쳐 보기 (누가 언제 쉬는지 한눈에)"
+  }, {
+    icon: "🌤",
+    text: "10일 날씨 예보 · 미세먼지까지 달력 아래에서 확인 (출근 준비용)"
+  }, {
+    icon: "🏖",
+    text: "연차 잔여 일수 자동 계산 — 연차 1일 / 반차 0.5일만 차감"
+  }]
+}, {
+  id: "alarm",
+  icon: "⏰",
+  title: "놓치지 않는 교대 알람",
+  lead: "주간·야간 교대에 맞춰 알람을 미리 예약해 두면 출근 시간을 놓치지 않습니다.",
+  must: true,
+  points: [{
+    icon: "🔁",
+    text: "주간·야간 교대별 자동 알람 예약 — 내 근무표에 맞춰 반복 설정"
+  }, {
+    icon: "🔢",
+    text: "큰 숫자 키패드로 1분 단위까지 정확하게 시간 설정 (장갑 낀 손으로도 OK)"
+  }, {
+    icon: "📢",
+    text: "기상나팔·기기 음악 등 알람음 선택 — 잠 깨기 확실하게"
+  }, {
+    icon: "🔔",
+    text: "알람은 휴대폰 알람 서비스로 예약되어 앱을 꺼 두어도 울립니다"
+  }]
+}, {
+  id: "salary",
+  icon: "💰",
+  title: "자동 월급 계산기 + 근태표 사진 대조",
+  lead: "전월 16일 ~ 당월 15일 기준으로 예상 급여와 실수령액을 자동 계산합니다.",
+  must: true,
+  points: [{
+    icon: "🧮",
+    text: "기본급·심야·연장·휴일·휴일연장 수당 자동 계산 + 4대보험·소득세 공제까지 실수령액 표시"
+  }, {
+    icon: "📄",
+    text: "명세서 상세 보기 — 항목별 금액과 일별 계산 근거(조퇴·연차·무급휴가 반영)를 한 장에"
+  }, {
+    icon: "🤖",
+    text: "Gemini AI 사진 한 장으로 근태표 자동 대조 — 근태시간·금액 차이를 항목별로 표시"
+  }, {
+    icon: "🔐",
+    text: "급여·근태 정보는 내 폰 브라우저에만 저장 (서버 전송 없음)"
+  }]
+}, {
+  id: "share",
+  icon: "👥",
+  title: "조원 공유 · 게시판 · 홈 화면 위젯",
+  lead: "같은 팀 코드(TSV-AMMK)를 쓰는 조원과 일정과 글을 나눌 수 있습니다.",
+  points: [{
+    icon: "📣",
+    text: "조원 실시간 공유 — 근무 변경·휴가 일정이 조원 달력에 바로 반영"
+  }, {
+    icon: "📋",
+    text: "게시판 · 설비 공유 — 공지, 근무 교대 요청, 설비 사진을 함께 보기"
+  }, {
+    icon: "📱",
+    text: "홈 화면 위젯 5종 — 오늘 근무·2일·4일·조 전체·팀 4일을 앱 없이 바로"
+  }, {
+    icon: "⚙",
+    text: "설정에서 언제든 이 가이드를 다시 볼 수 있어요 (마스터 관리자 권한 바로 위)"
+  }]
+}];
+
+/* 페이지 안의 한 줄 */
+const svTutorialPoint = (pt, key) => svEl("div", {
+  key: key,
+  className: "flex items-start gap-2.5 px-3 py-2.5 rounded-2xl bg-slate-50 border border-slate-100"
+}, svEl("span", {
+  className: "text-[15px] leading-none mt-0.5 shrink-0"
+}, pt.icon), svEl("span", {
+  className: "text-[12px] leading-relaxed font-bold text-slate-700 break-keep"
+}, pt.text));
+
+const TutorialScreen = p => {
+  const pages = SV_TUTORIAL_PAGES;
+  const [idx, setIdx] = React.useState(p.initialPage || 0);
+  const page = pages[idx];
+  const last = idx >= pages.length - 1;
+  const finish = () => p.onDone();
+  return svEl("div", {
+    className: "fixed inset-0 bg-slate-900/55 flex items-center justify-center p-4",
+    style: {
+      zIndex: 92
+    },
+    "data-testid": "tutorial"
+  }, svEl("div", {
+    className: "w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[88vh]"
+  }, /* 머리 — 제목 · 건너뛰기 · 닫기 */
+  svEl("div", {
+    className: "px-5 pt-4 pb-3 border-b border-slate-100"
+  }, svEl("div", {
+    className: "flex items-center justify-between gap-2"
+  }, svEl("span", {
+    className: "inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-50 border border-blue-100 text-blue-700 text-[10.5px] font-extrabold"
+  }, "\uD83D\uDCD6 \uC571 \uC0AC\uC6A9 \uAC00\uC774\uB4DC"), svEl("div", {
+    className: "flex items-center gap-1.5 shrink-0"
+  }, svEl("button", {
+    type: "button",
+    onClick: finish,
+    "data-testid": "tutorial-skip",
+    className: "px-2.5 py-1.5 rounded-xl bg-slate-100 text-[11px] font-extrabold text-slate-600 active:bg-slate-200"
+  }, "\uAC74\uB108\uB6F0\uAE30"), svEl("button", {
+    type: "button",
+    onClick: finish,
+    "aria-label": "\uB2EB\uAE30",
+    "data-testid": "tutorial-close",
+    className: "w-7 h-7 rounded-full bg-slate-100 text-slate-500 text-[12px] font-extrabold"
+  }, "\u2715"))), svEl("div", {
+    className: "mt-2.5 flex items-center gap-1.5",
+    "data-testid": "tutorial-indicator"
+  }, pages.map((pg, i) => svEl("span", {
+    key: pg.id,
+    "data-testid": "tutorial-dot-" + (i + 1),
+    className: `h-1.5 rounded-full transition-all ${i === idx ? "w-6 bg-blue-600" : i < idx ? "w-1.5 bg-blue-300" : "w-1.5 bg-slate-200"}`
+  })), svEl("span", {
+    className: "ml-1 text-[10.5px] font-extrabold text-slate-400"
+  }, idx + 1, " / ", pages.length))), /* 본문 */
+  svEl("div", {
+    className: "flex-1 overflow-y-auto px-5 py-4 space-y-3",
+    "data-testid": "tutorial-body"
+  }, svEl("div", {
+    className: "flex items-center gap-2"
+  }, svEl("span", {
+    className: "w-10 h-10 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-[20px] shrink-0"
+  }, page.icon), svEl("div", {
+    className: "min-w-0"
+  }, svEl("h3", {
+    className: "text-[16px] leading-tight font-extrabold tracking-tight text-slate-900",
+    "data-testid": "tutorial-title"
+  }, page.title), page.must ? svEl("span", {
+    className: "mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-[9.5px] font-extrabold text-amber-700",
+    "data-testid": "tutorial-must"
+  }, "\uD83D\uDD11 \uD544\uC218 \uAE30\uB2A5") : null)), svEl("p", {
+    className: "text-[12px] leading-relaxed text-slate-500 font-medium break-keep"
+  }, page.lead), svEl("div", {
+    className: "space-y-1.5"
+  }, page.points.map((pt, i) => svTutorialPoint(pt, "tp" + idx + "-" + i)))), /* 바닥 — 이전 · 다음/시작하기 */
+  svEl("div", {
+    className: "px-5 pt-3 border-t border-slate-100 bg-white",
+    style: {
+      paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom, 0px))"
+    }
+  }, svEl("div", {
+    className: "flex items-center gap-2"
+  }, svEl("button", {
+    type: "button",
+    onClick: () => setIdx(i => Math.max(0, i - 1)),
+    disabled: idx === 0,
+    "data-testid": "tutorial-prev",
+    className: `px-4 py-3 rounded-2xl text-[12.5px] font-extrabold ${idx === 0 ? "bg-slate-100 text-slate-300" : "bg-slate-100 text-slate-700 active:bg-slate-200"}`
+  }, "\u2190 \uC774\uC804"), svEl("button", {
+    type: "button",
+    onClick: () => last ? finish() : setIdx(i => Math.min(pages.length - 1, i + 1)),
+    "data-testid": last ? "tutorial-start" : "tutorial-next",
+    className: "flex-1 py-3 rounded-2xl bg-blue-600 text-white text-[13.5px] font-extrabold active:bg-blue-700"
+  }, last ? "\uC2DC\uC791\uD558\uAE30" : "\uB2E4\uC74C")), svEl("p", {
+    className: "mt-2 text-center text-[10px] font-bold text-slate-400"
+  }, "\uC5B8\uC81C\uB4E0 \uC124\uC815 \u203A \uC571 \uC0AC\uC6A9 \uAC00\uC774\uB4DC\uC5D0\uC11C \uB2E4\uC2DC \uBCFC \uC218 \uC788\uC5B4\uC694"))));
+};
+
 function App() {
   const loadState = (key, fallback) => {
     try {
@@ -4597,6 +4851,8 @@ function App() {
 
   // 🚀 v2.6-preview — 첫 설치·첫 실행 1회만 뜨는 선입력(온보딩) 화면
   const [onboardingOpen, setOnboardingOpen] = useState(() => !svOnboardingDone());
+  // 📖 v2.6-preview — 첫 설치 1회 튜토리얼(4장). 온보딩을 마치고 앱 화면으로 들어올 때 1회 자동 노출
+  const [tutorialOpen, setTutorialOpen] = useState(() => svOnboardingDone() && !svTutorialDone());
 
   // 마스터(관리자) 권한 · 이 기기 고유 ID
   const [myDeviceId] = useState(() => {
@@ -7159,7 +7415,18 @@ function App() {
       if (patch.salary) setSalarySettings(prev => Object.assign({}, prev, patch.salary));
       svSetOnboardingDone();
       setOnboardingOpen(false);
+      // 📖 온보딩(저장 또는 건너뛰기)을 마치면 튜토리얼을 1회 띄운다
+      if (!svTutorialDone()) setTutorialOpen(true);
       notify('\uC124\uC815\uC774 \uC800\uC7A5\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uC774\uC81C \uB2EC\uB825\uC744 \uC0AC\uC6A9\uD558\uC138\uC694!');
+    }
+  }) : null;
+
+  // 📖 v2.6-preview — 첫 설치 1회 튜토리얼 (설정 > 앱 사용 가이드에서 다시 보기)
+  const tutorialEl = tutorialOpen ? svEl(TutorialScreen, {
+    onDone: () => {
+      svSetTutorialDone();
+      setTutorialOpen(false);
+      notify('\uC54C\uC544\uB450\uBA74 \uB354 \uD3B8\uD574\uC694! \uC124\uC815 \u203A \uC571 \uC0AC\uC6A9 \uAC00\uC774\uB4DC\uC5D0\uC11C \uB2E4\uC2DC \uBCFC \uC218 \uC788\uC2B5\uB2C8\uB2E4.');
     }
   }) : null;
 
@@ -7167,11 +7434,11 @@ function App() {
     className: "min-h-screen bg-slate-100 flex justify-center"
   }, /*#__PURE__*/React.createElement("div", {
     className: "w-full max-w-md bg-white min-h-screen shadow-xl flex flex-col relative overflow-hidden"
-  }, onboardingEl, toast && /*#__PURE__*/React.createElement("div", {
+  }, onboardingEl, tutorialEl, toast && /*#__PURE__*/React.createElement("div", {
     className: "fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 text-white text-xs font-medium px-4 py-2.5 rounded-full shadow-lg max-w-[90vw] text-center"
   }, toast), /*#__PURE__*/React.createElement("div", {
     className: "px-3 py-1 bg-amber-100 text-amber-800 text-[10px] font-extrabold text-center border-b border-amber-200 tracking-tight"
-  }, "\uBBF8\uB9AC\uBCF4\uAE30 v2.6-preview \u00B7 \uC6D4\uAE09 \uACC4\uC0B0\uAE30 \uD14C\uC2A4\uD2B8"), /*#__PURE__*/React.createElement("header", {
+  }, "\uBBF8\uB9AC\uBCF4\uAE30 v2.6-preview \xB7 \uC6D4\uAE09 \uACC4\uC0B0\uAE30 \uD14C\uC2A4\uD2B8"), /*#__PURE__*/React.createElement("header", {
     className: "px-4 pt-3.5 pb-2 bg-white border-b border-slate-100 flex items-center justify-between sticky top-0 z-20"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center gap-2"
@@ -7354,7 +7621,16 @@ function App() {
     className: "px-2 py-1 rounded-lg bg-teal-50 border border-teal-100 text-[10px] font-extrabold text-teal-700"
   }, "반차 ", monthSummary.halfDay, "회"), monthSummary.training > 0 && /*#__PURE__*/React.createElement("span", {
     className: "px-2 py-1 rounded-lg bg-indigo-50 border border-indigo-100 text-[10px] font-extrabold text-indigo-700"
-  }, "교육 ", monthSummary.training, "일")), summaryDetailType && /*#__PURE__*/React.createElement("div", {
+  }, "교육 ", monthSummary.training, "일"), monthSummary.vacation > 0 && /*#__PURE__*/React.createElement("span", {
+    className: "px-2 py-1 rounded-lg bg-sky-50 border border-sky-100 text-[10px] font-extrabold text-sky-700",
+    "data-testid": "summary-vacation-badge"
+  }, "\uD734\uAC00 ", monthSummary.vacation, "\uC77C"), monthSummary.official > 0 && /*#__PURE__*/React.createElement("span", {
+    className: "px-2 py-1 rounded-lg bg-amber-50 border border-amber-100 text-[10px] font-extrabold text-amber-700",
+    "data-testid": "summary-official-badge"
+  }, "\uACF5\uAC00 ", monthSummary.official, "\uC77C"), monthSummary.unpaid > 0 && /*#__PURE__*/React.createElement("span", {
+    className: "px-2 py-1 rounded-lg bg-slate-100 border border-slate-200 text-[10px] font-extrabold text-slate-600",
+    "data-testid": "summary-unpaid-badge"
+  }, "\uBB34\uAE09\uD734\uAC00 ", monthSummary.unpaid, "\uC77C")), summaryDetailType && /*#__PURE__*/React.createElement("div", {
     className: "mt-3 p-3.5 rounded-2xl bg-slate-50 border border-slate-200"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex items-center justify-between mb-2"
@@ -8100,6 +8376,24 @@ function App() {
     onClick: () => setIsReorderingNav(v => !v),
     className: "px-3 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-bold shrink-0"
   }, isReorderingNav ? "편집 완료" : "순서 이동")),
+  /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onClick: () => setTutorialOpen(true),
+    "data-testid": "settings-tutorial",
+    className: "w-full flex items-center justify-between gap-3 px-4 py-3.5 rounded-2xl bg-white border border-slate-200/80 text-left shadow-2xs active:bg-slate-50 transition"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "min-w-0"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "flex items-center gap-1.5"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-sm leading-none"
+  }, "\uD83D\uDCD6"), /*#__PURE__*/React.createElement("span", {
+    className: "text-sm font-extrabold text-slate-900"
+  }, "\uC571 \uC0AC\uC6A9 \uAC00\uC774\uB4DC")), /*#__PURE__*/React.createElement("span", {
+    className: "mt-1 block text-[11px] font-bold text-slate-500"
+  }, "\uD29C\uD1A0\uB9AC\uC5BC \uB2E4\uC2DC \uBCF4\uAE30")), /*#__PURE__*/React.createElement("span", {
+    className: "shrink-0 px-2.5 py-1.5 rounded-xl bg-slate-100 text-[10.5px] font-extrabold text-slate-600"
+  }, "\uB2E4\uC2DC \uBCF4\uAE30 \u203A")),
   /*#__PURE__*/React.createElement("section", {
     className: "p-4 rounded-2xl bg-amber-50 border border-amber-200 space-y-2.5"
   }, /*#__PURE__*/React.createElement("div", {
@@ -8618,9 +8912,12 @@ function App() {
     }, code, " (", meta.label, ")");
   }))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
     className: "text-[10px] font-bold text-slate-400 block mb-1.5"
-  }, "\uADFC\uD0DC \uCD94\uAC00 \uD45C\uC2DC (\uC8FC\xB7\uC57C \uC720\uC9C0\uD558\uACE0 \uC544\uB798\uC5D0 \uD568\uAED8 \uD45C\uAE30 \xB7 \uB2E4\uC2DC \uB204\uB974\uBA74 \uD574\uC81C)"), /*#__PURE__*/React.createElement("div", {
+  }, "\uADFC\uD0DC \uCD94\uAC00 \uD45C\uC2DC (\uC8FC\xB7\uC57C \uC720\uC9C0\uD558\uACE0 \uC544\uB798\uC5D0 \uD568\uAED8 \uD45C\uAE30 \xB7 \uB2E4\uC2DC \uB204\uB974\uBA74 \uD574\uC81C)", /*#__PURE__*/React.createElement("span", {
+    className: "block mt-0.5 text-[9.5px] font-bold text-slate-400",
+    "data-testid": "sub-shift-hint"
+  }, "\uD734\uAC00\xB7\uACF5\uAC00 \uC720\uAE09(\uAE30\uBCF8\uAE09 \uC720\uC9C0) \xB7 \uBB34\uAE09\uD734\uAC00 \uAE30\uBCF8\uAE09 1\uC77C\uCC28\uAC10")), /*#__PURE__*/React.createElement("div", {
     className: "grid grid-cols-4 gap-1.5"
-  }, ["연차", "반차", "교육", "특근"].map(sub => {
+  }, ["연차", "반차", "교육", "특근", "휴가", "공가", "무급휴가"].map(sub => {
     const active = draftSubShift === sub;
     return /*#__PURE__*/React.createElement("button", {
       key: sub,
