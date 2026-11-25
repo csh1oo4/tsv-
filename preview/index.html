@@ -3489,11 +3489,16 @@ const renderAnnualLeaveBlock = p => {
    · 사진은 브라우저에서 최대 변 2000px JPEG로 줄인 뒤 Gemini에 한 번 보내고 저장하지 않는다.
    · 키가 없어도 6개 시간을 직접 입력해 대조할 수 있다. */
 
-/* 2026-11-26 승현 님 실기기 오류:
+/* 2026-11-26 승현 님 실기기 오류 ①:
    "This model models/gemini-2.5-flash is no longer available to new users.
     Please update your code to use models/gemini-3.8-flash ..."
    → 기본 모델을 gemini-3.8-flash 로 바꾸고, 그래도 400/404(모델 없음·종료)이면
-     사용 가능한 모델 목록을 조회해 최신 gemini-*-flash 로 1회 자동 재시도한다. */
+     사용 가능한 모델 목록을 조회해 최신 gemini-*-flash 로 1회 자동 재시도한다.
+   2026-11-26 승현 님 실기기 오류 ②(같은 날):
+   "This model is currently experiencing high demand. Spikes in demand are usually temporary."
+   → 일시적 과부하(503 UNAVAILABLE · 429 RESOURCE_EXHAUSTED · high demand/overloaded/try again later)도
+     폴백 대상에 넣고, 목록에서 상위 flash 후보 최대 3개를 순서대로 시도한다.
+     키·권한·결제 오류는 모델을 바꿔도 같으므로 폴백하지 않고 그대로 안내한다. */
 const SV_GEMINI_MODEL = "gemini-3.8-flash";
 const SV_GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 const SV_GEMINI_KEY_STORE = "tsv_duty_gemini_key_v1";
@@ -3629,18 +3634,50 @@ const svGeminiPrompt = name => ["\uCC99\uBD80\uD55C \uADFC\uD0DC\uC2DC\uAC04\uD4
   "\uC8FC\uC758: \uC606\uAC04 \uD589\uC744 \uB2E4\uB978 \uC0AC\uB78C\uACFC \uD5F7\uAC08\uB9AC\uC9C0 \uB9D0\uACE0 \uC774\uB984\uC774 \uC815\uD655\uD788 \uC77C\uCE58\uD558\uB294 \uD589\uB9CC \uC77D\uB294\uB2E4. \uC22B\uC790\uB97C \uCD94\uCE21\uD558\uC9C0 \uB9D0\uACE0 \uBCF4\uC774\uB294 \uAC12\uC744 \uADF8\uB300\uB85C \uC801\uB294\uB2E4."].join("\n");
 
 /* ── 모델 자동 폴백 ─────────────────────────────────────────────────────────
-   모델이 없거나 종료된 오류(400 NOT_FOUND / 404)일 때만 폴백한다.
-   API 키 오류·권한 오류·쿼터 초과는 폴백 대상이 아니다(같은 키로 다시 불러도 같다). */
-const svGeminiModelUnavailable = (status, data) => {
+   폴백하는 경우
+     ① 모델이 없거나 종료됨 (400 NOT_FOUND / 404 / "no longer available")
+     ② 구글 쪽 일시 폭주·과부하 (503 UNAVAILABLE · 429 · RESOURCE_EXHAUSTED ·
+        "high demand" / "overloaded" / "try again later")
+   ②는 다른 모델은 멀쩡한 경우가 많아 모델을 바꾸면 통한다.
+   폴백하지 않는 경우(같은 키·같은 요청으로 다시 불러도 결과가 같다)
+     API 키 오류(API_KEY_INVALID) · 권한(403 PERMISSION_DENIED) · 결제/쿼터 설정 · 잘못된 요청 */
+const svGeminiErrorParts = data => {
   const err = data && data.error || {};
-  const message = String(err.message || "");
-  const reason = String(err.status || "");
-  if (/api key|api_key_invalid|permission|unauthenticated|quota|billing/i.test(message)) return false;
-  if (reason === "API_KEY_INVALID" || reason === "PERMISSION_DENIED" || reason === "UNAUTHENTICATED" || reason === "RESOURCE_EXHAUSTED") return false;
+  return {
+    message: String(err.message || ""),
+    reason: String(err.status || "")
+  };
+};
+
+/* 키·권한처럼 '모델을 바꿔도 소용없는' 오류.
+   ※ 쿼터(429 RESOURCE_EXHAUSTED)는 모델마다 따로 잡혀 있어 다른 모델은 통할 수 있으므로
+     여기 넣지 않는다(폴백 대상). 결제 미설정은 보통 403 PERMISSION_DENIED 로 오므로 함께 걸린다. */
+const svGeminiHardError = (status, data) => {
+  const p = svGeminiErrorParts(data);
+  if (/api[_ ]?key|permission|unauthenticated|not authorized/i.test(p.message)) return true;
+  if (p.reason === "API_KEY_INVALID" || p.reason === "PERMISSION_DENIED" || p.reason === "UNAUTHENTICATED" || p.reason === "INVALID_ARGUMENT") return true;
+  return status === 401 || status === 403;
+};
+
+/* 모델이 없거나 종료됨 */
+const svGeminiModelUnavailable = (status, data) => {
+  if (svGeminiHardError(status, data)) return false;
+  const p = svGeminiErrorParts(data);
   if (status === 404) return true;
   if (status !== 400) return false;
-  return reason === "NOT_FOUND" || /not found|not supported|no longer available|not available to new users|unsupported|invalid model|deprecated|is not available|does not exist/i.test(message);
+  return p.reason === "NOT_FOUND" || /not found|not supported|no longer available|not available to new users|unsupported|invalid model|deprecated|is not available|does not exist/i.test(p.message);
 };
+
+/* 구글 쪽 일시 폭주·과부하 (같은 키로 다른 모델을 부르면 통할 수 있다) */
+const svGeminiOverloaded = (status, data) => {
+  if (svGeminiHardError(status, data)) return false;
+  const p = svGeminiErrorParts(data);
+  if (status === 429 || status === 500 || status === 502 || status === 503 || status === 504) return true;
+  if (p.reason === "UNAVAILABLE" || p.reason === "RESOURCE_EXHAUSTED" || p.reason === "INTERNAL" || p.reason === "DEADLINE_EXCEEDED") return true;
+  return /high demand|overload|try again later|temporar|capacity|too many requests|server (is )?busy/i.test(p.message);
+};
+
+const svGeminiShouldFallback = (status, data) => svGeminiModelUnavailable(status, data) || svGeminiOverloaded(status, data);
 
 /* 모델 이름 점수 — 버전이 높을수록, 이름이 -flash 로 끝날수록 높다.
    lite·preview·experimental·pro·임베딩 계열은 뒤로 밀어 둔다. */
@@ -3652,22 +3689,41 @@ const svGeminiModelScore = name => {
   if (/-flash$/i.test(id)) score += 40;else if (/flash/i.test(id)) score += 20;else score -= 20;
   if (/lite/i.test(id)) score -= 35;
   if (/pro/i.test(id)) score -= 60;
-  if (/(embedding|embed|aqa|image|tts|live|native-audio|vision)/i.test(id)) score -= 200;
+  if (/(embedding|embed|aqa|image|tts|live|native-audio|vision|imagen|veo)/i.test(id)) score -= 200;
   if (/(preview|exp|experimental|thinking|latest)/i.test(id)) score -= 8;
   if (/-(\d{3})$/i.test(id)) score -= 3;
   return score;
 };
-const svPickGeminiFallbackModel = (models, exclude) => {
-  const skip = String(exclude || "").replace(/^models\//, "");
-  const usable = (models || []).filter(m => {
-    const id = String(m && m.name || "").replace(/^models\//, "");
-    const methods = m && m.supportedGenerationMethods || [];
-    return !!id && id !== skip && /gemini-/i.test(id) && /flash/i.test(id) && methods.indexOf("generateContent") >= 0;
-  });
-  if (!usable.length) return "";
-  usable.sort((a, b) => svGeminiModelScore(b.name) - svGeminiModelScore(a.name));
-  return String(usable[0].name).replace(/^models\//, "");
+
+/* generateContent 가 되는 gemini-* flash 계열만, 버전 높은 순으로 최대 limit 개 */
+const svGeminiModelIdOf = name => String(name || "").replace(/^models\//, "");
+const svGeminiUsableModel = m => {
+  const id = svGeminiModelIdOf(m && m.name);
+  const methods = m && m.supportedGenerationMethods || [];
+  if (!id || !/gemini-/i.test(id) || !/flash/i.test(id)) return false;
+  if (/(embedding|embed|aqa|tts|live|native-audio|imagen|veo)/i.test(id)) return false;
+  return methods.indexOf("generateContent") >= 0;
 };
+const svPickGeminiFallbackModels = (models, exclude, limit) => {
+  const skip = {};
+  (Array.isArray(exclude) ? exclude : [exclude]).forEach(x => {
+    const id = svGeminiModelIdOf(x);
+    if (id) skip[id] = true;
+  });
+  const seen = {};
+  const usable = [];
+  (models || []).forEach(m => {
+    const id = svGeminiModelIdOf(m && m.name);
+    if (!svGeminiUsableModel(m) || skip[id] || seen[id]) return;
+    seen[id] = true;
+    usable.push(id);
+  });
+  usable.sort((a, b) => svGeminiModelScore(b) - svGeminiModelScore(a));
+  const max = typeof limit === "number" && limit > 0 ? limit : 3;
+  return usable.slice(0, max);
+};
+const svPickGeminiFallbackModel = (models, exclude) => svPickGeminiFallbackModels(models, exclude, 1)[0] || "";
+const SV_GEMINI_MAX_FALLBACKS = 3;
 
 /* 사용 가능한 모델 목록 (키가 살아 있어야 응답한다) */
 const svGeminiListModels = async apiKey => {
@@ -3733,33 +3789,47 @@ const svGeminiReadAttendance = async opts => {
     const d = r.data;
     return d && d.error && d.error.message ? d.error.message : "HTTP " + r.status;
   };
+  const onProgress = typeof opts.onProgress === "function" ? opts.onProgress : () => {};
   const tried = [];
-  let used = await callModel(SV_GEMINI_MODEL);
-  tried.push({
-    model: used.model,
-    status: used.status,
-    ok: used.ok
-  });
-  if (!used.ok && svGeminiModelUnavailable(used.status, used.data)) {
-    // 모델이 종료·미지원 → 목록에서 최신 gemini-*-flash 를 골라 딱 1회 재시도
+  const attempt = async model => {
+    const res = await callModel(model);
+    tried.push({
+      model: res.model,
+      status: res.status,
+      ok: res.ok
+    });
+    return res;
+  };
+  let used = await attempt(SV_GEMINI_MODEL);
+  let last = used;
+  if (!used.ok && svGeminiShouldFallback(used.status, used.data)) {
+    // 모델 종료·미지원 또는 구글 폭주 → 목록에서 상위 gemini-*-flash 후보를 골라 순서대로 시도
+    const busy = svGeminiOverloaded(used.status, used.data);
+    let models = [];
     try {
-      const models = await svGeminiListModels(apiKey);
-      const pick = svPickGeminiFallbackModel(models, used.model);
-      if (pick) {
-        used = await callModel(pick);
-        tried.push({
-          model: used.model,
-          status: used.status,
-          ok: used.ok
-        });
-      }
+      models = await svGeminiListModels(apiKey);
     } catch (e) {
-      // 목록 조회가 실패하면 첫 응답의 오류를 그대로 보여 준다
+      models = []; // 목록 조회까지 실패하면 첫 응답의 오류를 그대로 보여 준다
+    }
+    const candidates = svPickGeminiFallbackModels(models, [used.model, SV_GEMINI_MODEL], SV_GEMINI_MAX_FALLBACKS);
+    for (let i = 0; i < candidates.length; i++) {
+      const cand = candidates[i];
+      onProgress((busy ? "\uAD6C\uAE00 \uC11C\uBC84\uC5D0 \uC694\uCCAD\uC774 \uBAB0\uB838\uC2B5\uB2C8\uB2E4(503). " : "") + "\uB2E4\uB978 Gemini \uBAA8\uB378\uB85C \uC790\uB3D9 \uC7AC\uC2DC\uB3C4 \uC911\u2026 (" + (i + 1) + "/" + candidates.length + " \u00B7 " + cand + ")");
+      const next = await attempt(cand);
+      last = next;
+      if (next.ok) {
+        used = next;
+        break;
+      }
+      // 키·권한·결제 오류면 다음 모델도 같은 결과라 여기서 멈춘다
+      if (!svGeminiShouldFallback(next.status, next.data)) break;
     }
   }
   if (!used.ok) {
     const extra = tried.length > 1 ? " (\uC790\uB3D9 \uC804\uD658 \uC2DC\uB3C4: " + tried.map(t => t.model + " " + t.status).join(" \u2192 ") + ")" : "";
-    throw new Error("Gemini \uC751\uB2F5 \uC624\uB958: " + errorText(used) + extra);
+    // 마지막으로 받은 응답의 오류를 그대로 보여 준다(권한·키 오류로 끝났다면 그 이유가 보이게)
+    const hint = svGeminiOverloaded(last.status, last.data) ? " \u274C \uC9C0\uAE08 \uAD6C\uAE00 \uCABD\uC5D0 \uC694\uCCAD\uC774 \uBAB0\uB9B4 \uC0C1\uD0DC\uC785\uB2C8\uB2E4. 10~30\uCD08 \uB4A4 \uB2E4\uC2DC \uB204\uB974\uBA74 \uB300\uAC1C \uB429\uB2C8\uB2E4." : "";
+    throw new Error("Gemini \uC751\uB2F5 \uC624\uB958: " + errorText(last) + extra + hint);
   }
   const data = used.data;
   const parts = data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts || [];
@@ -3835,7 +3905,11 @@ const AttendanceComparePanel = props => {
       const read = await svGeminiReadAttendance({
         apiKey: apiKey,
         name: nameInput,
-        image: image
+        image: image,
+        onProgress: message => setStatus({
+          state: "warn",
+          message: message
+        })
       });
       const parsed = read.result;
       const next = svPhotoEmptyHours();
