@@ -3489,7 +3489,13 @@ const renderAnnualLeaveBlock = p => {
    · 사진은 브라우저에서 최대 변 2000px JPEG로 줄인 뒤 Gemini에 한 번 보내고 저장하지 않는다.
    · 키가 없어도 6개 시간을 직접 입력해 대조할 수 있다. */
 
-const SV_GEMINI_MODEL = "gemini-2.5-flash";
+/* 2026-11-26 승현 님 실기기 오류:
+   "This model models/gemini-2.5-flash is no longer available to new users.
+    Please update your code to use models/gemini-3.8-flash ..."
+   → 기본 모델을 gemini-3.8-flash 로 바꾸고, 그래도 400/404(모델 없음·종료)이면
+     사용 가능한 모델 목록을 조회해 최신 gemini-*-flash 로 1회 자동 재시도한다. */
+const SV_GEMINI_MODEL = "gemini-3.8-flash";
+const SV_GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 const SV_GEMINI_KEY_STORE = "tsv_duty_gemini_key_v1";
 const SV_GEMINI_KEY_HELP = "https://aistudio.google.com/apikey";
 
@@ -3622,7 +3628,63 @@ const svGeminiPrompt = name => ["\uCC99\uBD80\uD55C \uADFC\uD0DC\uC2DC\uAC04\uD4
   "",
   "\uC8FC\uC758: \uC606\uAC04 \uD589\uC744 \uB2E4\uB978 \uC0AC\uB78C\uACFC \uD5F7\uAC08\uB9AC\uC9C0 \uB9D0\uACE0 \uC774\uB984\uC774 \uC815\uD655\uD788 \uC77C\uCE58\uD558\uB294 \uD589\uB9CC \uC77D\uB294\uB2E4. \uC22B\uC790\uB97C \uCD94\uCE21\uD558\uC9C0 \uB9D0\uACE0 \uBCF4\uC774\uB294 \uAC12\uC744 \uADF8\uB300\uB85C \uC801\uB294\uB2E4."].join("\n");
 
-/* Gemini REST 호출 — 사진에서 이름 행의 6개 시간 + 소계를 JSON으로 받는다 */
+/* ── 모델 자동 폴백 ─────────────────────────────────────────────────────────
+   모델이 없거나 종료된 오류(400 NOT_FOUND / 404)일 때만 폴백한다.
+   API 키 오류·권한 오류·쿼터 초과는 폴백 대상이 아니다(같은 키로 다시 불러도 같다). */
+const svGeminiModelUnavailable = (status, data) => {
+  const err = data && data.error || {};
+  const message = String(err.message || "");
+  const reason = String(err.status || "");
+  if (/api key|api_key_invalid|permission|unauthenticated|quota|billing/i.test(message)) return false;
+  if (reason === "API_KEY_INVALID" || reason === "PERMISSION_DENIED" || reason === "UNAUTHENTICATED" || reason === "RESOURCE_EXHAUSTED") return false;
+  if (status === 404) return true;
+  if (status !== 400) return false;
+  return reason === "NOT_FOUND" || /not found|not supported|no longer available|not available to new users|unsupported|invalid model|deprecated|is not available|does not exist/i.test(message);
+};
+
+/* 모델 이름 점수 — 버전이 높을수록, 이름이 -flash 로 끝날수록 높다.
+   lite·preview·experimental·pro·임베딩 계열은 뒤로 밀어 둔다. */
+const svGeminiModelScore = name => {
+  const id = String(name || "").replace(/^models\//, "");
+  const m = id.match(/gemini-(\d+(?:\.\d+)?)/i);
+  if (!m) return -1;
+  let score = parseFloat(m[1]) * 100;
+  if (/-flash$/i.test(id)) score += 40;else if (/flash/i.test(id)) score += 20;else score -= 20;
+  if (/lite/i.test(id)) score -= 35;
+  if (/pro/i.test(id)) score -= 60;
+  if (/(embedding|embed|aqa|image|tts|live|native-audio|vision)/i.test(id)) score -= 200;
+  if (/(preview|exp|experimental|thinking|latest)/i.test(id)) score -= 8;
+  if (/-(\d{3})$/i.test(id)) score -= 3;
+  return score;
+};
+const svPickGeminiFallbackModel = (models, exclude) => {
+  const skip = String(exclude || "").replace(/^models\//, "");
+  const usable = (models || []).filter(m => {
+    const id = String(m && m.name || "").replace(/^models\//, "");
+    const methods = m && m.supportedGenerationMethods || [];
+    return !!id && id !== skip && /gemini-/i.test(id) && /flash/i.test(id) && methods.indexOf("generateContent") >= 0;
+  });
+  if (!usable.length) return "";
+  usable.sort((a, b) => svGeminiModelScore(b.name) - svGeminiModelScore(a.name));
+  return String(usable[0].name).replace(/^models\//, "");
+};
+
+/* 사용 가능한 모델 목록 (키가 살아 있어야 응답한다) */
+const svGeminiListModels = async apiKey => {
+  const res = await fetch(SV_GEMINI_BASE + "?pageSize=200&key=" + encodeURIComponent(apiKey), {
+    method: "GET"
+  });
+  let data = null;
+  try {
+    data = await res.json();
+  } catch (e) {}
+  if (!res.ok) throw new Error("Gemini \uBAA8\uB378 \uBAA9\uB85D \uC870\uD68C \uC2E4\uD328: HTTP " + res.status);
+  return data && data.models || [];
+};
+
+/* Gemini REST 호출 — 사진에서 이름 행의 6개 시간 + 소계를 JSON으로 받는다.
+   돌려주는 값: { result, model, fallback, tried }
+   (fallback=true 면 기본 모델이 막혀 다른 모델로 자동 전환했다는 뜻) */
 const svGeminiReadAttendance = async opts => {
   const apiKey = String(opts.apiKey || "").trim();
   const name = String(opts.name || "").trim();
@@ -3631,37 +3693,75 @@ const svGeminiReadAttendance = async opts => {
   const dataUrl = opts.image && opts.image.dataUrl;
   if (!dataUrl) throw new Error("\uADFC\uD0DC\uD45C \uC0AC\uC9C4\uC744 \uBA3C\uC800 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.");
   const base64 = String(dataUrl).split(",")[1] || "";
-  const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + SV_GEMINI_MODEL + ":generateContent?key=" + encodeURIComponent(apiKey), {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      contents: [{
-        role: "user",
-        parts: [{
-          text: svGeminiPrompt(name)
-        }, {
-          inline_data: {
-            mime_type: "image/jpeg",
-            data: base64
-          }
-        }]
-      }],
-      generationConfig: {
-        temperature: 0,
-        responseMimeType: "application/json"
-      }
-    })
+  const payload = JSON.stringify({
+    contents: [{
+      role: "user",
+      parts: [{
+        text: svGeminiPrompt(name)
+      }, {
+        inline_data: {
+          mime_type: "image/jpeg",
+          data: base64
+        }
+      }]
+    }],
+    generationConfig: {
+      temperature: 0,
+      responseMimeType: "application/json"
+    }
   });
-  let data = null;
-  try {
-    data = await res.json();
-  } catch (e) {}
-  if (!res.ok) {
-    const msg = data && data.error && data.error.message ? data.error.message : "HTTP " + res.status;
-    throw new Error("Gemini \uC751\uB2F5 \uC624\uB958: " + msg);
+  const callModel = async model => {
+    const res = await fetch(SV_GEMINI_BASE + "/" + encodeURIComponent(model) + ":generateContent?key=" + encodeURIComponent(apiKey), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: payload
+    });
+    let data = null;
+    try {
+      data = await res.json();
+    } catch (e) {}
+    return {
+      ok: res.ok,
+      status: res.status,
+      data: data,
+      model: model
+    };
+  };
+  const errorText = r => {
+    const d = r.data;
+    return d && d.error && d.error.message ? d.error.message : "HTTP " + r.status;
+  };
+  const tried = [];
+  let used = await callModel(SV_GEMINI_MODEL);
+  tried.push({
+    model: used.model,
+    status: used.status,
+    ok: used.ok
+  });
+  if (!used.ok && svGeminiModelUnavailable(used.status, used.data)) {
+    // 모델이 종료·미지원 → 목록에서 최신 gemini-*-flash 를 골라 딱 1회 재시도
+    try {
+      const models = await svGeminiListModels(apiKey);
+      const pick = svPickGeminiFallbackModel(models, used.model);
+      if (pick) {
+        used = await callModel(pick);
+        tried.push({
+          model: used.model,
+          status: used.status,
+          ok: used.ok
+        });
+      }
+    } catch (e) {
+      // 목록 조회가 실패하면 첫 응답의 오류를 그대로 보여 준다
+    }
   }
+  if (!used.ok) {
+    const extra = tried.length > 1 ? " (\uC790\uB3D9 \uC804\uD658 \uC2DC\uB3C4: " + tried.map(t => t.model + " " + t.status).join(" \u2192 ") + ")" : "";
+    throw new Error("Gemini \uC751\uB2F5 \uC624\uB958: " + errorText(used) + extra);
+  }
+  const data = used.data;
   const parts = data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts || [];
   const text = parts.map(pp => pp && pp.text || "").join("");
   let parsed = null;
@@ -3676,7 +3776,12 @@ const svGeminiReadAttendance = async opts => {
     }
   }
   if (!parsed) throw new Error("\uC0AC\uC9C4\uC5D0\uC11C \uD45C\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uD45C\uAC00 \uC120\uBA85\uD558\uAC8C \uB098\uC624\uB3C4\uB85D \uB2E4\uC2DC \uCC0D\uC5B4 \uC8FC\uC138\uC694.");
-  return parsed;
+  return {
+    result: parsed,
+    model: used.model,
+    fallback: used.model !== SV_GEMINI_MODEL,
+    tried: tried
+  };
 };
 
 /* 📸 근태표 사진 대조 패널 (자체 상태를 가진 컴포넌트) */
@@ -3727,21 +3832,23 @@ const AttendanceComparePanel = props => {
       message: "\uC0AC\uC9C4\uC744 \uC77D\uB294 \uC911\uC785\uB2C8\uB2E4\u2026 10~20\uCD08 \uAC78\uB9B4 \uC218 \uC788\uC2B5\uB2C8\uB2E4."
     });
     try {
-      const parsed = await svGeminiReadAttendance({
+      const read = await svGeminiReadAttendance({
         apiKey: apiKey,
         name: nameInput,
         image: image
       });
+      const parsed = read.result;
       const next = svPhotoEmptyHours();
       SV_PHOTO_FIELDS.forEach(f => {
         const v = parsed[f.key];
         next[f.key] = v === null || v === undefined || v === "" ? "" : String(Math.round(salaryNum(v) * 10) / 10);
       });
       setPhotoHours(next);
-      const read = SV_PHOTO_FIELDS.filter(f => next[f.key] !== "").length;
+      const readCount = SV_PHOTO_FIELDS.filter(f => next[f.key] !== "").length;
+      const modelNote = read.fallback ? " (\uBAA8\uB378 " + read.model + " \uC790\uB3D9 \uC804\uD658)" : "";
       setStatus({
-        state: read ? "ok" : "warn",
-        message: read ? nameInput + " \uB2D8 " + read + "\uAC1C \uD56D\uBAA9\uC744 \uC77D\uC5C8\uC2B5\uB2C8\uB2E4. \uAC12\uC774 \uB9DE\uB294\uC9C0 \uD655\uC778\uD574 \uC8FC\uC138\uC694." + (parsed && parsed.confidence ? " (\uC2E0\uB8B0\uB3C4 " + parsed.confidence + ")" : "") : "\uC774\uB984\uC744 \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC774\uB984\uC744 \uD655\uC778\uD558\uAC70\uB098 \uC9C1\uC811 \uC785\uB825\uD574 \uC8FC\uC138\uC694."
+        state: readCount ? "ok" : "warn",
+        message: readCount ? nameInput + " \uB2D8 " + readCount + "\uAC1C \uD56D\uBAA9\uC744 \uC77D\uC5C8\uC2B5\uB2C8\uB2E4. \uAC12\uC774 \uB9DE\uB294\uC9C0 \uD655\uC778\uD574 \uC8FC\uC138\uC694." + (parsed && parsed.confidence ? " (\uC2E0\uB8B0\uB3C4 " + parsed.confidence + ")" : "") + modelNote : "\uC774\uB984\uC744 \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC774\uB984\uC744 \uD655\uC778\uD558\uAC70\uB098 \uC9C1\uC811 \uC785\uB825\uD574 \uC8FC\uC138\uC694." + modelNote
       });
     } catch (err) {
       setStatus({
@@ -3923,6 +4030,271 @@ const AttendanceComparePanel = props => {
   }, "\uC0AC\uC9C4\uC744 \uC77D\uAC70\uB098 \uC704 6\uAC1C \uC2DC\uAC04\uC744 \uC785\uB825\uD558\uBA74 \uACC4\uC0B0\uAE30\uC640 \uBE44\uAD50\uD45C\uAC00 \uB098\uD0C0\uB0A9\uB2C8\uB2E4."), svEl("p", {
     className: "text-[9.5px] leading-relaxed text-slate-400"
   }, "\u203B \uC0AC\uC9C4\uC740 \uC774 \uAE30\uAE30\uC5D0\uC11C \uCD5C\uB300 \uBCC0 2000px JPEG\uB85C \uC904\uC5EC Gemini\uC5D0 \uD55C \uBC88 \uBCF4\uB0B4\uACE0 \uC800\uC7A5\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uAE30\uBCF8\uAE09\uC740 \uC0AC\uC9C4\uC5D0 \uC5C6\uC5B4 \uACC4\uC0B0\uAE30 \uAC12\uC744 \uADF8\uB300\uB85C \uC4F1\uB2C8\uB2E4."));
+};
+
+/* ─────────────── v2.6-preview · 🚀 첫 실행 1회 입력(온보딩) 화면 ───────────────
+   2026-11-26 승현 님 요청:
+     "앱 처음 깔면 먼저 입력 화면을 띄워서 조 선택, 이름 입력은 필수로 /
+      연차일수, 기본시급, 통상시급 입력은 건너뛰기 가능 /
+      이렇게 선입력 할 수 있게 해주고 입력 다하거나 건너뛰면 이후 어플화면으로 /
+      이건 처음 어플 설치 했을때만 1회"
+   · localStorage['tsv_duty_onboarding_done_v1'] 이 없을 때만 딱 1회 뜬다.
+   · 1단계(필수): 본인 근무조 + 내 표시 이름 — 둘 다 있어야 '다음'이 열린다.
+   · 2단계(선택): 연차 일수 · 기본시급 · 통상시급 — '건너뛰고 시작' / '저장하고 시작'.
+   · 입력값은 기존 앱 상태(myGroupId · cloudSettings.authorName · annualLeaveDays ·
+     급여 계산기 시급)에 그대로 들어가므로, 앱의 기존 저장 effect 가 알아서 저장한다. */
+
+const SV_ONBOARDING_KEY = "tsv_duty_onboarding_done_v1";
+
+const svOnboardingDone = () => {
+  try {
+    return localStorage.getItem(SV_ONBOARDING_KEY) === "1";
+  } catch (e) {
+    return true; // 저장소를 못 쓰는 환경(사생활 보호 모드 등)에서는 화면을 잠그지 않는다
+  }
+};
+const svSetOnboardingDone = () => {
+  try {
+    localStorage.setItem(SV_ONBOARDING_KEY, "1");
+  } catch (e) {}
+};
+
+/* 단계 표시 칩 */
+const svOnboardStepChip = (active, done, number, label) => svEl("span", {
+  className: `inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10.5px] font-extrabold border ${
+    active
+      ? "bg-blue-600 border-blue-600 text-white"
+      : done
+        ? "bg-blue-50 border-blue-200 text-blue-700"
+        : "bg-white border-slate-200 text-slate-400"
+  }`
+}, svEl("span", {
+  className: `w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-extrabold ${
+    active ? "bg-white text-blue-700" : done ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-400"
+  }`
+}, done && !active ? "✓" : String(number)), label);
+
+const OnboardingScreen = p => {
+  const groups = p.groups || [];
+  const [step, setStep] = React.useState(1);
+  const [groupId, setGroupId] = React.useState(""); // 일부러 비워 둔다 — 본인이 직접 고르게
+  const [name, setName] = React.useState(() => String(p.name || "").trim());
+  const [leave, setLeave] = React.useState(() => svLeaveValue(p.annualLeaveDays));
+  const [baseHourly, setBaseHourly] = React.useState(() => String(Math.round(salaryNum(p.baseHourly))));
+  const [normalHourly, setNormalHourly] = React.useState(() => String(Math.round(salaryNum(p.normalHourly))));
+
+  const nameOk = name.trim().length > 0;
+  const groupOk = groups.some(g => g.id === groupId);
+  const requiredOk = groupOk && nameOk;
+  const goNext = () => {
+    if (!requiredOk) return;
+    setStep(2);
+  };
+  const finish = saveOptional => {
+    if (!requiredOk) {
+      setStep(1);
+      return;
+    }
+    const patch = {
+      groupId: groupId,
+      name: name.trim()
+    };
+    if (saveOptional) {
+      patch.annualLeaveDays = svLeaveRound(leave);
+      patch.salary = {
+        baseHourly: Math.max(0, Math.round(salaryNum(baseHourly))),
+        normalHourly: Math.max(0, Math.round(salaryNum(normalHourly)))
+      };
+    }
+    p.onComplete(patch);
+  };
+
+  const stepOneBody = svEl("div", {
+    className: "space-y-5"
+  }, svEl("div", null, svEl("h3", {
+    className: "text-xs font-extrabold text-slate-800"
+  }, "1. 본인 근무조 ", svEl("span", {
+    className: "text-rose-500"
+  }, "*")), svEl("p", {
+    className: "mt-0.5 text-[10.5px] text-slate-400"
+  }, "달력·근무 알람·근태 요약이 이 조를 기준으로 계산됩니다."), svEl("div", {
+    className: "mt-2 space-y-2"
+  }, groups.length === 0 ? svEl("p", {
+    className: "px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-[11px] font-bold text-amber-700"
+  }, "등록된 근무조가 없습니다. 앱 설정에서 조를 먼저 추가해 주세요.") : groups.map(g => svEl("button", {
+    key: g.id,
+    type: "button",
+    onClick: () => setGroupId(g.id),
+    "data-testid": "onboarding-group-" + g.id,
+    "aria-pressed": groupId === g.id ? "true" : "false",
+    className: `w-full flex items-center justify-between gap-2 px-3.5 py-3 rounded-2xl border text-left transition ${
+      groupId === g.id ? "border-blue-600 bg-blue-50/70 ring-2 ring-blue-100" : "border-slate-200 bg-white active:bg-slate-50"
+    }`
+  }, svEl("span", {
+    className: "flex items-center gap-2 min-w-0"
+  }, svEl("span", {
+    className: "w-3 h-3 rounded-full shrink-0",
+    style: {
+      backgroundColor: g.color || "#3b82f6"
+    }
+  }), svEl("span", {
+    className: "text-[14px] font-extrabold text-slate-900"
+  }, g.name), g.members ? svEl("span", {
+    className: "text-[10.5px] font-bold text-slate-400 truncate"
+  }, g.members) : null), svEl("span", {
+    className: `shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center text-[10px] font-extrabold ${
+      groupId === g.id ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300 text-transparent"
+    }`
+  }, "\u2713"))))), svEl("div", null, svEl("h3", {
+    className: "text-xs font-extrabold text-slate-800"
+  }, "2. 내 표시 이름 ", svEl("span", {
+    className: "text-rose-500"
+  }, "*")), svEl("p", {
+    className: "mt-0.5 text-[10.5px] text-slate-400"
+  }, "게시판·설비공유 글에 이 이름으로 표시됩니다."), svEl("input", {
+    type: "text",
+    value: name,
+    onChange: e => setName(e.target.value),
+    onKeyDown: e => {
+      if (e.key === "Enter") goNext();
+    },
+    placeholder: "예: 최승현",
+    autoComplete: "off",
+    spellCheck: false,
+    enterKeyHint: "next",
+    "data-testid": "onboarding-name",
+    className: "mt-2 w-full px-3.5 py-3 rounded-2xl bg-slate-50 border border-slate-200 text-[15px] font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400"
+  })));
+
+  const stepTwoBody = svEl("div", {
+    className: "space-y-4"
+  }, svEl("div", {
+    className: "p-3.5 rounded-2xl bg-blue-50/70 border border-blue-100"
+  }, svEl("p", {
+    className: "text-[11px] font-extrabold text-blue-800"
+  }, "🏖 연차 일수 · 💰 시급 3가지는 선택이에요"), svEl("p", {
+    className: "mt-1 text-[10.5px] leading-relaxed text-blue-700/80"
+  }, "지금 몰라도 괜찮습니다. 비워 두고 건너뛰면 앱 기본값으로 시작하고, 나중에 설정 > 정보입력 / 급여 계산기에서 언제든 바꿀 수 있어요.")), svEl("div", null, svEl("label", {
+    className: "text-xs font-extrabold text-slate-700"
+  }, "🏖 연차 일수 ", svEl("span", {
+    className: "text-slate-400 font-bold"
+  }, "(선택 · 0.5일 단위)")), svEl("div", {
+    className: "mt-1.5 flex items-center gap-2"
+  }, svEl("input", {
+    type: "number",
+    inputMode: "decimal",
+    step: "0.5",
+    min: "0",
+    max: "365",
+    value: leave,
+    onChange: e => setLeave(e.target.value),
+    placeholder: "예: 15",
+    "data-testid": "onboarding-leave",
+    className: "w-full px-3.5 py-2.5 rounded-2xl bg-slate-50 border border-slate-200 text-[14px] font-extrabold text-slate-900 text-right"
+  }), svEl("span", {
+    className: "text-[12px] font-extrabold text-slate-500 shrink-0"
+  }, "일"))), svEl("div", null, svEl("label", {
+    className: "text-xs font-extrabold text-slate-700"
+  }, "💰 기본시급 ", svEl("span", {
+    className: "text-slate-400 font-bold"
+  }, "(선택 · 원/시간)")), svEl("div", {
+    className: "mt-1.5 flex items-center gap-2"
+  }, svEl("input", {
+    type: "number",
+    inputMode: "numeric",
+    step: "10",
+    min: "0",
+    value: baseHourly,
+    onChange: e => setBaseHourly(e.target.value),
+    placeholder: "예: 12229",
+    "data-testid": "onboarding-base-hourly",
+    className: "w-full px-3.5 py-2.5 rounded-2xl bg-slate-50 border border-slate-200 text-[14px] font-extrabold text-slate-900 text-right"
+  }), svEl("span", {
+    className: "text-[12px] font-extrabold text-slate-500 shrink-0"
+  }, "원"))), svEl("div", null, svEl("label", {
+    className: "text-xs font-extrabold text-slate-700"
+  }, "💰 통상시급 ", svEl("span", {
+    className: "text-slate-400 font-bold"
+  }, "(선택 · 원/시간)")), svEl("div", {
+    className: "mt-1.5 flex items-center gap-2"
+  }, svEl("input", {
+    type: "number",
+    inputMode: "numeric",
+    step: "10",
+    min: "0",
+    value: normalHourly,
+    onChange: e => setNormalHourly(e.target.value),
+    placeholder: "예: 12448",
+    "data-testid": "onboarding-normal-hourly",
+    className: "w-full px-3.5 py-2.5 rounded-2xl bg-slate-50 border border-slate-200 text-[14px] font-extrabold text-slate-900 text-right"
+  }), svEl("span", {
+    className: "text-[12px] font-extrabold text-slate-500 shrink-0"
+  }, "원"))), svEl("p", {
+    className: "text-[10px] leading-relaxed text-slate-400"
+  }, "※ 기본시급은 기본급(기본시급 × 8시간 × 소정근로일수), 통상시급은 연장·심야·휴일 수당 계산에 쓰입니다."));
+
+  const footer = step === 1 ? svEl("div", {
+    className: "px-5 pt-3 border-t border-slate-100 bg-white",
+    style: {
+      paddingBottom: "calc(1.5rem + env(safe-area-inset-bottom, 0px))"
+    }
+  }, svEl("button", {
+    type: "button",
+    onClick: goNext,
+    disabled: !requiredOk,
+    "data-testid": "onboarding-next",
+    className: `w-full py-3.5 rounded-2xl text-[14px] font-extrabold text-white ${
+      requiredOk ? "bg-blue-600 active:bg-blue-700" : "bg-slate-300"
+    }`
+  }, "\uB2E4\uC74C (\uC120\uD0DD \uD56D\uBAA9 \uC785\uB825\uD558\uAE30)"), svEl("p", {
+    "data-testid": "onboarding-required-hint",
+    className: `mt-2 text-center text-[11px] font-bold ${requiredOk ? "text-slate-400" : "text-amber-600"}`
+  }, requiredOk ? "필수 항목 입력 완료 \u2014 다음으로 넘어가세요" : "근무조와 이름을 입력하면 다음으로 넘어갈 수 있어요")) : svEl("div", {
+    className: "px-5 pt-3 border-t border-slate-100 bg-white",
+    style: {
+      paddingBottom: "calc(1.5rem + env(safe-area-inset-bottom, 0px))"
+    }
+  }, svEl("button", {
+    type: "button",
+    onClick: () => finish(true),
+    "data-testid": "onboarding-finish",
+    className: "w-full py-3.5 rounded-2xl bg-blue-600 text-white text-[14px] font-extrabold active:bg-blue-700"
+  }, "\uC800\uC7A5\uD558\uACE0 \uC2DC\uC791\uD558\uAE30"), svEl("button", {
+    type: "button",
+    onClick: () => finish(false),
+    "data-testid": "onboarding-skip",
+    className: "mt-2 w-full py-3 rounded-2xl bg-slate-100 text-slate-700 text-[13px] font-extrabold active:bg-slate-200"
+  }, "\uAC74\uB108\uB6F0\uACE0 \uC2DC\uC791\uD558\uAE30"), svEl("button", {
+    type: "button",
+    onClick: () => setStep(1),
+    "data-testid": "onboarding-back",
+    className: "mt-1 w-full py-2 text-[11.5px] font-bold text-slate-400"
+  }, "\u2190 \uC774\uC804 (\uADFC\uBB34\uC870 \u00B7 \uC774\uB984)"));
+
+  return svEl("div", {
+    className: "fixed inset-0 bg-slate-50 overflow-y-auto",
+    style: {
+      zIndex: 90
+    },
+    "data-testid": "onboarding"
+  }, svEl("div", {
+    className: "w-full max-w-md mx-auto min-h-full flex flex-col bg-white"
+  }, svEl("div", {
+    className: "px-5 pt-6 pb-4 border-b border-slate-100"
+  }, svEl("span", {
+    className: "inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-50 border border-blue-100 text-blue-700 text-[10.5px] font-extrabold"
+  }, "\uD83D\uDE80 \uCC98\uC74C \uC124\uC815 \u00B7 \uC774 \uD654\uBA74\uC740 1\uD68C\uB9CC \uB098\uC635\uB2C8\uB2E4"), svEl("h2", {
+    className: "mt-3 text-[21px] leading-tight font-extrabold tracking-tight text-slate-900"
+  }, step === 1 ? "\uBC18\uAC00\uC6CC\uC694! \uBA3C\uC800 \uB450 \uAC00\uC9C0\uB9CC \uC54C\uB824 \uC8FC\uC138\uC694" : "\uAE09\uC5EC\u00B7\uC5F0\uCC28\uB294 \uB098\uC911\uC5D0 \uCC44\uC6CC\uB3C4 \uB429\uB2C8\uB2E4"), svEl("p", {
+    className: "mt-1.5 text-[12px] leading-relaxed text-slate-500"
+  }, step === 1 ? "\uBCF8\uC778 \uADFC\uBB34\uC870\uC640 \uC774\uB984\uC740 \uB2EC\uB825\u00B7\uC54C\uB78C\u00B7\uAC8C\uC2DC\uD310\uC5D0 \uBC14\uB85C \uC4F0\uC5EC\uC11C \uAF2D \uD544\uC694\uD574\uC694." : "\uBE44\uC6CC \uB450\uACE0 \uAC74\uB108\uB6F0\uC5B4\uB3C4 \uC571\uC740 \uADF8\uB300\uB85C \uC4F8 \uC218 \uC788\uC5B4\uC694. \uC124\uC815\uC5D0\uC11C \uC5B8\uC81C\uB4E0 \uBC14\uAFD4 \uB458 \uC218 \uC788\uC2B5\uB2C8\uB2E4."), svEl("div", {
+    className: "mt-3 flex items-center gap-1.5",
+    "data-testid": "onboarding-step"
+  }, svOnboardStepChip(step === 1, false, 1, "\uD544\uC218 \u00B7 \uADFC\uBB34\uC870\u00B7\uC774\uB984"), svEl("span", {
+    className: "text-slate-300 text-[10px] font-extrabold"
+  }, "\u2192"), svOnboardStepChip(step === 2, false, 2, "\uC120\uD0DD \u00B7 \uAC74\uB108\uB6F0\uAE30 \uAC00\uB2A5"))), svEl("div", {
+    className: "flex-1 px-5 py-5"
+  }, step === 1 ? stepOneBody : stepTwoBody), footer));
 };
 
 function App() {
@@ -4140,6 +4512,9 @@ function App() {
     saveSalarySettings(salarySettings);
   }, [salarySettings]);
   const updateSalarySettings = patch => setSalarySettings(prev => Object.assign({}, prev, patch));
+
+  // 🚀 v2.6-preview — 첫 설치·첫 실행 1회만 뜨는 선입력(온보딩) 화면
+  const [onboardingOpen, setOnboardingOpen] = useState(() => !svOnboardingDone());
 
   // 마스터(관리자) 권한 · 이 기기 고유 ID
   const [myDeviceId] = useState(() => {
@@ -6683,11 +7058,34 @@ function App() {
     defaultName: cloudSettings.authorName || ""
   });
 
+  // 🚀 v2.6-preview — 첫 실행 1회 선입력 화면 (필수: 조·이름 / 선택: 연차·시급)
+  const onboardingEl = onboardingOpen ? svEl(OnboardingScreen, {
+    groups: groups,
+    myGroupId: myGroupId,
+    name: cloudSettings.authorName || "",
+    annualLeaveDays: annualLeaveDays,
+    baseHourly: salarySettings.baseHourly,
+    normalHourly: salarySettings.normalHourly,
+    onComplete: patch => {
+      if (patch.groupId) setMyGroupId(patch.groupId);
+      if (typeof patch.name === 'string' && patch.name) {
+        setCloudSettings(prev => Object.assign({}, prev, {
+          authorName: patch.name
+        }));
+      }
+      if (patch.annualLeaveDays !== undefined) setAnnualLeaveDays(patch.annualLeaveDays);
+      if (patch.salary) setSalarySettings(prev => Object.assign({}, prev, patch.salary));
+      svSetOnboardingDone();
+      setOnboardingOpen(false);
+      notify('\uC124\uC815\uC774 \uC800\uC7A5\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uC774\uC81C \uB2EC\uB825\uC744 \uC0AC\uC6A9\uD558\uC138\uC694!');
+    }
+  }) : null;
+
   return /*#__PURE__*/React.createElement("div", {
     className: "min-h-screen bg-slate-100 flex justify-center"
   }, /*#__PURE__*/React.createElement("div", {
     className: "w-full max-w-md bg-white min-h-screen shadow-xl flex flex-col relative overflow-hidden"
-  }, toast && /*#__PURE__*/React.createElement("div", {
+  }, onboardingEl, toast && /*#__PURE__*/React.createElement("div", {
     className: "fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 text-white text-xs font-medium px-4 py-2.5 rounded-full shadow-lg max-w-[90vw] text-center"
   }, toast), /*#__PURE__*/React.createElement("div", {
     className: "px-3 py-1 bg-amber-100 text-amber-800 text-[10px] font-extrabold text-center border-b border-amber-200 tracking-tight"
@@ -7574,16 +7972,6 @@ function App() {
     className: "accent-blue-600 w-5 h-5 shrink-0"
   }))),
   /*#__PURE__*/React.createElement("section", {
-    className: "p-4 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white flex items-center justify-between"
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h3", {
-    className: "text-sm font-extrabold"
-  }, "\uD648 \uD654\uBA74 \uC704\uC82F \uBBF8\uB9AC\uBCF4\uAE30 \xB7 \uC124\uCE58"), /*#__PURE__*/React.createElement("p", {
-    className: "text-[11px] text-blue-100 mt-0.5"
-  }, "\uD558\uB8E8\xB72\uC77C\xB74\uC77C\xB7\uB3D9\uB8CC4\uC77C\xB7\uD55C\uB2EC\xB7\uC804\uCCB4\uC870 \uC704\uC82F \uC9C0\uC6D0")), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setWidgetHubOpen(true),
-    className: "px-3.5 py-2 rounded-xl bg-white text-blue-700 text-xs font-extrabold shrink-0"
-  }, "\uC704\uC82F \uC5F4\uAE30")),
-  /*#__PURE__*/React.createElement("section", {
     className: "p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2.5"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h3", {
     className: "text-xs font-extrabold text-slate-800"
@@ -7610,6 +7998,16 @@ function App() {
   }, "홈 화면 반영까지 1~2초 걸릴 수 있고, 기기에 따라 앱이 잠깐 닫힐 수 있습니다.") : /*#__PURE__*/React.createElement("p", {
     className: "text-[10px] text-amber-600 leading-relaxed"
   }, "웹 미리보기에서는 아이콘을 바꿀 수 없습니다.")),
+  /*#__PURE__*/React.createElement("section", {
+    className: "p-4 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white flex items-center justify-between"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h3", {
+    className: "text-sm font-extrabold"
+  }, "\uD648 \uD654\uBA74 \uC704\uC82F \uBBF8\uB9AC\uBCF4\uAE30 \xB7 \uC124\uCE58"), /*#__PURE__*/React.createElement("p", {
+    className: "text-[11px] text-blue-100 mt-0.5"
+  }, "\uD558\uB8E8\xB72\uC77C\xB74\uC77C\xB7\uB3D9\uB8CC4\uC77C\xB7\uD55C\uB2EC\xB7\uC804\uCCB4\uC870 \uC704\uC82F \uC9C0\uC6D0")), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setWidgetHubOpen(true),
+    className: "px-3.5 py-2 rounded-xl bg-white text-blue-700 text-xs font-extrabold shrink-0"
+  }, "\uC704\uC82F \uC5F4\uAE30")),
   /*#__PURE__*/React.createElement("section", {
     className: "p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 flex items-center justify-between"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h3", {
