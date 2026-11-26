@@ -1,7 +1,7 @@
 /* TSV 교대달력 — GitHub Pages 웹앱용 Service Worker
    정책: Network-First. 온라인에서는 항상 최신 index.html을 받고,
    네트워크가 없거나 4초 안에 응답이 없을 때만 캐시로 대신 보여 준다. */
-const CACHE = "tsv-duty-calendar-v2";
+const CACHE = "tsv-duty-calendar-v3";
 const CORE = [
   "./index.html",
   "./manifest.webmanifest",
