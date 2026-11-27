@@ -3181,6 +3181,8 @@ const renderSalaryCard = p => {
   const noHourly = salaryNum(st.baseHourly) <= 0 && salaryNum(st.normalHourly) <= 0;
   // 이 기기에 저장된 시급 이력의 첫 급여월 — 이 달이 그보다 앞이면 안내 문구를 바꾼다.
   const firstHistoryMonth = salarySortedHistory(settings).length ? salarySortedHistory(settings)[0].effectiveMonth : "";
+  // 이 달보다 뒤에 시작하는 이력만 있으면, 그 달로 바로 갈 수 있게 안내한다.
+  const laterHistoryMonth = firstHistoryMonth && st.monthKey && firstHistoryMonth > st.monthKey ? firstHistoryMonth : "";
   const money = v => hidden ? "••••• 원" : `${salaryWon(v)}원`;
   return svEl("div", {
     className: "mt-3 rounded-2xl border border-blue-200 bg-gradient-to-b from-blue-50/90 to-white p-4",
@@ -3210,15 +3212,21 @@ const renderSalaryCard = p => {
     "data-testid": "salary-settings-open",
     "aria-label": "급여 계산기 설정",
     className: "w-7 h-7 rounded-full bg-white border border-blue-200 text-[12px] leading-none text-slate-600"
-  }, "⚙"))), noHourly ? svEl("button", {
+  }, "⚙"))), noHourly ? svEl("div", {
+    className: "mt-2.5",
+    "data-testid": "salary-no-hourly"
+  }, svEl("button", {
     onClick: p.onSettings,
-    "data-testid": "salary-no-hourly",
-    className: "w-full text-left mt-2.5"
+    className: "w-full text-left"
   }, svEl("span", {
     className: "block text-[13px] font-extrabold text-blue-700"
-  }, firstHistoryMonth && st.monthKey && firstHistoryMonth > st.monthKey ? "이 달에는 적용된 시급 이력이 없습니다" : "설정에서 시급을 입력해 주세요"), svEl("span", {
+  }, laterHistoryMonth ? "이 달에는 적용된 시급 이력이 없습니다" : "설정에서 시급을 입력해 주세요"), svEl("span", {
     className: "mt-1 block text-[10.5px] leading-relaxed font-bold text-slate-500"
-  }, firstHistoryMonth && st.monthKey && firstHistoryMonth > st.monthKey ? `${st.monthKey} 급여월(${salaryRangeLabelOf(st.monthKey)})은 적용된 이력이 없어 계산하지 않습니다. 저장된 시급은 ${firstHistoryMonth} 급여월부터 적용됩니다.` : "⚙ 버튼을 눌러 기본시급·통상시급을 넣으면 이 달 예상 급여가 바로 계산됩니다.")) : svEl("button", {
+  }, laterHistoryMonth ? `${st.monthKey} 급여월(${salaryRangeLabelOf(st.monthKey)})은 적용된 이력이 없어 계산하지 않습니다. 저장된 시급은 ${firstHistoryMonth} 급여월부터 적용됩니다.` : "⚙ 버튼을 눌러 기본시급·통상시급을 넣으면 이 달 예상 급여가 바로 계산됩니다.")), laterHistoryMonth ? svEl("button", {
+    onClick: () => p.onGoToMonth && p.onGoToMonth(laterHistoryMonth),
+    "data-testid": "salary-go-history-month",
+    className: "mt-2 w-full py-2 rounded-xl bg-blue-600 text-white text-[11.5px] font-extrabold"
+  }, `${laterHistoryMonth} 급여월 화면 보기 ›`) : null) : svEl("button", {
     onClick: p.onOpen,
     "data-testid": "salary-open",
     className: "w-full text-left mt-2.5"
@@ -7787,9 +7795,20 @@ function App() {
   const salaryLockThisMonth = () => setSalarySettings(prev => salaryLockMonth(prev, salaryLockKey, salaryLiveStatement));
   const salaryUnlockThisMonth = () => setSalarySettings(prev => salaryUnlockMonth(prev, salaryLockKey));
   const salaryUpdateActual = patch => setSalarySettings(prev => salarySetActual(prev, salaryLockKey, patch));
+  const salaryGoToMonth = monthKey => {
+    const key = salaryNormalizeMonth(monthKey);
+    if (!key) return;
+    const parts = key.split("-").map(Number);
+    slideToMonth({
+      year: parts[0],
+      month: parts[1] - 1
+    });
+    setSelectedDateKey(formatDateKey(parts[0], parts[1] - 1, 1));
+  };
   const salaryCardEl = salarySettings.showCard ? renderSalaryCard({
     statement: salaryStatement,
     settings: salarySettings,
+    onGoToMonth: salaryGoToMonth,
     onToggleHide: () => updateSalarySettings({
       hideAmounts: !salarySettings.hideAmounts
     }),
