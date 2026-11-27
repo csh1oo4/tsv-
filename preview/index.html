@@ -5211,7 +5211,7 @@ function App() {
   const navItemRefs = useRef({});
   const didLongPressRef = useRef(false);
   const [visibleOtherGroups, setVisibleOtherGroups] = useState(() => loadState("visibleOtherGroups", []));
-  const [showCompanyEvents, setShowCompanyEvents] = useState(() => loadState("showCompanyEvents", true));
+  const [showCompanyEvents, setShowCompanyEvents] = useState(() => loadState("showCompanyEvents", false));
   // 🌤️ 날씨 보기: 켜면 달력 칸의 메모·공유일정·폰 일정 대신 날씨 아이콘과 최저/최고 기온이 나온다.
   const [showWeather, setShowWeather] = useState(() => loadState("showWeather", false));
   const [weatherCache, setWeatherCache] = useState(() => readWeatherCache());
