@@ -1716,7 +1716,7 @@ const DEVICE_ID_KEY = "tsv_duty_device_id";
 const MASTER_FLAG_KEY = "tsv_duty_master";
 const DEFAULT_CHEER = "오늘도 안전근무 화이팅";
 const ALARM_DEFAULTS = {
-  gameEnabled: true,
+  gameEnabled: false,
   gameType: "math",
   difficulty: "easy",
   soundEnabled: true,
@@ -1841,7 +1841,7 @@ const INITIAL_ALARMS = [normalizeAlarm({
   label: "주간 출근 알람",
   shifts: ["주"],
   enabled: false,
-  gameEnabled: true,
+  gameEnabled: false,
   gameType: "math",
   difficulty: "easy",
   soundId: "trumpet",
@@ -1855,7 +1855,7 @@ const INITIAL_ALARMS = [normalizeAlarm({
   label: "야간 출근 알람",
   shifts: ["야"],
   enabled: false,
-  gameEnabled: true,
+  gameEnabled: false,
   gameType: "numbers",
   difficulty: "easy",
   soundId: "aurora",
