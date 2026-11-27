@@ -3624,9 +3624,9 @@ const renderSalaryModal = p => {
     "data-testid": "salary-modal-hourly"
   }, svEl("span", {
     className: "text-[10.5px] font-bold text-blue-900"
-  }, "적용 시급"), svEl("span", {
+  }, st.locked ? "확정 시급" : "적용 시급"), svEl("span", {
     className: "text-[11px] font-extrabold text-blue-800 text-right"
-  }, `기본 ${salaryWon(st.baseHourly)}원 · 통상 ${salaryWon(st.normalHourly)}원`, st.appliedMonth ? ` · ${st.appliedMonth}부터` : "")), svEl("div", {
+  }, `기본 ${salaryWon(st.baseHourly)}원 · 통상 ${salaryWon(st.normalHourly)}원`, !st.locked && st.appliedMonth ? ` · ${st.appliedMonth}부터` : "")), svEl("div", {
     className: "rounded-2xl bg-gradient-to-r from-blue-600 to-blue-500 text-white px-3.5 py-3 flex items-end justify-between gap-2",
     "data-testid": "salary-modal-gross-row"
   }, svEl("div", {
@@ -3648,7 +3648,7 @@ const renderSalaryModal = p => {
     className: "text-[11px] font-extrabold text-slate-700"
   }, "\uC9C0\uAE09 \uB0B4\uC5ED"), svEl("span", {
     className: "text-[10px] font-bold text-slate-400"
-  }, "\uD1B5\uC0C1\uC2DC\uAE09 ", salaryWon(settings.normalHourly), "\uC6D0")), svEl("div", {
+  }, "\uD1B5\uC0C1\uC2DC\uAE09 ", salaryWon(st.normalHourly), "\uC6D0")), svEl("div", {
     className: "divide-y divide-slate-100"
   }, st.items.map(it => svEl("div", {
     key: it.key,
@@ -7858,7 +7858,7 @@ function App() {
   const paySummary = `${salaryWon(paySummaryMonth.baseHourly)}원/시급 · ${paySummaryMonth.deductionMode === "gross" ? "세전만 보기" : paySummaryMonth.deductionMode === "simple" ? "간이 공제율 " + Math.round(salaryNum(paySummaryMonth.simpleRate) * 100) / 100 + "%" : "간이세액 자동"} · 이력 ${salarySortedHistory(salarySettings).length}건`;
   const geminiCompareEl = /*#__PURE__*/React.createElement(AttendanceComparePanel, {
     statement: salaryStatement,
-    normalHourly: paySummaryMonth.normalHourly,
+    normalHourly: salaryStatement.normalHourly,
     defaultName: cloudSettings.authorName || ""
   });
 
