@@ -2526,13 +2526,19 @@ const PhotoZoomLightbox = ({
   }, "\uB450 \uC190\uAC00\uB77D\uC73C\uB85C \uBC8C\uB824 \uD655\uB300 \xB7 \uD655\uB300 \uC0C1\uD0DC\uC5D0\uC11C \uB4DC\uB798\uADF8 \xC774\uB3D9 \xB7 \uB450 \uBC88 \uD0ED\uD558\uBA74 2.5x")));
 };
 /* ─────────────────────────────────────────────────────────────────────────────
-   v2.6-preview · 💰 월급 계산기 (미리보기 전용)
+   v2.6-preview · 💰 월급 계산기 (미리보기 전용 · 일반화)
    ─────────────────────────────────────────────────────────────────────────────
    · 산정 기간은 기존 근태 요약과 같은 '전월 16일 ~ 당월 15일' 이다.
-   · 시급·공제율·조퇴시간·예상 급여는 오직 브라우저 localStorage
+     급여월(YYYY-MM)은 그 기간의 종료월이다 (전월 16일~당월 15일 → 당월).
+   · 시급·4대보험·공제 방식·적용 이력·월 확정은 오직 브라우저 localStorage
      (tsv_duty_salary_v1)에만 저장한다. todaywork_v33_* 상태나 Firebase
      Firestore 로는 절대 보내지 않는다.
-   · 회사 급여 규칙(2026년 9월·10월·11월 급여명세서 3개월 + 각 기간 근태표 1원 단위 검증):
+   · 값은 사용자가 직접 넣는다 — 처음 설치하면 비어 있고(0), 온보딩·설정에서 채운다.
+   · 시급·공제는 '적용 시작월' 이력(history)으로 남기고, 급여월마다 그 달 이하의
+     가장 최근 이력을 적용한다.
+   · 월 확정(lockedMonths)은 그 달 계산 결과를 스냅샷으로 고정한다 — 이후 설정을
+     바꿔도 변하지 않고, 해제하면 다시 계산한다.
+   · 급여 계산 규칙:
        기본급        = 기본시급 × 8 × 소정근로일수 (기간 일수 − 5일, 설정에서 직접 지정 가능)
        심야          = 통상시급 × (심야 + 토요심야) × 0.5
        연장/휴일     = 통상시급 × 연장휴일시간 × 1.5
@@ -2564,79 +2570,105 @@ const SALARY_PAY_ITEMS = [{
 }];
 
 /* ── 공제 방식 ───────────────────────────────────────────────────────────────
-   2026년 9·10·11월 급여명세서 3장을 대조해 확정한 실제 공제 구조:
-     · 국민연금 195,510 · 건강보험 149,230 · 장기요양보험 19,600 → 매달 같은 정액
+   누구나 쓰는 일반 계산기이므로 개인별 실측값 대신 표준 구조를 쓴다:
+     · 국민연금 · 건강보험 · 장기요양보험 → 사용자가 넣은 정액. 0이면 표준요율로 자동 추정
      · 고용보험   = 세전 지급합계 × 0.9%      (10원 미만 절사)
-     · 소득세     = 근로소득 간이세액 추정     (아래 실측표 보간)
+     · 소득세     = 2026년 근로소득 간이세액표(공제대상가족 1명) 근사 — 아래 구간 보간
      · 지방소득세 = 소득세 × 10%             (10원 미만 절사)
-   세전이 같으면 공제도 같으므로, 이 구조로 3개월 명세서의 공제합계·차인지급액이
-   모두 1원 단위로 재현된다. */
+   실제 명세서 금액을 알고 있으면 4대보험은 정액으로 직접 넣는 편이 정확하다. */
 const SALARY_FIXED_DEDUCTIONS = [{
   key: "pensionAmount",
   label: "국민연금",
-  amount: 195510
+  rate: 4.5, // 정액이 0이면 이 요율로 자동 추정(%)
+  amount: 0
 }, {
   key: "healthAmount",
   label: "건강보험",
-  amount: 149230
+  rate: 3.545,
+  amount: 0
 }, {
   key: "careAmount",
   label: "장기요양보험",
-  amount: 19600
+  rate: 0.4591,
+  amount: 0
 }];
 const SALARY_EMPLOYMENT_RATE = 0.9; // 고용보험 (세전 지급합계 대비 %)
 const SALARY_LOCAL_TAX_RATE = 10; // 지방소득세 = 소득세의 10%
 
-/* 소득세 실측 앵커 — 급여명세서에 찍힌 (세전 지급합계 → 소득세).
-   구간 사이는 직선 보간, 구간 밖은 가까운 구간의 기울기로 외삽한다.
-   (간이세액표는 과세표준 구간마다 기울기가 달라 한 식으로 맞지 않아,
-    실제 명세서 3장을 기준점으로 삼는 편이 오차가 가장 작다.) */
-const SALARY_TAX_TABLE = [{
-  gross: 4313000,
-  tax: 236010,
-  note: "2026.09.16~10.15"
-}, {
-  gross: 5624512,
-  tax: 422420,
-  note: "2026.10.16~11.15"
-}, {
-  gross: 5954384,
-  tax: 492300,
-  note: "2026.08.16~09.15"
-}];
+/* 소득세 — 2026년 근로소득 간이세액표(소득세법 시행령 별표 2, 2026.3.1 이후 원천징수분)의
+   '공제대상가족 1명(본인)' 칸을 10만 원 간격으로 뽑은 [월급여액, 소득세] 구간표.
+   구간 사이는 직선 보간하고, 1,000만 원을 넘으면 표 끝 산식의 기울기(0.98 × 35%)로 외삽한다.
+   간이세액표는 2만 원 단위 계단식이라 세액공제 한도(월 583만 원 부근) 같은 단절 구간에서
+   실제 표와 1만 원 안팎 차이가 날 수 있다 — 어디까지나 예상치다. */
+const SALARY_TAX_TABLE = [
+  [1000000,0],[1100000,1600],[1200000,2990],[1300000,4740],[1400000,6800],[1500000,8920],[1600000,10980],[1700000,13050],
+  [1800000,15110],[1900000,17180],[2000000,19520],[2100000,22740],[2200000,25950],[2300000,29160],[2400000,32380],[2500000,35600],
+  [2600000,39690],[2700000,48250],[2800000,56800],[2900000,65360],[3000000,74350],[3100000,82900],[3200000,91460],[3300000,102770],
+  [3400000,114990],[3500000,127220],[3600000,139440],[3700000,151670],[3800000,169260],[3900000,182610],[4000000,195960],[4100000,209310],
+  [4200000,222660],[4300000,236010],[4400000,249360],[4500000,262840],[4600000,279370],[4700000,293390],[4800000,307420],[4900000,321440],
+  [5000000,335470],[5100000,349490],[5200000,363520],[5300000,377540],[5400000,391570],[5500000,405590],[5600000,419620],[5700000,433640],
+  [5800000,447670],[5900000,483220],[6000000,505900],[6100000,528580],[6200000,551260],[6300000,573940],[6400000,596620],[6500000,619300],
+  [6600000,641980],[6700000,664660],[6800000,687340],[6900000,710020],[7000000,732700],[7100000,755380],[7200000,778060],[7300000,800740],
+  [7400000,823420],[7500000,846100],[7600000,868780],[7700000,891460],[7800000,914140],[7900000,936820],[8000000,959500],[8100000,982180],
+  [8200000,1004860],[8300000,1027540],[8400000,1050780],[8500000,1074180],[8600000,1097580],[8700000,1120980],[8800000,1144380],[8900000,1167780],
+  [9000000,1191180],[9100000,1214580],[9200000,1237980],[9300000,1271940],[9400000,1306070],[9500000,1340190],[9600000,1374320],[9700000,1408440],
+  [9800000,1442570],[9900000,1476690],[10000000,1503990]
+];
+const SALARY_TAX_TOP = SALARY_TAX_TABLE[SALARY_TAX_TABLE.length - 1];
+const SALARY_TAX_MARGINAL = 0.343; // 1,000만 원 초과분의 한계세율 (0.98 × 35%)
+const SALARY_TAX_TOP_ADD = 25000; // 표 끝 산식의 가산액
 
 const SALARY_DEFAULT_SETTINGS = {
-  baseHourly: 12229,
-  normalHourly: 12448,
+  // 처음 설치한 사용자는 비어 있게 시작한다 — 온보딩·설정에서 직접 입력
+  baseHourly: 0,
+  normalHourly: 0,
   deductionMode: "statement",
   // statement | simple | gross
   simpleRate: 15.64,
   // 기본급 소정근로일수 — 0 이면 자동(기간 일수 − 5일)
   baseDays: 0,
-  // 4대보험 정액 (명세서 실측값, 필요하면 직접 수정)
-  pensionAmount: 195510,
-  healthAmount: 149230,
-  careAmount: 19600,
+  // 4대보험 정액 (0 이면 표준요율 자동 추정)
+  pensionAmount: 0,
+  healthAmount: 0,
+  careAmount: 0,
   showCard: true,
   hideAmounts: false,
-  earlyLeave: {}
+  earlyLeave: {},
+  // 적용 시작월 이력 — [{ effectiveMonth: "YYYY-MM", baseHourly, normalHourly, ... }]
+  history: [],
+  // 월 확정(잠금) — { "YYYY-MM": { lockedAt, snapshot, actual } }
+  lockedMonths: {}
 };
 
 const loadSalarySettings = () => {
+  let parsed = null;
   try {
     const raw = localStorage.getItem(SALARY_STORE_KEY);
-    if (!raw) return Object.assign({}, SALARY_DEFAULT_SETTINGS, {
-      earlyLeave: {}
-    });
-    const parsed = JSON.parse(raw) || {};
-    return Object.assign({}, SALARY_DEFAULT_SETTINGS, parsed, {
-      earlyLeave: parsed.earlyLeave && typeof parsed.earlyLeave === "object" ? parsed.earlyLeave : {}
-    });
+    if (raw) parsed = JSON.parse(raw);
   } catch (e) {
-    return Object.assign({}, SALARY_DEFAULT_SETTINGS, {
-      earlyLeave: {}
-    });
+    parsed = null;
   }
+  const src = parsed && typeof parsed === "object" ? parsed : {};
+  const settings = Object.assign({}, SALARY_DEFAULT_SETTINGS, src, {
+    earlyLeave: src.earlyLeave && typeof src.earlyLeave === "object" ? src.earlyLeave : {},
+    history: [],
+    lockedMonths: src.lockedMonths && typeof src.lockedMonths === "object" ? src.lockedMonths : {}
+  });
+  const history = salaryHistoryOf(src);
+  if (history.length) {
+    // 이미 이력이 있으면 이력이 기준이다(맨 위 값은 최근 이력으로 다시 맞춘다).
+    return salaryWithLatest(Object.assign({}, settings, { history: history }));
+  }
+  // 예전 단일 구조(이력 없음) → 값이 0보다 크면 맨 앞(2000-01) 이력으로 옮겨
+  // 지난 달 계산 결과가 그대로 유지되게 한다.
+  const hasLegacyValue = SALARY_HISTORY_FIELDS.some(k => k !== "deductionMode" && salaryNum(src[k]) > 0);
+  if (hasLegacyValue) {
+    const legacy = Object.assign({ effectiveMonth: SALARY_BASE_MONTH, legacy: true }, salaryHistoryValues(src), {
+      deductionMode: src.deductionMode || SALARY_DEFAULT_SETTINGS.deductionMode
+    });
+    settings.history = [legacy];
+  }
+  return settings;
 };
 const saveSalarySettings = settings => {
   try {
@@ -2655,6 +2687,172 @@ const salaryHourText = n => {
 const salaryRateText = r => String(Math.round(salaryNum(r) * 1000) / 1000);
 const salaryEarlyLeaveOf = (settings, dateKey) => Math.max(0, salaryNum((settings && settings.earlyLeave || {})[dateKey]));
 
+/* ── 시급·공제 적용 이력과 월 확정(잠금) ─────────────────────────────────────
+   급여월(YYYY-MM) = 산정기간(전월 16일~당월 15일)의 종료월.
+   그 달을 계산할 때는 effectiveMonth <= 급여월 중 가장 최근 이력을 적용한다. */
+const SALARY_HISTORY_FIELDS = ["baseHourly", "normalHourly", "deductionMode", "simpleRate", "pensionAmount", "healthAmount", "careAmount"];
+const SALARY_BASE_MONTH = "2000-01"; // 예전 단일 구조 데이터를 옮길 때 쓰는 맨 앞 이력
+
+const salaryNormalizeMonth = value => {
+  const m = String(value || "").match(/^(\d{4})-(\d{1,2})$/);
+  if (!m) return "";
+  const month = Number(m[2]);
+  if (month < 1 || month > 12) return "";
+  return `${m[1]}-${String(month).padStart(2, "0")}`;
+};
+const salaryMonthKeyOf = (year, monthIndex) => {
+  const y = Number(year);
+  const m = Number(monthIndex);
+  const labelYear = m === 12 ? y + 1 : y;
+  const labelMonth = m === 12 ? 1 : m + 1;
+  return `${labelYear}-${String(labelMonth).padStart(2, "0")}`;
+};
+const salaryCurrentMonthKey = () => {
+  const period = salaryPeriodForDate(currentDateKey());
+  return salaryMonthKeyOf(period.year, period.monthIndex);
+};
+/* 급여월(YYYY-MM)의 산정기간 라벨 — 예: 2026-12 → "11.16~12.15" */
+const salaryRangeLabelOf = monthKey => {
+  const key = salaryNormalizeMonth(monthKey);
+  if (!key) return "";
+  const parts = key.split("-").map(Number);
+  const range = summaryRangeFor(parts[0], parts[1] - 1);
+  return `${range.startLabel}~${range.endLabel}`;
+};
+const salaryAddMonths = (monthKey, add) => {
+  const key = salaryNormalizeMonth(monthKey);
+  if (!key) return "";
+  const parts = key.split("-").map(Number);
+  const total = parts[0] * 12 + (parts[1] - 1) + Math.round(Number(add) || 0);
+  return `${Math.floor(total / 12)}-${String(total % 12 + 1).padStart(2, "0")}`;
+};
+const salaryHistoryOf = settings => Array.isArray(settings && settings.history)
+  ? settings.history.filter(e => e && salaryNormalizeMonth(e.effectiveMonth)).map(e => Object.assign({}, e, {
+    effectiveMonth: salaryNormalizeMonth(e.effectiveMonth)
+  }))
+  : [];
+const salarySortedHistory = settings => salaryHistoryOf(settings).sort((a, b) => a.effectiveMonth < b.effectiveMonth ? -1 : a.effectiveMonth > b.effectiveMonth ? 1 : 0);
+const salaryHistoryValues = values => {
+  const out = {};
+  SALARY_HISTORY_FIELDS.forEach(k => {
+    const v = values ? values[k] : undefined;
+    if (v === undefined || v === null || v === "") return;
+    if (k === "deductionMode") out[k] = v === "simple" || v === "gross" ? v : "statement";
+    else if (k === "simpleRate") out[k] = Math.round(salaryNum(v) * 1000) / 1000;
+    else out[k] = Math.round(salaryNum(v));
+  });
+  return out;
+};
+/* 그 달에 실제로 적용되는 설정 — 이력 중 effectiveMonth <= 급여월 의 마지막 값 */
+const salaryResolveSettings = (settings, monthKey) => {
+  const base = Object.assign({}, SALARY_DEFAULT_SETTINGS, settings || {});
+  const history = salarySortedHistory(base);
+  const key = salaryNormalizeMonth(monthKey);
+  let applied = null;
+  if (key) {
+    history.forEach(entry => {
+      if (entry.effectiveMonth <= key) applied = entry;
+    });
+  }
+  const out = Object.assign({}, base);
+  if (!applied) {
+    // 이력이 하나도 없으면(예전 데이터) 지금 값을 그대로 쓰고,
+    // 이력은 있는데 이 달보다 뒤라면 '아직 값 없음'으로 둔다.
+    if (history.length) SALARY_HISTORY_FIELDS.forEach(k => {
+      out[k] = SALARY_DEFAULT_SETTINGS[k];
+    });
+    out.appliedMonth = "";
+    return out;
+  }
+  SALARY_HISTORY_FIELDS.forEach(k => {
+    if (applied[k] !== undefined && applied[k] !== null && applied[k] !== "") out[k] = applied[k];
+  });
+  // 예전 단일 구조에서 옮긴 맨 앞 이력은 '2000-01부터' 같은 표기를 하지 않는다.
+  out.appliedMonth = applied.legacy ? "" : applied.effectiveMonth;
+  return out;
+};
+/* 최근 이력 값을 설정의 맨 위 값에도 맞춰 둔다(온보딩 기본값·설정 탭 요약용) */
+const salaryWithLatest = settings => {
+  const history = salarySortedHistory(settings);
+  const latest = history.length ? history[history.length - 1] : null;
+  const out = Object.assign({}, settings, { history });
+  if (latest) SALARY_HISTORY_FIELDS.forEach(k => {
+    if (latest[k] !== undefined && latest[k] !== null && latest[k] !== "") out[k] = latest[k];
+  });
+  return out;
+};
+const salaryUpsertHistory = (settings, effectiveMonth, values) => {
+  const month = salaryNormalizeMonth(effectiveMonth);
+  if (!month) return settings;
+  const history = salaryHistoryOf(settings).filter(e => e.effectiveMonth !== month);
+  history.push(Object.assign({ effectiveMonth: month }, salaryHistoryValues(values)));
+  return salaryWithLatest(Object.assign({}, settings, { history }));
+};
+const salaryDeleteHistory = (settings, effectiveMonth) => {
+  const month = salaryNormalizeMonth(effectiveMonth);
+  return salaryWithLatest(Object.assign({}, settings, {
+    history: salaryHistoryOf(settings).filter(e => e.effectiveMonth !== month)
+  }));
+};
+const salarySnapshotOf = statement => {
+  if (!statement) return null;
+  try {
+    return JSON.parse(JSON.stringify(statement));
+  } catch (e) {
+    return null;
+  }
+};
+const salaryLockMonth = (settings, monthKey, statement) => {
+  const key = salaryNormalizeMonth(monthKey);
+  const snapshot = salarySnapshotOf(statement);
+  if (!key || !snapshot) return settings;
+  return Object.assign({}, settings, {
+    lockedMonths: Object.assign({}, settings.lockedMonths || {}, {
+      [key]: { lockedAt: new Date().toISOString(), snapshot: snapshot }
+    })
+  });
+};
+const salaryUnlockMonth = (settings, monthKey) => {
+  const key = salaryNormalizeMonth(monthKey);
+  const locked = Object.assign({}, settings.lockedMonths || {});
+  delete locked[key];
+  return Object.assign({}, settings, { lockedMonths: locked });
+};
+const salarySetActual = (settings, monthKey, patch) => {
+  const key = salaryNormalizeMonth(monthKey);
+  const entry = (settings.lockedMonths || {})[key];
+  if (!entry || !patch) return settings;
+  const actual = Object.assign({}, entry.actual || {}, patch);
+  Object.keys(actual).forEach(k => {
+    if (!(salaryNum(actual[k]) > 0)) delete actual[k];
+  });
+  return Object.assign({}, settings, {
+    lockedMonths: Object.assign({}, settings.lockedMonths, {
+      [key]: Object.assign({}, entry, { actual: actual })
+    })
+  });
+};
+/* 화면에 보여 줄 금액 — 확정한 달에 실제 명세서 금액을 넣었으면 그 값을 우선한다 */
+const salaryDisplayAmounts = statement => {
+  const st = statement || {};
+  const actual = st.actual || {};
+  const pick = (key, fallback) => salaryNum(actual[key]) > 0 ? Math.round(salaryNum(actual[key])) : salaryNum(fallback);
+  return {
+    gross: pick("gross", st.gross),
+    deductionTotal: pick("deductionTotal", st.deductionTotal),
+    net: pick("net", st.net),
+    hasActual: salaryNum(actual.gross) > 0 || salaryNum(actual.deductionTotal) > 0 || salaryNum(actual.net) > 0
+  };
+};
+const salaryModeLabel = (mode, rate) => mode === "simple" ? `간이 공제 ${salaryRateText(rate)}%` : mode === "gross" ? "세전(지급합계)만" : "간이세액 자동";
+const salaryLockedAtText = iso => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const pad = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())} 확정`;
+};
+
 /* ── 근태 추가 표시 중 '휴가 계열' (2026-11-26 승현 님 요청) ───────────────────
    휴가 · 공가 : 유급 — 소정근로일수(기본급)는 그대로, 출근하지 않았으므로 연장·심야·특근 수당 0원.
                  연차 사용 일수에는 넣지 않는다(연차 1일 · 반차 0.5일만 차감).
@@ -2668,26 +2866,18 @@ const salaryIsLeaveTag = sub => SALARY_LEAVE_TAGS.indexOf(sub) >= 0;
 /* 10원 미만 절사 (명세서·국세청 간이세액표 표기 방식) */
 const salaryFloor10 = n => Math.max(0, Math.floor(salaryNum(n) / 10) * 10);
 
-/* 근로소득 간이세액 추정 — 명세서 실측 앵커(SALARY_TAX_TABLE) 사이를 직선 보간. */
+/* 근로소득 간이세액 추정 — SALARY_TAX_TABLE 구간 사이를 직선 보간. */
 const salaryEstimateTax = gross => {
   const g = salaryNum(gross);
   const table = SALARY_TAX_TABLE;
   if (g <= 0) return 0;
-  let tax;
-  if (g <= table[0].gross) {
-    const a = table[0],b = table[1];
-    tax = a.tax + (g - a.gross) * ((b.tax - a.tax) / (b.gross - a.gross));
-  } else if (g >= table[table.length - 1].gross) {
-    const a = table[table.length - 2],b = table[table.length - 1];
-    tax = b.tax + (g - b.gross) * ((b.tax - a.tax) / (b.gross - a.gross));
-  } else {
-    tax = table[table.length - 1].tax;
-    for (let i = 1; i < table.length; i++) {
-      if (g <= table[i].gross) {
-        const a = table[i - 1],b = table[i];
-        tax = a.tax + (g - a.gross) * ((b.tax - a.tax) / (b.gross - a.gross));
-        break;
-      }
+  if (g >= SALARY_TAX_TOP[0]) return salaryFloor10(SALARY_TAX_TOP[1] + SALARY_TAX_TOP_ADD + (g - SALARY_TAX_TOP[0]) * SALARY_TAX_MARGINAL);
+  let tax = 0;
+  for (let i = 1; i < table.length; i++) {
+    if (g <= table[i][0]) {
+      const a = table[i - 1],b = table[i];
+      tax = a[1] + (g - a[0]) * ((b[1] - a[1]) / (b[0] - a[0]));
+      break;
     }
   }
   return salaryFloor10(tax);
@@ -2704,11 +2894,13 @@ const salaryPeriodForDate = dateKey => {
 };
 const buildSalaryStatement = opts => {
   const o = opts || {};
-  const settings = o.settings || SALARY_DEFAULT_SETTINGS;
-  const baseHourly = salaryNum(settings.baseHourly);
-  const normalHourly = salaryNum(settings.normalHourly);
   const year = Number(o.year);
   const monthIndex = Number(o.monthIndex);
+  // 이 급여월(산정기간 종료월)에 적용할 시급·공제 설정 — 이력 중 가장 최근 값
+  const monthKey = salaryMonthKeyOf(year, monthIndex);
+  const settings = salaryResolveSettings(o.settings || SALARY_DEFAULT_SETTINGS, monthKey);
+  const baseHourly = salaryNum(settings.baseHourly);
+  const normalHourly = salaryNum(settings.normalHourly);
   const range = summaryRangeFor(year, monthIndex);
   const start = parseDateKey(range.startKey);
   const end = parseDateKey(range.endKey);
@@ -2876,16 +3068,28 @@ const buildSalaryStatement = opts => {
   let deductions = [];
   if (mode === "statement") {
     // 정액 3종(국민·건강·장기요양) + 고용보험 0.9% + 간이소득세 추정 + 지방소득세 10%
-    const fixedOf = (item, fallback) => {
+    // 정액을 넣었으면 그대로, 비어 있으면(0) 표준요율로 자동 추정한다.
+    const fixedOf = item => {
       const v = salaryNum(settings[item.key]);
-      return v > 0 ? Math.round(v) : fallback;
+      if (v > 0) return {
+        amount: Math.round(v),
+        hint: "정액"
+      };
+      const rate = salaryNum(item.rate);
+      return {
+        amount: rate > 0 ? salaryFloor10(gross * rate / 100) : 0,
+        hint: rate > 0 ? `자동 ${rate}%` : "미입력"
+      };
     };
     const incomeTax = salaryEstimateTax(gross);
-    deductions = SALARY_FIXED_DEDUCTIONS.map(it => ({
-      label: it.label,
-      hint: "정액",
-      amount: fixedOf(it, it.amount)
-    }));
+    deductions = SALARY_FIXED_DEDUCTIONS.map(it => {
+      const fixed = fixedOf(it);
+      return {
+        label: it.label,
+        hint: fixed.hint,
+        amount: fixed.amount
+      };
+    });
     deductions.push({
       label: "고용보험",
       hint: `${SALARY_EMPLOYMENT_RATE}%`,
@@ -2924,6 +3128,10 @@ const buildSalaryStatement = opts => {
   return {
     year,
     monthIndex,
+    monthKey,
+    appliedMonth: settings.appliedMonth || "",
+    baseHourly,
+    normalHourly,
     labelYear,
     labelMonth: labelMonthIndex,
     title: `${labelYear}년 ${labelMonthIndex}월`,
@@ -2968,6 +3176,11 @@ const renderSalaryCard = p => {
   if (!st) return null;
   const settings = p.settings || SALARY_DEFAULT_SETTINGS;
   const hidden = !!settings.hideAmounts;
+  const shown = salaryDisplayAmounts(st);
+  // 시급이 아직 없으면 금액 대신 입력 안내를 보여 준다(신규 사용자 첫 화면).
+  const noHourly = salaryNum(st.baseHourly) <= 0 && salaryNum(st.normalHourly) <= 0;
+  // 이 기기에 저장된 시급 이력의 첫 급여월 — 이 달이 그보다 앞이면 안내 문구를 바꾼다.
+  const firstHistoryMonth = salarySortedHistory(settings).length ? salarySortedHistory(settings)[0].effectiveMonth : "";
   const money = v => hidden ? "••••• 원" : `${salaryWon(v)}원`;
   return svEl("div", {
     className: "mt-3 rounded-2xl border border-blue-200 bg-gradient-to-b from-blue-50/90 to-white p-4",
@@ -2978,58 +3191,72 @@ const renderSalaryCard = p => {
     className: "flex items-center gap-1.5 min-w-0"
   }, svEl("span", {
     className: "text-sm leading-none"
-  }, "\uD83D\uDCB0"), svEl("h2", {
+  }, "💰"), svEl("h2", {
     className: "text-xs font-extrabold text-slate-700"
-  }, "\uC608\uC0C1 \uAE09\uC5EC"), svEl("span", {
+  }, "예상 급여"), svEl("span", {
     className: "text-[9.5px] px-1.5 py-0.5 rounded-full bg-white border border-blue-200 text-blue-700 font-extrabold whitespace-nowrap"
-  }, st.rangeLabel)), svEl("div", {
+  }, st.rangeLabel), st.locked ? svEl("span", {
+    className: "text-[9.5px] px-1.5 py-0.5 rounded-full bg-amber-100 border border-amber-200 text-amber-800 font-extrabold whitespace-nowrap",
+    "data-testid": "salary-lock-badge"
+  }, "🔒 확정") : null), svEl("div", {
     className: "flex items-center gap-1 shrink-0"
   }, svEl("button", {
     onClick: p.onToggleHide,
     "data-testid": "salary-hide-toggle",
-    "aria-label": hidden ? "\uAE08\uC561 \uBCF4\uAE30" : "\uAE08\uC561 \uAC00\uB9AC\uAE30",
+    "aria-label": hidden ? "금액 보기" : "금액 가리기",
     className: "w-7 h-7 rounded-full bg-white border border-blue-200 text-[12px] leading-none text-slate-600"
-  }, hidden ? "\uD83D\uDC41" : "\uD83D\uDE48"), svEl("button", {
+  }, hidden ? "👁" : "🙈"), svEl("button", {
     onClick: p.onSettings,
     "data-testid": "salary-settings-open",
-    "aria-label": "\uAE09\uC5EC \uACC4\uC0B0\uAE30 \uC124\uC815",
+    "aria-label": "급여 계산기 설정",
     className: "w-7 h-7 rounded-full bg-white border border-blue-200 text-[12px] leading-none text-slate-600"
-  }, "\u2699"))), svEl("button", {
+  }, "⚙"))), noHourly ? svEl("button", {
+    onClick: p.onSettings,
+    "data-testid": "salary-no-hourly",
+    className: "w-full text-left mt-2.5"
+  }, svEl("span", {
+    className: "block text-[13px] font-extrabold text-blue-700"
+  }, firstHistoryMonth && st.monthKey && firstHistoryMonth > st.monthKey ? "이 달에는 적용된 시급 이력이 없습니다" : "설정에서 시급을 입력해 주세요"), svEl("span", {
+    className: "mt-1 block text-[10.5px] leading-relaxed font-bold text-slate-500"
+  }, firstHistoryMonth && st.monthKey && firstHistoryMonth > st.monthKey ? `${st.monthKey} 급여월(${salaryRangeLabelOf(st.monthKey)})은 적용된 이력이 없어 계산하지 않습니다. 저장된 시급은 ${firstHistoryMonth} 급여월부터 적용됩니다.` : "⚙ 버튼을 눌러 기본시급·통상시급을 넣으면 이 달 예상 급여가 바로 계산됩니다.")) : svEl("button", {
     onClick: p.onOpen,
     "data-testid": "salary-open",
     className: "w-full text-left mt-2.5"
   }, svEl("span", {
-    className: "block text-[10.5px] font-bold text-slate-500"
-  }, "\uC138\uD6C4 \uC608\uC0C1 \uC2E4\uC218\ub839\uC561"), svEl("span", {
+    className: "block text-[9.5px] font-extrabold text-slate-400",
+    "data-testid": "salary-applied-hourly"
+  }, `${st.locked ? "확정 당시 시급" : "적용 시급"} 기본 ${salaryWon(st.baseHourly)}원 · 통상 ${salaryWon(st.normalHourly)}원`, !st.locked && st.appliedMonth ? ` · ${st.appliedMonth} 급여월부터` : ""), svEl("span", {
+    className: "block mt-0.5 text-[10.5px] font-bold text-slate-500"
+  }, st.locked ? "확정된 세후 실수령액" : "세후 예상 실수령액"), svEl("span", {
     className: "mt-0.5 flex items-end gap-1"
   }, svEl("span", {
     className: "text-[23px] leading-none font-extrabold tracking-tight text-blue-700",
     "data-testid": "salary-net"
-  }, money(st.net))), hidden ? null : svEl("span", {
+  }, money(shown.net))), hidden ? null : svEl("span", {
     className: "mt-2 flex items-end justify-between gap-2 rounded-xl bg-white border border-blue-200 px-3 py-2",
     "data-testid": "salary-gross-row"
   }, svEl("span", {
     className: "min-w-0"
   }, svEl("span", {
     className: "block text-[10.5px] font-extrabold text-slate-500"
-  }, "\uC138\uC804 (\uC9C0\uAE09\uD569\uACC4)"), svEl("span", {
+  }, "세전 (지급합계)"), svEl("span", {
     className: "mt-0.5 block text-[19px] leading-none font-extrabold tracking-tight text-slate-900",
     "data-testid": "salary-gross"
-  }, money(st.gross))), svEl("span", {
+  }, money(shown.gross))), svEl("span", {
     className: "text-right text-[10.5px] font-bold text-slate-500 whitespace-nowrap"
-  }, "\uACF5\uC81C ", hidden ? "\u2022\u2022\u2022" : `${salaryWon(st.deductionTotal)}\uC6D0`, st.earlyLeaveDays.length > 0 || st.unpaidLeaveDays > 0 ? svEl("span", {
+  }, "공제 ", hidden ? "•••" : `${salaryWon(shown.deductionTotal)}원`, st.earlyLeaveDays.length > 0 || st.unpaidLeaveDays > 0 ? svEl("span", {
     className: "mt-0.5 block text-[10px] font-extrabold text-orange-600",
     "data-testid": "salary-leave-note"
-  }, [st.earlyLeaveDays.length > 0 ? `\uC870\uD1F4 ${st.earlyLeaveDays.length}\uC77C \uBC18\uC601` : "", st.unpaidLeaveDays > 0 ? `\uBB34\uAE09 ${st.unpaidLeaveDays}\uC77C \uCC28\uAC10` : ""].filter(Boolean).join(" \u00B7 ")) : null)), svEl("span", {
+  }, [st.earlyLeaveDays.length > 0 ? `조퇴 ${st.earlyLeaveDays.length}일 반영` : "", st.unpaidLeaveDays > 0 ? `무급 ${st.unpaidLeaveDays}일 차감` : ""].filter(Boolean).join(" · ")) : null)), svEl("span", {
     className: "mt-2 flex items-center justify-between gap-2 rounded-xl bg-white border border-blue-100 px-3 py-2"
   }, svEl("span", {
     className: "text-[10.5px] font-bold text-slate-500"
-  }, "\uC624\uB298\uAE4C\uC9C0 \uB204\uC801 \uC608\uC0C1", st.accumulatedComplete ? " (\uAE30\uAC04 \uC885\uB8CC)" : ""), svEl("span", {
+  }, "오늘까지 누적 예상", st.accumulatedComplete ? " (기간 종료)" : ""), svEl("span", {
     className: "text-[13px] font-extrabold text-slate-800",
     "data-testid": "salary-accumulated"
   }, money(st.accumulated))), svEl("span", {
     className: "mt-2 block text-right text-[10.5px] font-extrabold text-blue-600"
-  }, "\uBA85\uC138\uC11C \uC0C1\uC138\uD788 \uBCF4\uAE30 \u203A")));
+  }, "명세서 상세히 보기 ›")));
 };
 const svRow = (left, right, cls) => svEl("div", {
   className: `flex items-start justify-between gap-2 py-1.5 ${cls || ""}`
@@ -3041,35 +3268,99 @@ const svRow = (left, right, cls) => svEl("div", {
 const svSectionTitle = text => svEl("h4", {
   className: "text-[11px] font-extrabold text-slate-500 uppercase tracking-wide mb-1.5"
 }, text);
-const renderSalarySettings = p => {
-  const settings = p.settings;
+/* ── 급여 설정 패널 — 시급·4대보험·공제 방식 + 적용 시작월 이력 ──────────────
+   값은 초안(draft)으로 편집하고 '적용 시작월'을 골라 저장할 때 이력에 기록한다.
+   급여월(YYYY-MM)마다 그 달 이하의 가장 최근 이력이 적용된다. */
+const SalarySettingsPanel = p => {
+  const settings = p.settings || SALARY_DEFAULT_SETTINGS;
   const st = p.statement;
-  const set = patch => p.onChange(Object.assign({}, settings, patch));
-  const numInput = (value, onValue) => svEl("input", {
+  const viewMonth = st && st.monthKey ? st.monthKey : "";
+  const resolved = salaryResolveSettings(settings, viewMonth || salaryCurrentMonthKey());
+  const thisMonth = salaryCurrentMonthKey();
+  const nextMonth = salaryAddMonths(thisMonth, 1);
+  const numText = v => salaryNum(v) > 0 ? String(Math.round(salaryNum(v))) : "";
+  const [draft, setDraft] = React.useState(() => ({
+    baseHourly: numText(resolved.baseHourly),
+    normalHourly: numText(resolved.normalHourly),
+    deductionMode: resolved.deductionMode || "statement",
+    simpleRate: salaryNum(resolved.simpleRate) > 0 ? salaryRateText(resolved.simpleRate) : "",
+    pensionAmount: numText(resolved.pensionAmount),
+    healthAmount: numText(resolved.healthAmount),
+    careAmount: numText(resolved.careAmount)
+  }));
+  const [monthMode, setMonthMode] = React.useState("this"); // this | next | custom
+  const [customMonth, setCustomMonth] = React.useState(thisMonth);
+  const [historyOpen, setHistoryOpen] = React.useState(true);
+  const effectiveMonth = monthMode === "this" ? thisMonth : monthMode === "next" ? nextMonth : salaryNormalizeMonth(customMonth);
+  const field = (key, value) => setDraft(prev => Object.assign({}, prev, {
+    [key]: value
+  }));
+  const setGlobal = patch => p.onChange(Object.assign({}, settings, patch));
+  const notify = msg => p.onNotify && p.onNotify(msg);
+  const numInput = (value, onValue, testid) => svEl("input", {
     type: "number",
     inputMode: "numeric",
-    value: String(value),
-    onChange: e => {
-      const n = Math.floor(salaryNum(e.target.value));
-      onValue(n < 0 ? 0 : n);
-    },
+    value: value,
+    onChange: e => onValue(e.target.value),
+    "data-testid": testid,
     className: "w-full px-2.5 py-2 rounded-xl bg-white border border-slate-200 text-[13px] font-extrabold text-slate-900 text-right"
   });
   const modeBtn = (mode, label, desc) => svEl("button", {
     key: mode,
-    onClick: () => set({
-      deductionMode: mode
-    }),
-    className: `w-full text-left p-2.5 rounded-xl border transition ${settings.deductionMode === mode ? "border-blue-500 bg-blue-50/70 ring-1 ring-blue-200" : "border-slate-200 bg-white"}`
+    onClick: () => field("deductionMode", mode),
+    "data-testid": "salary-mode-" + mode,
+    className: `w-full text-left p-2.5 rounded-xl border transition ${draft.deductionMode === mode ? "border-blue-500 bg-blue-50/70 ring-1 ring-blue-200" : "border-slate-200 bg-white"}`
   }, svEl("span", {
     className: "flex items-center gap-1.5"
   }, svEl("span", {
-    className: `w-3.5 h-3.5 rounded-full border-2 ${settings.deductionMode === mode ? "border-blue-600 bg-blue-600" : "border-slate-300"}`
+    className: `w-3.5 h-3.5 rounded-full border-2 ${draft.deductionMode === mode ? "border-blue-600 bg-blue-600" : "border-slate-300"}`
   }), svEl("span", {
     className: "text-[11.5px] font-extrabold text-slate-800"
   }, label)), desc ? svEl("span", {
     className: "block mt-0.5 pl-5 text-[10px] text-slate-500 font-medium"
   }, desc) : null);
+  const chip = (key, title, sub) => svEl("button", {
+    key: key,
+    onClick: () => setMonthMode(key),
+    "data-testid": "salary-effective-" + key,
+    className: `flex-1 px-1.5 py-2 rounded-xl border text-[10.5px] font-extrabold leading-tight ${monthMode === key ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600"}`
+  }, svEl("span", {
+    className: "block"
+  }, title), sub ? svEl("span", {
+    className: "block text-[9px] font-bold opacity-70 mt-0.5"
+  }, sub) : null);
+  const applyDraft = () => {
+    if (!effectiveMonth) {
+      notify("적용 시작월을 YYYY-MM 형식으로 골라 주세요.");
+      return;
+    }
+    const values = {
+      baseHourly: salaryNum(draft.baseHourly),
+      normalHourly: salaryNum(draft.normalHourly),
+      deductionMode: draft.deductionMode,
+      simpleRate: salaryNum(draft.simpleRate),
+      pensionAmount: salaryNum(draft.pensionAmount),
+      healthAmount: salaryNum(draft.healthAmount),
+      careAmount: salaryNum(draft.careAmount)
+    };
+    if (values.baseHourly <= 0 && values.normalHourly <= 0) {
+      notify("기본시급·통상시급을 먼저 입력해 주세요.");
+      return;
+    }
+    p.onChange(salaryUpsertHistory(settings, effectiveMonth, values));
+    notify(`${effectiveMonth} 급여월부터 적용되도록 저장했습니다.`);
+  };
+  const resetAll = () => {
+    const ok = typeof window === "undefined" || !window.confirm ? true : window.confirm("시급·4대보험·공제 설정과 적용 이력을 모두 지우고 처음 상태로 돌립니다. 확정(잠금)한 달은 그대로 남습니다. 계속할까요?");
+    if (!ok) return;
+    p.onChange(Object.assign({}, SALARY_DEFAULT_SETTINGS, {
+      earlyLeave: {},
+      history: [],
+      lockedMonths: settings.lockedMonths || {}
+    }));
+    notify("급여 설정을 처음 상태로 되돌렸습니다.");
+  };
+  const months = salarySortedHistory(settings).slice().reverse();
   return svEl("section", {
     className: "p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3",
     "data-testid": "salary-settings"
@@ -3077,50 +3368,48 @@ const renderSalarySettings = p => {
     className: "flex items-center justify-between gap-2"
   }, svEl("div", null, svEl("h3", {
     className: "text-sm font-extrabold text-slate-900"
-  }, p.title || "\uD83D\uDCB0 \uAE09\uC5EC \uACC4\uC0B0\uAE30"), svEl("p", {
+  }, p.title || "💰 급여 계산기"), svEl("p", {
     className: "text-[10.5px] text-slate-500 mt-0.5"
-  }, "\uAE09\uC5EC\uAE30\uC900 ", st ? st.rangeLabel : "", " \u00B7 \uC774 \uAE30\uAE30 \uBE0C\uB77C\uC6B0\uC800\uC5D0\uB9CC \uC800\uC7A5"))), svEl("div", {
+  }, "급여기준 ", st ? st.rangeLabel : "", " · 이 기기 브라우저에만 저장"))), svEl("div", {
     className: "grid grid-cols-2 gap-2"
   }, svEl("div", null, svEl("label", {
     className: "text-[10.5px] font-bold text-slate-500"
-  }, "\uAE30\uBCF8\uC2DC\uAE09 (\uC6D0)"), svEl("div", {
+  }, "기본시급 (원)"), svEl("div", {
     className: "mt-1"
-  }, numInput(settings.baseHourly, v => set({
-    baseHourly: v
-  })))), svEl("div", null, svEl("label", {
+  }, numInput(draft.baseHourly, v => field("baseHourly", v), "salary-base-hourly"))), svEl("div", null, svEl("label", {
     className: "text-[10.5px] font-bold text-slate-500"
-  }, "\uD1B5\uC0C1\uC2DC\uAE09 (\uC6D0)"), svEl("div", {
+  }, "통상시급 (원)"), svEl("div", {
     className: "mt-1"
-  }, numInput(settings.normalHourly, v => set({
-    normalHourly: v
-  }))))), svEl("div", null, svEl("label", {
+  }, numInput(draft.normalHourly, v => field("normalHourly", v), "salary-normal-hourly")))), svEl("p", {
+    className: "text-[10px] leading-relaxed text-slate-400"
+  }, "※ 기본시급은 기본급(기본시급 × 8시간 × 소정근로일수), 통상시급은 연장·심야·휴일 수당 계산에 쓰입니다."), svEl("div", null, svEl("label", {
     className: "text-[10.5px] font-bold text-slate-500"
-  }, "\uAE30\uBCF8\uAE09 \uC18C\uC815\uADFC\uB85C\uC77C\uC218"), svEl("div", {
+  }, "기본급 소정근로일수"), svEl("div", {
     className: "mt-1 flex items-center gap-2",
     "data-testid": "salary-basedays"
-  }, numInput(settings.baseDays > 0 ? settings.baseDays : st ? st.baseDays : 0, v => set({
-    baseDays: v
-  })), svEl("span", {
+  }, numInput(settings.baseDays > 0 ? settings.baseDays : st ? st.baseDays : 0, v => setGlobal({
+    baseDays: Math.max(0, Math.round(salaryNum(v)))
+  }), "salary-basedays-input"), svEl("span", {
     className: "text-[11px] font-extrabold text-slate-500 whitespace-nowrap"
-  }, "\uC77C"), svEl("button", {
-    onClick: () => set({
+  }, "일"), svEl("button", {
+    onClick: () => setGlobal({
       baseDays: 0
     }),
     "data-testid": "salary-basedays-auto",
     className: `px-2.5 py-2 rounded-xl text-[10.5px] font-extrabold border whitespace-nowrap ${settings.baseDays > 0 ? "border-slate-200 bg-white text-slate-600" : "border-blue-500 bg-blue-50 text-blue-700"}`
-  }, "\uC790\uB3D9")), svEl("p", {
+  }, "자동")), svEl("p", {
     className: "text-[10px] font-bold text-slate-500 mt-1",
     "data-testid": "salary-basedays-hint"
-  }, st ? "\uC790\uB3D9 = \uAE30\uAC04 " + st.totalDays + "\uC77C \u2212 5\uC77C = " + st.autoBaseDays + "\uC77C (\uAE30\uBCF8\uAE09\uC5D0\uB294 " + st.baseDays + "\uC77C)" : "\uC790\uB3D9 = \uAE30\uAC04 \uC77C\uC218 \u2212 5\uC77C")), svEl("div", null, svEl("label", {
+  }, st ? "자동 = 기간 " + st.totalDays + "일 − 5일 = " + st.autoBaseDays + "일 (기본급에는 " + st.baseDays + "일)" : "자동 = 기간 일수 − 5일")), svEl("div", null, svEl("label", {
     className: "text-[10.5px] font-bold text-slate-500 block mb-1.5"
-  }, "\uACF5\uC81C \uBC29\uC2DD"), svEl("div", {
+  }, "공제 방식"), svEl("div", {
     className: "space-y-1.5"
-  }, modeBtn("statement", "\uBA85\uC138\uC11C \uC2E4\uCE21 \uC790\uB3D9 \uC801\uC6A9", "\uAD6D\uBBFC 195,510 \u00B7 \uAC74\uAC15 149,230 \u00B7 \uC7A5\uAE30\uC694\uC591 19,600 \uC815\uC561 \u00B7 \uACE0\uC6A9 0.9% \u00B7 \uC18C\uB4DD\uC138 \uAC04\uC774\uC138\uC561 \uCD94\uC815 \u00B7 \uC9C0\uBC29\uC18C\uB4DD\uC138 10%"), settings.deductionMode === "statement" ? svEl("div", {
+  }, modeBtn("statement", "간이세액 자동 (권장)", "4대보험 정액 또는 표준요율 추정 + 고용보험 0.9% + 간이소득세 + 지방소득세 10%"), draft.deductionMode === "statement" ? svEl("div", {
     className: "rounded-xl bg-white border border-slate-200 p-2 space-y-1.5",
     "data-testid": "salary-fixed-deductions"
   }, svEl("p", {
     className: "text-[10px] font-bold text-slate-500"
-  }, "4\uB300\uBCF4\uD5D8 \uC815\uC561 (\uBA85\uC138\uC11C \uC2E4\uCE21 \u00B7 \uC9C1\uC811 \uC218\uC815 \uAC00\uB2A5)"), svEl("div", {
+  }, "4대보험 정액 (0이면 자동 추정)"), svEl("div", {
     className: "grid grid-cols-3 gap-1.5"
   }, SALARY_FIXED_DEDUCTIONS.map(it => svEl("div", {
     key: it.key
@@ -3128,20 +3417,77 @@ const renderSalarySettings = p => {
     className: "text-[9.5px] font-bold text-slate-500"
   }, it.label), svEl("div", {
     className: "mt-0.5"
-  }, numInput(settings[it.key] !== undefined ? settings[it.key] : it.amount, v => set({
-    [it.key]: v
-  }))))))) : null, modeBtn("simple", "\uAC04\uC774 \uACF5\uC81C\uC728 \uC9C1\uC811 \uC785\uB825", null), settings.deductionMode === "simple" ? svEl("div", {
+  }, numInput(draft[it.key], v => field(it.key, v), "salary-" + it.key))))), svEl("p", {
+    className: "text-[9.5px] font-bold text-slate-400 leading-relaxed"
+  }, "비워 두면 세전 기준 국민 4.5% · 건강 3.545% · 장기요양 0.4591%로 추정합니다.")) : null, modeBtn("simple", "간이 공제율 직접 입력", null), draft.deductionMode === "simple" ? svEl("div", {
     className: "flex items-center gap-2 pl-5"
-  }, numInput(Math.round(salaryNum(settings.simpleRate) * 100) / 100, v => set({
-    simpleRate: v
-  })), svEl("span", {
+  }, numInput(draft.simpleRate, v => field("simpleRate", v), "salary-simple-rate"), svEl("span", {
     className: "text-[11px] font-extrabold text-slate-500"
-  }, "%")) : null, modeBtn("gross", "\uC138\uC804(\uC9C0\uAE09\uD569\uACC4)\uB9CC \uBCF4\uAE30", "\uACF5\uC81C\uC561\uC744 \uACC4\uC0B0\uD558\uC9C0 \uC54A\uACE0 \uC138\uC804 \uAE08\uC561\uB9CC \uD45C\uC2DC"))), svEl("div", {
+  }, "%")) : null, modeBtn("gross", "세전(지급합계)만 보기", "공제액을 계산하지 않고 세전 금액만 표시"))), svEl("div", {
+    className: "rounded-xl bg-white border border-blue-200/70 p-2.5 space-y-2",
+    "data-testid": "salary-effective"
+  }, svEl("div", {
+    className: "flex items-center justify-between gap-2"
+  }, svEl("p", {
+    className: "text-[11px] font-extrabold text-slate-700"
+  }, "📅 적용 시작월"), svEl("span", {
+    className: "text-[9.5px] font-bold text-slate-400"
+  }, "이 달부터 적용")), svEl("div", {
+    className: "flex items-center gap-1.5"
+  }, chip("this", "이번 급여월", thisMonth), chip("next", "다음 급여월", nextMonth), chip("custom", "직접 입력", "")), monthMode === "custom" ? svEl("input", {
+    type: "month",
+    value: customMonth,
+    onChange: e => setCustomMonth(e.target.value),
+    "data-testid": "salary-effective-custom-input",
+    className: "w-full px-2.5 py-2 rounded-xl bg-white border border-slate-200 text-[13px] font-extrabold text-slate-900"
+  }) : null, svEl("p", {
+    className: "text-[10px] font-bold text-slate-500 leading-relaxed",
+    "data-testid": "salary-effective-hint"
+  }, effectiveMonth ? `${effectiveMonth} 급여월(${salaryRangeLabelOf(effectiveMonth)} 근무분)부터 위 시급·공제 값이 적용됩니다. 그 이전 달은 저장된 이력 값으로 계산합니다.` : "적용 시작월을 골라 주세요."), svEl("button", {
+    onClick: applyDraft,
+    disabled: !effectiveMonth,
+    "data-testid": "salary-history-save",
+    className: `w-full py-2.5 rounded-xl text-[11.5px] font-extrabold text-white ${effectiveMonth ? "bg-blue-600 active:bg-blue-700" : "bg-slate-300"}`
+  }, "이 시작월부터 적용 저장")), svEl("div", {
+    className: "rounded-xl bg-white border border-slate-200 p-2.5 space-y-1.5"
+  }, svEl("button", {
+    onClick: () => setHistoryOpen(v => !v),
+    "data-testid": "salary-history-toggle",
+    className: "w-full flex items-center justify-between gap-2"
+  }, svEl("span", {
+    className: "text-[11px] font-extrabold text-slate-700"
+  }, `시급·공제 이력 ${months.length}건`), svEl("span", {
+    className: "text-[10px] font-bold text-slate-400"
+  }, historyOpen ? "접기 ▲" : "펼치기 ▼")), historyOpen ? svEl("div", {
+    className: "space-y-1.5",
+    "data-testid": "salary-history-list"
+  }, months.length === 0 ? svEl("p", {
+    className: "text-[10.5px] font-bold text-slate-400 leading-relaxed"
+  }, "저장된 이력이 없습니다. 위에서 시급을 넣고 '적용 저장'을 누르면 그 급여월부터 적용됩니다.") : months.map(entry => svEl("div", {
+    key: entry.effectiveMonth,
+    className: "flex items-center justify-between gap-2 rounded-xl bg-slate-50 border border-slate-200 px-2.5 py-2",
+    "data-testid": "salary-history-" + entry.effectiveMonth
+  }, svEl("div", {
+    className: "min-w-0"
+  }, svEl("span", {
+    className: "block text-[11.5px] font-extrabold text-slate-800"
+  }, entry.effectiveMonth, "부터", entry.legacy ? svEl("span", {
+    className: "ml-1 text-[9px] font-bold text-slate-400"
+  }, "(기존 값)") : null), svEl("span", {
+    className: "block text-[10px] font-bold text-slate-500 mt-0.5"
+  }, `기본 ${salaryWon(entry.baseHourly)}원 · 통상 ${salaryWon(entry.normalHourly)}원 · ${salaryModeLabel(entry.deductionMode, entry.simpleRate)}`)), svEl("button", {
+    onClick: () => {
+      p.onChange(salaryDeleteHistory(settings, entry.effectiveMonth));
+      notify(`${entry.effectiveMonth} 이력을 삭제했습니다.`);
+    },
+    "data-testid": "salary-history-delete-" + entry.effectiveMonth,
+    className: "shrink-0 px-2 py-1 rounded-lg bg-rose-50 border border-rose-100 text-[10px] font-extrabold text-rose-600"
+  }, "삭제")))) : null), svEl("div", {
     className: "flex items-center justify-between gap-2 rounded-xl bg-white border border-slate-200 px-3 py-2"
   }, svEl("span", {
     className: "text-[11px] font-bold text-slate-600"
-  }, "\uB2EC\uB825 \uD558\uB2E8 \uC608\uC0C1 \uAE09\uC5EC \uCE74\uB4DC \uD45C\uC2DC"), svEl("button", {
-    onClick: () => set({
+  }, "달력 하단 예상 급여 카드 표시"), svEl("button", {
+    onClick: () => setGlobal({
       showCard: !settings.showCard
     }),
     "data-testid": "salary-card-toggle",
@@ -3150,10 +3496,85 @@ const renderSalarySettings = p => {
     className: `absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${settings.showCard ? "left-[22px]" : "left-0.5"}`
   }))), svEl("p", {
     className: "text-[10px] leading-relaxed text-slate-400"
-  }, "\u203B \uC2DC\uAE09\u00B7\uACF5\uC81C\uC728\u00B7\uC870\uD1F4 \uC2DC\uAC04\u00B7\uC608\uC0C1 \uAE09\uC5EC\uB294 \uC774 \uAE30\uAE30\uC758 \uBE0C\uB77C\uC6B0\uC800 \uC800\uC7A5\uC18C\uC5D0\uB9CC \uC800\uC7A5\uB418\uBA70 \uD300 \uACF5\uC720(Firestore)\uB85C \uC804\uC1A1\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."), p.onReset ? svEl("button", {
-    onClick: p.onReset,
+  }, "※ 시급·공제율·조퇴 시간·예상 급여는 이 기기의 브라우저 저장소에만 저장되며 팀 공유(Firestore)로 전송되지 않습니다."), svEl("button", {
+    onClick: resetAll,
+    "data-testid": "salary-reset",
     className: "w-full py-2 rounded-xl bg-white border border-slate-200 text-[11px] font-extrabold text-slate-600"
-  }, "\uAE30\uBCF8\uAC12(\uC2DC\uAE09 12,229 / 12,448\u00B7\uC870\uD1F4 \uC5C6\uC74C)\uC73C\uB85C \uB418\uB3CC\uB9AC\uAE30") : null);
+  }, "기본값(빈 시급·이력 없음)으로 되돌리기"));
+};
+/* ── 월 확정(잠금) 패널 — 확정한 달은 스냅샷으로 고정되고 실제 명세서 금액을 덧붙일 수 있다 */
+const SalaryLockPanel = p => {
+  const st = p.statement;
+  if (!st) return null;
+  const shown = salaryDisplayAmounts(st);
+  const [actual, setActual] = React.useState(() => {
+    const a = st.actual || {};
+    return {
+      gross: salaryNum(a.gross) > 0 ? String(Math.round(salaryNum(a.gross))) : "",
+      deductionTotal: salaryNum(a.deductionTotal) > 0 ? String(Math.round(salaryNum(a.deductionTotal))) : "",
+      net: salaryNum(a.net) > 0 ? String(Math.round(salaryNum(a.net))) : ""
+    };
+  });
+  const setActualField = (key, value) => {
+    const raw = String(value || "").replace(/[^0-9]/g, "");
+    setActual(prev => Object.assign({}, prev, {
+      [key]: raw
+    }));
+    p.onChangeActual && p.onChangeActual({
+      [key]: salaryNum(raw)
+    });
+  };
+  const actualInput = (key, label, testid) => svEl("div", {
+    key: key
+  }, svEl("label", {
+    className: "text-[9.5px] font-bold text-slate-500"
+  }, label), svEl("input", {
+    type: "number",
+    inputMode: "numeric",
+    value: actual[key],
+    onChange: e => setActualField(key, e.target.value),
+    "data-testid": testid,
+    className: "mt-0.5 w-full px-2 py-1.5 rounded-lg bg-white border border-slate-200 text-[11.5px] font-extrabold text-slate-900 text-right"
+  }));
+  if (!st.locked) {
+    return svEl("div", {
+      className: "rounded-2xl border border-slate-200 bg-slate-50 p-3 space-y-2",
+      "data-testid": "salary-lock-panel"
+    }, svEl("p", {
+      className: "text-[11.5px] font-extrabold text-slate-800"
+    }, "🔒 이 달 확정(잠금)"), svEl("p", {
+      className: "text-[10px] leading-relaxed text-slate-500 font-bold"
+    }, "확정하면 지금 계산된 ", st.title, " 급여·공제 금액이 스냅샷으로 저장됩니다. 이후 시급·4대보험·공제 방식을 바꿔도 이 달은 변하지 않습니다."), svEl("button", {
+      onClick: p.onLock,
+      "data-testid": "salary-lock-button",
+      className: "w-full py-2.5 rounded-xl bg-amber-500 text-white text-[11.5px] font-extrabold active:bg-amber-600"
+    }, "이 달 확정(잠금)"));
+  }
+  return svEl("div", {
+    className: "rounded-2xl border border-amber-200 bg-amber-50/70 p-3 space-y-2",
+    "data-testid": "salary-lock-panel"
+  }, svEl("div", {
+    className: "flex items-start justify-between gap-2"
+  }, svEl("p", {
+    className: "text-[11.5px] font-extrabold text-amber-900"
+  }, "🔒 ", st.title, " 확정됨"), svEl("span", {
+    className: "text-[9px] font-bold text-amber-700 whitespace-nowrap"
+  }, salaryLockedAtText(st.lockedAt))), svEl("p", {
+    className: "text-[10px] leading-relaxed text-amber-900/80 font-bold"
+  }, "확정한 달은 설정을 바꿔도 이 금액 그대로 남습니다. 실제 명세서 금액을 알면 아래에 넣어 두세요 — 비워 두면 계산값을 씁니다."), svEl("div", {
+    className: "grid grid-cols-3 gap-1.5"
+  }, actualInput("gross", "세전", "salary-actual-gross"), actualInput("deductionTotal", "공제", "salary-actual-deduction"), actualInput("net", "실수령", "salary-actual-net")), svEl("div", {
+    className: "rounded-xl bg-white border border-amber-200 px-2.5 py-1.5"
+  }, svEl("span", {
+    className: "block text-[9.5px] font-bold text-slate-500"
+  }, shown.hasActual ? "확정 금액 · 실제 명세서 기준" : "확정 금액 · 계산값 기준"), svEl("span", {
+    className: "mt-0.5 block text-[11px] font-extrabold text-slate-800 text-right",
+    "data-testid": "salary-lock-summary"
+  }, `세전 ${salaryWon(shown.gross)} · 공제 ${salaryWon(shown.deductionTotal)} · 실수령 ${salaryWon(shown.net)}원`)), svEl("button", {
+    onClick: p.onUnlock,
+    "data-testid": "salary-unlock-button",
+    className: "w-full py-2.5 rounded-xl bg-white border border-amber-300 text-[11.5px] font-extrabold text-amber-800"
+  }, "🔓 확정 해제"));
 };
 const renderSalaryModal = p => {
   const st = p.statement;
@@ -3161,6 +3582,7 @@ const renderSalaryModal = p => {
   const settings = p.settings || SALARY_DEFAULT_SETTINGS;
   const hidden = !!settings.hideAmounts;
   const money = v => hidden ? "••••• 원" : `${salaryWon(v)}원`;
+  const shown = salaryDisplayAmounts(st);
   const box = (label, value, cls) => svEl("div", {
     className: `rounded-xl px-2 py-2 text-center ${cls}`
   }, svEl("div", {
@@ -3179,7 +3601,10 @@ const renderSalaryModal = p => {
     className: "text-base font-extrabold text-slate-900 flex items-center gap-1.5"
   }, "\uD83D\uDCB0 \uAE09\uC5EC \uBA85\uC138\uC11C ", svEl("span", {
     className: "text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-extrabold"
-  }, "\uC608\uC0C1")), svEl("p", {
+  }, "\uC608\uC0C1"), st.locked ? svEl("span", {
+    className: "text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-extrabold",
+    "data-testid": "salary-modal-lock-badge"
+  }, "🔒 확정") : null), svEl("p", {
     className: "text-[10.5px] text-slate-500 mt-0.5"
   }, st.title, " \u00B7 \uAE09\uC5EC\uAE30\uC900 ", st.rangeLabel, " \u00B7 ", st.baseDays, "\uC77C \uC18C\uC815")), svEl("div", {
     className: "flex items-center gap-1 shrink-0"
@@ -3195,6 +3620,13 @@ const renderSalaryModal = p => {
   }, "\u2715"))), svEl("div", {
     className: "px-5 py-3 space-y-4"
   }, svEl("div", {
+    className: "flex items-center justify-between gap-2 rounded-xl bg-blue-50/70 border border-blue-100 px-3 py-2",
+    "data-testid": "salary-modal-hourly"
+  }, svEl("span", {
+    className: "text-[10.5px] font-bold text-blue-900"
+  }, "적용 시급"), svEl("span", {
+    className: "text-[11px] font-extrabold text-blue-800 text-right"
+  }, `기본 ${salaryWon(st.baseHourly)}원 · 통상 ${salaryWon(st.normalHourly)}원`, st.appliedMonth ? ` · ${st.appliedMonth}부터` : "")), svEl("div", {
     className: "rounded-2xl bg-gradient-to-r from-blue-600 to-blue-500 text-white px-3.5 py-3 flex items-end justify-between gap-2",
     "data-testid": "salary-modal-gross-row"
   }, svEl("div", {
@@ -3204,11 +3636,11 @@ const renderSalaryModal = p => {
   }, "\uC9C0\uAE09\uD569\uACC4 (\uC138\uC804)"), svEl("div", {
     className: "mt-1 text-[22px] leading-none font-extrabold tracking-tight",
     "data-testid": "salary-modal-gross"
-  }, money(st.gross))), svEl("div", {
+  }, money(shown.gross))), svEl("div", {
     className: "text-right text-[10px] font-bold text-blue-100/90"
   }, st.baseDays, "\uC77C \uC18C\uC815 \u00B7 ", st.totalDays, "\uC77C \uAE30\uAC04")), svEl("div", {
     className: "grid grid-cols-2 gap-1.5"
-  }, box("\uACF5\uC81C\uD569\uACC4", money(st.deductionTotal), "bg-rose-50 text-rose-700 border border-rose-100"), box("\uCC28\uC778\uC9C0\uAE09\uC561", money(st.net), "bg-slate-900 text-white")), svEl("div", {
+  }, box("\uACF5\uC81C\uD569\uACC4", money(shown.deductionTotal), "bg-rose-50 text-rose-700 border border-rose-100"), box("\uCC28\uC778\uC9C0\uAE09\uC561", money(shown.net), "bg-slate-900 text-white")), svEl("div", {
     className: "rounded-2xl border border-slate-200 overflow-hidden"
   }, svEl("div", {
     className: "px-3 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between"
@@ -3237,7 +3669,7 @@ const renderSalaryModal = p => {
   }, "\uC9C0\uAE09\uD569\uACC4"), svEl("span", {
     className: "text-[16px] font-extrabold text-blue-800",
     "data-testid": "salary-modal-gross-footer"
-  }, money(st.gross)))), svEl("div", {
+  }, money(shown.gross)))), svEl("div", {
     className: "rounded-2xl border border-slate-200 overflow-hidden"
   }, svEl("div", {
     className: "px-3 py-2 bg-slate-50 border-b border-slate-200 text-[11px] font-extrabold text-slate-700"
@@ -3296,10 +3728,18 @@ const renderSalaryModal = p => {
   }, "\uC624\uB298\uAE4C\uC9C0 \uB204\uC801 \uC608\uC0C1", st.accumulatedComplete ? " (\uAE30\uAC04 \uC885\uB8CC)" : ""), svEl("span", {
     className: "text-[12.5px] font-extrabold text-slate-800",
     "data-testid": "salary-modal-accumulated"
-  }, money(st.accumulated))), p.settingsOpen ? renderSalarySettings({
+  }, money(st.accumulated))), svEl(SalaryLockPanel, {
+    key: "salary-lock-" + (st.monthKey || "") + (st.locked ? "-locked" : "-live"),
+    statement: st,
+    onLock: p.onLock,
+    onUnlock: p.onUnlock,
+    onChangeActual: p.onChangeActual
+  }), p.settingsOpen ? svEl(SalarySettingsPanel, {
+    key: "salary-settings-" + (st.monthKey || ""),
     settings: settings,
     statement: st,
     onChange: p.onChange,
+    onNotify: p.onNotify,
     onReset: p.onReset
   }) : svEl("button", {
     onClick: p.onToggleSettings,
@@ -4207,8 +4647,9 @@ const OnboardingScreen = p => {
   const [groupId, setGroupId] = React.useState(""); // 일부러 비워 둔다 — 본인이 직접 고르게
   const [name, setName] = React.useState(() => String(p.name || "").trim());
   const [leave, setLeave] = React.useState(() => svLeaveValue(p.annualLeaveDays));
-  const [baseHourly, setBaseHourly] = React.useState(() => String(Math.round(salaryNum(p.baseHourly))));
-  const [normalHourly, setNormalHourly] = React.useState(() => String(Math.round(salaryNum(p.normalHourly))));
+  const hourlyText = v => salaryNum(v) > 0 ? String(Math.round(salaryNum(v))) : "";
+  const [baseHourly, setBaseHourly] = React.useState(() => hourlyText(p.baseHourly));
+  const [normalHourly, setNormalHourly] = React.useState(() => hourlyText(p.normalHourly));
 
   const nameOk = name.trim().length > 0;
   const groupOk = groups.some(g => g.id === groupId);
@@ -4293,7 +4734,7 @@ const OnboardingScreen = p => {
     onKeyDown: e => {
       if (e.key === "Enter") goNext();
     },
-    placeholder: "예: 최승현",
+    placeholder: "예: 홍길동",
     autoComplete: "off",
     spellCheck: false,
     enterKeyHint: "next",
@@ -4341,7 +4782,7 @@ const OnboardingScreen = p => {
     min: "0",
     value: baseHourly,
     onChange: e => setBaseHourly(e.target.value),
-    placeholder: "예: 12229",
+    placeholder: "예: 10000",
     "data-testid": "onboarding-base-hourly",
     className: "w-full px-3.5 py-2.5 rounded-2xl bg-slate-50 border border-slate-200 text-[14px] font-extrabold text-slate-900 text-right"
   }), svEl("span", {
@@ -4359,7 +4800,7 @@ const OnboardingScreen = p => {
     min: "0",
     value: normalHourly,
     onChange: e => setNormalHourly(e.target.value),
-    placeholder: "예: 12448",
+    placeholder: "예: 10200",
     "data-testid": "onboarding-normal-hourly",
     className: "w-full px-3.5 py-2.5 rounded-2xl bg-slate-50 border border-slate-200 text-[14px] font-extrabold text-slate-900 text-right"
   }), svEl("span", {
@@ -5514,7 +5955,9 @@ function App() {
   }), [viewDate, myGroupId, groups, pattern, anchorDate, overrides, subOverrides]);
 
   // 💰 v2.6-preview — 예상 급여 계산 (급여기준 전월16~15일 · 조퇴/외출 차감 반영)
-  const salaryStatement = useMemo(() => buildSalaryStatement({
+  //   급여월마다 그 달에 유효한 시급·공제 이력을 자동 적용하고,
+  //   확정(잠금)한 달은 그때 저장한 스냅샷을 그대로 보여 준다.
+  const salaryLiveStatement = useMemo(() => buildSalaryStatement({
     year: viewDate.year,
     monthIndex: viewDate.month,
     groupId: myGroupId,
@@ -5525,6 +5968,14 @@ function App() {
     subOverrides,
     settings: salarySettings
   }), [viewDate, myGroupId, groups, pattern, anchorDate, overrides, subOverrides, salarySettings]);
+  const salaryLockKey = salaryLiveStatement.monthKey;
+  const salaryLockEntry = (salarySettings.lockedMonths || {})[salaryLockKey] || null;
+  const salaryStatement = salaryLockEntry && salaryLockEntry.snapshot ? Object.assign({}, salaryLockEntry.snapshot, {
+    locked: true,
+    lockedAt: salaryLockEntry.lockedAt || "",
+    actual: salaryLockEntry.actual || null,
+    monthKey: salaryLockKey
+  }) : salaryLiveStatement;
 
   // 🏖️ v2.6-preview — 연차 사용·잔여 (달력 근무 변경의 연차·반차를 그 해 기준으로 집계)
   const annualLeaveStats = useMemo(() => buildAnnualLeaveStats({
@@ -7332,6 +7783,10 @@ function App() {
     });
     return dayStatement.days.find(x => x.dateKey === selectedDateKey) || dayStatement.days[0];
   })();
+  // 이 달의 확정(잠금) — 잠글 때는 지금 계산된 값(live)을 스냅샷으로 저장한다.
+  const salaryLockThisMonth = () => setSalarySettings(prev => salaryLockMonth(prev, salaryLockKey, salaryLiveStatement));
+  const salaryUnlockThisMonth = () => setSalarySettings(prev => salaryUnlockMonth(prev, salaryLockKey));
+  const salaryUpdateActual = patch => setSalarySettings(prev => salarySetActual(prev, salaryLockKey, patch));
   const salaryCardEl = salarySettings.showCard ? renderSalaryCard({
     statement: salaryStatement,
     settings: salarySettings,
@@ -7359,8 +7814,14 @@ function App() {
       setActiveTab("settings");
       setSalarySectionOpen(true);
     },
+    onNotify: notify,
+    onLock: salaryLockThisMonth,
+    onUnlock: salaryUnlockThisMonth,
+    onChangeActual: salaryUpdateActual,
     onReset: () => setSalarySettings(Object.assign({}, SALARY_DEFAULT_SETTINGS, {
-      earlyLeave: {}
+      earlyLeave: {},
+      history: [],
+      lockedMonths: salarySettings.lockedMonths || {}
     }))
   }) : null;
   const salaryEarlyLeaveEl = renderEarlyLeaveBlock({
@@ -7369,13 +7830,17 @@ function App() {
     dayInfo: salaryDayInfo,
     onChange: setSalarySettings
   });
-  const salarySettingsEl = renderSalarySettings({
+  const salarySettingsEl = svEl(SalarySettingsPanel, {
+    key: "salary-settings-tab-" + (salaryStatement.monthKey || ""),
     title: "급여 기준 · 공제 상세",
     settings: salarySettings,
     statement: salaryStatement,
     onChange: setSalarySettings,
+    onNotify: notify,
     onReset: () => setSalarySettings(Object.assign({}, SALARY_DEFAULT_SETTINGS, {
-      earlyLeave: {}
+      earlyLeave: {},
+      history: [],
+      lockedMonths: salarySettings.lockedMonths || {}
     }))
   });
 
@@ -7389,10 +7854,11 @@ function App() {
     "data-testid": "annual-leave-badge"
   }, "🏖 연차 잔여 ", svLeaveValue(annualLeaveStats.remaining), "일 / ", svLeaveValue(annualLeaveStats.total), "일");
   const infoInputSummary = `${companyName} · ${myGroup.name} · 연차 잔여 ${svLeaveValue(annualLeaveStats.remaining)}일`;
-  const paySummary = `${salaryWon(salarySettings.baseHourly)}원/시급 · ${salarySettings.deductionMode === "gross" ? "세전만 보기" : salarySettings.deductionMode === "simple" ? "간이 공제율 " + Math.round(salaryNum(salarySettings.simpleRate) * 100) / 100 + "%" : "명세서 실측 자동"}`;
+  const paySummaryMonth = salaryResolveSettings(salarySettings, salaryStatement.monthKey || salaryCurrentMonthKey());
+  const paySummary = `${salaryWon(paySummaryMonth.baseHourly)}원/시급 · ${paySummaryMonth.deductionMode === "gross" ? "세전만 보기" : paySummaryMonth.deductionMode === "simple" ? "간이 공제율 " + Math.round(salaryNum(paySummaryMonth.simpleRate) * 100) / 100 + "%" : "간이세액 자동"} · 이력 ${salarySortedHistory(salarySettings).length}건`;
   const geminiCompareEl = /*#__PURE__*/React.createElement(AttendanceComparePanel, {
     statement: salaryStatement,
-    normalHourly: salarySettings.normalHourly,
+    normalHourly: paySummaryMonth.normalHourly,
     defaultName: cloudSettings.authorName || ""
   });
 
@@ -7412,7 +7878,10 @@ function App() {
         }));
       }
       if (patch.annualLeaveDays !== undefined) setAnnualLeaveDays(patch.annualLeaveDays);
-      if (patch.salary) setSalarySettings(prev => Object.assign({}, prev, patch.salary));
+      // 온보딩에서 넣은 시급은 '이번 급여월'부터 적용되는 이력으로 저장한다.
+      if (patch.salary && (salaryNum(patch.salary.baseHourly) > 0 || salaryNum(patch.salary.normalHourly) > 0)) {
+        setSalarySettings(prev => salaryUpsertHistory(prev, salaryCurrentMonthKey(), patch.salary));
+      }
       svSetOnboardingDone();
       setOnboardingOpen(false);
       // 📖 온보딩(저장 또는 건너뛰기)을 마치면 튜토리얼을 1회 띄운다
