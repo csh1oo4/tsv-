@@ -2632,7 +2632,8 @@ const SALARY_DEFAULT_SETTINGS = {
   healthAmount: 0,
   careAmount: 0,
   showCard: true,
-  hideAmounts: false,
+  // 예상 급여 금액은 처음에는 가려 둔다 — 카드의 '펼치기'를 눌러야 보인다.
+  hideAmounts: true,
   earlyLeave: {},
   // 적용 시작월 이력 — [{ effectiveMonth: "YYYY-MM", baseHourly, normalHourly, ... }]
   history: [],
@@ -3194,8 +3195,13 @@ const renderSalaryCard = p => {
   }, svEl("span", {
     className: "text-sm leading-none"
   }, "💰"), svEl("h2", {
-    className: "text-xs font-extrabold text-slate-700"
-  }, "예상 급여"), svEl("span", {
+    className: "text-xs font-extrabold text-slate-700 whitespace-nowrap"
+  }, "예상 급여"), svEl("button", {
+    onClick: p.onToggleHide,
+    "data-testid": "salary-hide-toggle",
+    "aria-label": hidden ? "예상 급여 펼치기" : "예상 급여 숨기기",
+    className: "px-2 py-0.5 rounded-full bg-white border border-blue-200 text-[10.5px] font-extrabold text-blue-700 whitespace-nowrap"
+  }, hidden ? "펼치기" : "숨기기"), svEl("span", {
     className: "text-[9.5px] px-1.5 py-0.5 rounded-full bg-white border border-blue-200 text-blue-700 font-extrabold whitespace-nowrap"
   }, st.rangeLabel), st.locked ? svEl("span", {
     className: "text-[9.5px] px-1.5 py-0.5 rounded-full bg-amber-100 border border-amber-200 text-amber-800 font-extrabold whitespace-nowrap",
@@ -3203,11 +3209,6 @@ const renderSalaryCard = p => {
   }, "🔒 확정") : null), svEl("div", {
     className: "flex items-center gap-1 shrink-0"
   }, svEl("button", {
-    onClick: p.onToggleHide,
-    "data-testid": "salary-hide-toggle",
-    "aria-label": hidden ? "금액 보기" : "금액 가리기",
-    className: "w-7 h-7 rounded-full bg-white border border-blue-200 text-[12px] leading-none text-slate-600"
-  }, hidden ? "👁" : "🙈"), svEl("button", {
     onClick: p.onSettings,
     "data-testid": "salary-settings-open",
     "aria-label": "급여 계산기 설정",
@@ -3618,9 +3619,10 @@ const renderSalaryModal = p => {
     className: "flex items-center gap-1 shrink-0"
   }, svEl("button", {
     onClick: p.onToggleHide,
-    "aria-label": "\uAE08\uC561 \uBCF4\uAE30/\uAC00\uB9AC\uAE30",
-    className: "w-8 h-8 rounded-full bg-slate-100 text-[12px] text-slate-600"
-  }, hidden ? "\uD83D\uDC41" : "\uD83D\uDE48"), svEl("button", {
+    "data-testid": "salary-modal-hide-toggle",
+    "aria-label": hidden ? "\uAE08\uC561 \uD3BC\uCE58\uAE30" : "\uAE08\uC561 \uC228\uAE30\uAE30",
+    className: "px-2.5 h-8 rounded-full bg-slate-100 text-[11px] font-extrabold text-slate-700 whitespace-nowrap"
+  }, hidden ? "\uD3BC\uCE58\uAE30" : "\uC228\uAE30\uAE30"), svEl("button", {
     onClick: p.onClose,
     "data-testid": "salary-modal-close",
     "aria-label": "\uB2EB\uAE30",
