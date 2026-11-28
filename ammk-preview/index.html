@@ -5637,7 +5637,11 @@ const AmmkCustomPatternBuilder = p => {
   }, smallBtn(prefix + "-cpat-undo", "⌫ 마지막 지우기", () => p.onChange(days.slice(0, -1)), days.length > 0), smallBtn(prefix + "-cpat-reset", "초기화", () => p.onChange([]), days.length > 0), smallBtn(prefix + "-cpat-none", "반복 없음", () => p.onChange([]), true, days.length ? "bg-white border-slate-200 text-slate-600" : "bg-amber-50 border-amber-300 text-amber-700")), summary ? svEl("p", {
     "data-testid": prefix + "-cpat-cycle",
     className: "text-[9.5px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-lg px-2 py-1"
-  }, days.length, "일 순환 · ", summary) : null);
+  }, days.length, "일 순환 · ", summary) : null, p.hint ? svEl("p", {
+    className: "text-[9px] text-slate-400 leading-relaxed"
+  }, "패턴을 다 만들었으면 아래 ", svEl("b", {
+    className: "text-slate-600"
+  }, "\uC774 \uADFC\uBB34 \uD615\uD0DC\uB85C \uC801\uC6A9"), "\uC744 \uB204\uB974\uBA74 \uB2EC\uB825\u00B7\uC804\uCCB4 \uC870\u00B7\uC54C\uB78C\uC5D0 \uBC18\uC601\uB429\uB2C8\uB2E4.") : null);
 };
 
 /* ─────────────── 👥 같이 보기 · 타 근무조 관리 (승현 님 11-28 요청) ───────────────
@@ -6029,6 +6033,7 @@ const AmmkShiftPanel = p => {
     profile: prof,
     days: customDays,
     testPrefix: "ammk",
+    hint: true,
     onChange: changeCustomDays
   })) : svEl(AmmkPatternPicker, {
     profile: prof,
