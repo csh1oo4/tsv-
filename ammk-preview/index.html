@@ -1263,15 +1263,19 @@ const shiftForGroupDate = (groups, pattern, anchorDate, overrides, groupId, date
   const overrideKey = `${groupId}_${dateKey}`;
   if (overrides && overrides[overrideKey]) return overrides[overrideKey];
   const grp = (groups || []).find(g => g.id === groupId);
-  if (!grp || !pattern || !pattern.length) return "휴";
-  const anchor = parseDateKey(anchorDate);
+  if (!grp) return "휴";
+  // AMMK — 조가 자기 근무 형태(presetId·pattern·anchorDate)를 가지면 그것으로 계산한다
+  const usePattern = Array.isArray(grp.pattern) && grp.pattern.length ? grp.pattern : pattern;
+  const useAnchor = grp.anchorDate || anchorDate;
+  if (!usePattern || !usePattern.length) return "휴";
+  const anchor = parseDateKey(useAnchor);
   const target = parseDateKey(dateKey);
   const diffDays = Math.round((target - anchor) / (1000 * 60 * 60 * 24));
-  const len = pattern.length;
+  const len = usePattern.length;
   const idx = ((diffDays + (grp.offset || 0)) % len + len) % len;
-  const code = pattern[idx];
+  const code = usePattern[idx];
   // 요일 기준(주 5일) 근무 형태는 빨간 공휴일을 자동으로 휴무로 바꾼다
-  if (SV_ACTIVE_PROFILE && SV_ACTIVE_PROFILE.weekday && code !== "휴") {
+  if (code !== "휴" && ammkGroupIsWeekday(grp)) {
     const hol = HOLIDAYS[dateKey];
     if (hol && hol.isRed) return "휴";
   }
@@ -1675,7 +1679,7 @@ const AMMK_PROFILES = {
     id: "shift4",
     name: "4조 3교대",
     desc: "오전 · 오후 · 야간 · 휴무 / A·B·C·D 4개 조",
-    cycle: "8일 순환",
+    cycle: "8·16·24일 순환",
     teamStep: 2,
     codes: ["주", "오", "야", "휴"],
     badge: {
@@ -1720,6 +1724,11 @@ const AMMK_PROFILES = {
     }, {
       label: "오전4 · 오후4 · 야간4 · 휴무4 (16일)",
       days: ["주", "주", "주", "주", "오", "오", "오", "오", "야", "야", "야", "야", "휴", "휴", "휴", "휴"]
+    }, {
+      // 승현 님 11-28 — 6일 근무 · 2일 휴무 (24일 순환). 조 간격은 6일씩
+      label: "6일 근무 · 2일 휴무 (24일 순환)",
+      step: 6,
+      days: ["주", "주", "주", "주", "주", "주", "휴", "휴", "오", "오", "오", "오", "오", "오", "휴", "휴", "야", "야", "야", "야", "야", "야", "휴", "휴"]
     }],
     teams: [{
       name: "A조",
@@ -2157,6 +2166,83 @@ const svShiftLong = code => (SHIFT_META[code] && SHIFT_META[code].label) || code
 /* 배지 글자가 길면(직접 만든 이름·'오전') 동그라미 안에 들어가게 글자를 줄인다 */
 const svShiftBadgeFont = code => svShiftBadge(code).length >= 3 ? "text-[8.5px] leading-none tracking-tighter" : "text-xs";
 const svIsDayCode = code => ["주", "오", "출", "재", "외"].indexOf(code) >= 0;
+
+/* ── 조별 근무 형태 (승현 님 11-28 요청) ────────────────────────────────
+   groups[] 의 한 항목이 presetId·pattern·anchorDate·offset 을 스스로 가지면
+   그 조만의 근무 형태로 계산하고, 없으면 '내 근무 형태'를 그대로 따른다. */
+const ammkGroupPresetId = grp => grp && grp.presetId && AMMK_PROFILES[grp.presetId] ? grp.presetId : "";
+const ammkGroupProfile = grp => ammkProfileOf(ammkGroupPresetId(grp) || svActiveProfile().id);
+const ammkGroupIsWeekday = grp => !!(ammkGroupProfile(grp) || {}).weekday;
+/* 조 배지의 짧은 이름 (오전/야간/출근 …) */
+const ammkGroupBadge = (grp, code) => {
+  const own = ammkGroupPresetId(grp);
+  if (!own) return svShiftBadge(code);
+  const prof = AMMK_PROFILES[own];
+  const meta = (prof.shiftMeta || {})[code] || {};
+  return (prof.badge && prof.badge[code]) || meta.label || (SHIFT_META[code] || {}).label || code;
+};
+/* 조 배지의 색 — 그 조의 근무 형태 색을 쓴다 */
+const ammkGroupMeta = (grp, code) => {
+  const own = ammkGroupPresetId(grp);
+  if (!own) return SHIFT_META[code] || SHIFT_META["휴"];
+  const prof = AMMK_PROFILES[own];
+  return Object.assign({}, SHIFT_META[code] || SHIFT_META["휴"], (prof.shiftMeta || {})[code] || {});
+};
+/* 패턴마다 조 간격이 다를 수 있다 — 6근2휴(24일)는 6일씩 */
+const ammkPatternStep = (prof, pat) => {
+  if (pat && pat.step !== undefined) return Math.max(0, Number(pat.step) || 0);
+  return prof && prof.teamStep ? prof.teamStep : 0;
+};
+/* 타 근무조 하나의 근무표 — 패턴·기준일·시작 위치·14일 미리보기 */
+const ammkBuildGroupPlan = (presetId, patternIdx, anchorInfo, todayKey) => {
+  const prof = ammkProfileOf(presetId);
+  const pIdx = Math.max(0, Math.min((prof.patterns || []).length - 1, Number(patternIdx) || 0));
+  const pat = prof.patterns[pIdx] || prof.patterns[0];
+  const days = pat.days.slice();
+  const len = days.length;
+  const today = todayKey || currentDateKey();
+  let anchor = today;
+  let pos = 0;
+  if (prof.weekday) {
+    // 요일 기준 근무는 월요일에 패턴 첫날을 맞춘다 (공휴일은 자동 휴무)
+    const t = parseDateKey(today);
+    const back = (t.getDay() + 6) % 7;
+    anchor = formatDateKey(t.getFullYear(), t.getMonth(), t.getDate() - back);
+  } else if (anchorInfo && anchorInfo.code) {
+    const first = days.indexOf(anchorInfo.code);
+    if (first >= 0) pos = (first + Math.max(1, Number(anchorInfo.nth) || 1) - 1) % len;
+  }
+  const base = parseDateKey(today);
+  const startIdx = ((Math.round((base - parseDateKey(anchor)) / 86400000) + pos) % len + len) % len;
+  const preview = [];
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + i);
+    preview.push({
+      dateKey: formatDateKey(d.getFullYear(), d.getMonth(), d.getDate()),
+      month: d.getMonth() + 1,
+      day: d.getDate(),
+      dow: d.getDay(),
+      code: days[(startIdx + i) % len]
+    });
+  }
+  return {
+    profileId: prof.id,
+    profile: prof,
+    patternIdx: pIdx,
+    days: days,
+    anchorDate: anchor,
+    offset: pos,
+    preview: preview
+  };
+};
+/* 주 5일 근무 조는 달력 칸에 기본 '출근/휴무' 배지를 찍지 않는다
+   (날짜를 눌러 바꾼 날·부가 근태·메모만 보이게) */
+const ammkHideDefaultBadge = (grp, shift, baseShift) => {
+  if (!grp || !ammkGroupIsWeekday(grp)) return false;
+  if (shift !== "출" && shift !== "휴") return false;
+  // 패턴 그대로인 날(오버라이드가 같은 값이어도)은 숨긴다
+  return baseShift === shift;
+};
 const svIsNightCode = code => code === "야";
 const svProfileShiftTimes = () => {
   const prof = svActiveProfile();
@@ -2232,8 +2318,10 @@ const svUpdateShiftLabel = (code, patch) => {
 const ammkPlanProfile = (presetId, patternIdx, anchorInfo, opts) => {
   const prof = ammkProfileOf(presetId);
   const pIdx = Math.max(0, Math.min((prof.patterns || []).length - 1, Number(patternIdx) || 0));
-  const days = (prof.patterns[pIdx] || prof.patterns[0]).days.slice();
+  const pat = prof.patterns[pIdx] || prof.patterns[0];
+  const days = pat.days.slice();
   const len = days.length;
+  const step = ammkPatternStep(prof, pat);
   const teams = prof.teams || [{
     name: "내 근무",
     color: "#2563eb"
@@ -2243,7 +2331,7 @@ const ammkPlanProfile = (presetId, patternIdx, anchorInfo, opts) => {
     name: t.name,
     color: t.color,
     members: "",
-    offset: len > 0 ? i * (prof.teamStep || 0) % len : 0
+    offset: len > 0 ? i * step % len : 0
   }));
   let p = 0;
   if (anchorInfo && anchorInfo.code && len > 0) {
@@ -2299,10 +2387,6 @@ const DEFAULT_NAV_ITEMS = [{
   id: "teams",
   label: "전체 조",
   icon: "users"
-}, {
-  id: "equipment",
-  label: "설비 공유",
-  icon: "folder"
 }, {
   id: "alarm",
   label: "알람",
@@ -5062,7 +5146,7 @@ const AmmkPatternPicker = p => {
   const patterns = prof.patterns || [];
   if (patterns.length <= 1) return null;
   return svEl("div", {
-    "data-testid": "ammk-pattern-list"
+    "data-testid": (p.testPrefix || "ammk") + "-pattern-list"
   }, svEl("p", {
     className: "text-[11px] font-extrabold text-slate-700 mb-1.5"
   }, "대표 패턴"), svEl("div", {
@@ -5073,7 +5157,7 @@ const AmmkPatternPicker = p => {
       key: "pat" + i,
       type: "button",
       onClick: () => p.onChange(i),
-      "data-testid": "ammk-pattern-" + i,
+      "data-testid": (p.testPrefix || "ammk") + "-pattern-" + i,
       className: `w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-xl border text-left ${active ? "border-indigo-500 bg-indigo-50 text-indigo-800" : "border-slate-200 bg-white text-slate-600"}`
     }, svEl("span", {
       className: "text-[11px] font-bold leading-snug"
@@ -5090,14 +5174,14 @@ const AmmkCalibrate = p => {
   const nthMax = p.code ? ammkNthMax(days, p.code) : 1;
   return svEl("div", {
     className: "p-3 rounded-2xl bg-white border border-slate-200 space-y-2.5",
-    "data-testid": "ammk-calibrate"
+    "data-testid": (p.testPrefix || "ammk") + "-calibrate"
   }, svEl("div", null, svEl("p", {
     className: "text-[11.5px] font-extrabold text-slate-800"
   }, "🧭 오늘 무슨 근무, 며칠째?"), svEl("p", {
     className: "text-[10px] text-slate-400 mt-0.5 leading-relaxed"
   }, "오늘 근무와 그 근무 며칠째인지만 고르면 근무표 기준일을 앱이 알아서 맞춥니다.")), svEl("div", {
     className: "flex flex-wrap gap-1.5",
-    "data-testid": "ammk-today-codes"
+    "data-testid": (p.testPrefix || "ammk") + "-today-codes"
   }, codes.map(code => {
     const meta = ammkMetaOf(prof, code);
     const active = p.code === code;
@@ -5105,13 +5189,13 @@ const AmmkCalibrate = p => {
       key: code,
       type: "button",
       onClick: () => p.onChangeCode(active ? "" : code),
-      "data-testid": "ammk-today-code-" + code,
+      "data-testid": (p.testPrefix || "ammk") + "-today-code-" + code,
       className: `px-2.5 py-1.5 rounded-xl text-[11px] font-extrabold border ${active ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-slate-50 text-slate-700"}`
     }, svEl("span", {
       className: `inline-block w-2 h-2 rounded-full mr-1 align-middle ${meta.badgeBg || "bg-slate-300"}`
     }), ammkBadgeOf(prof, code));
   })), p.code ? svEl("div", {
-    "data-testid": "ammk-nth-list"
+    "data-testid": (p.testPrefix || "ammk") + "-nth-list"
   }, svEl("p", {
     className: "text-[10.5px] font-bold text-slate-500 mb-1"
   }, "그 근무 며칠째?", svEl("span", {
@@ -5124,7 +5208,7 @@ const AmmkCalibrate = p => {
     key: "nth" + n,
     type: "button",
     onClick: () => p.onChangeNth(n),
-    "data-testid": "ammk-nth-" + n,
+    "data-testid": (p.testPrefix || "ammk") + "-nth-" + n,
     className: `w-8 h-8 rounded-lg text-[11px] font-extrabold border ${Number(p.nth) === n ? "bg-blue-600 border-blue-600 text-white" : "bg-white border-slate-200 text-slate-600"}`
   }, n)))) : null);
 };
@@ -5133,7 +5217,7 @@ const AmmkPreviewStrip = p => {
   const list = p.preview || [];
   if (!list.length) return null;
   return svEl("div", {
-    "data-testid": "ammk-preview"
+    "data-testid": (p.testPrefix || "ammk") + "-preview"
   }, svEl("div", {
     className: "flex items-center justify-between mb-1"
   }, svEl("p", {
@@ -5236,6 +5320,241 @@ const AmmkCustomShiftEditor = p => {
       className: `w-5 h-5 rounded-full ${pal.bg} ${(custom.colorId || "") === pal.id ? "ring-2 ring-offset-1 ring-slate-900" : ""}`
     }))));
   }));
+};
+
+/* ─────────────── 👥 같이 보기 · 타 근무조 관리 (승현 님 11-28 요청) ───────────────
+   · 조마다 근무 형태(4조3교대 / 3조2교대 / 2조2교대 / 주5일 / 직접 만들기)를 따로 정한다.
+   · '내 근무와 같게'를 고르면 내 근무 형태 설정을 그대로 따른다(기본).
+   · 여기서 만든 조는 달력 '같이 보기' 칩과 '전체 조' 주간 근무표에 함께 나온다. */
+const AMMK_GROUP_PRESET_OPTIONS = ["shift4", "ammk3", "shift2", "weekday", "custom"];
+
+/* 조의 근무 형태를 바꿀 때 함께 저장할 값 (패턴·기준일·시작 위치) */
+const ammkGroupPresetPatch = (grp, allGroups, presetId, patternIdx) => {
+  if (!presetId) {
+    return {
+      presetId: "",
+      pattern: null,
+      anchorDate: "",
+      offset: 0,
+      patternIdx: 0
+    };
+  }
+  const prof = ammkProfileOf(presetId);
+  const pIdx = Math.max(0, Math.min((prof.patterns || []).length - 1, Number(patternIdx) || 0));
+  const plan = ammkBuildGroupPlan(presetId, pIdx, null);
+  const idx = Math.max(0, (allGroups || []).findIndex(x => x.id === (grp && grp.id)));
+  const step = ammkPatternStep(prof, prof.patterns[pIdx]);
+  const offset = prof.weekday ? 0 : idx * step % Math.max(1, plan.days.length);
+  return {
+    presetId: plan.profileId,
+    pattern: plan.days,
+    anchorDate: plan.anchorDate,
+    offset: offset,
+    patternIdx: pIdx
+  };
+};
+
+/* '오늘 무슨 근무, 며칠째?' 기준을 그 조에 맞춰 저장한다 */
+const ammkGroupCalibratePatch = (grp, presetId, patternIdx, code, nth) => {
+  const plan = ammkBuildGroupPlan(presetId, patternIdx, code ? {
+    code: code,
+    nth: nth
+  } : null);
+  return {
+    presetId: plan.profileId,
+    pattern: plan.days,
+    anchorDate: plan.anchorDate,
+    offset: plan.offset,
+    patternIdx: plan.patternIdx
+  };
+};
+
+const AmmkGroupManager = p => {
+  const groups = p.groups || [];
+  const [openId, setOpenId] = React.useState("");
+  const [calCode, setCalCode] = React.useState("");
+  const [calNth, setCalNth] = React.useState(1);
+  const [addOpen, setAddOpen] = React.useState(false);
+  const [addName, setAddName] = React.useState("");
+  const [addPreset, setAddPreset] = React.useState("ammk3");
+  const [addColor, setAddColor] = React.useState("#8b5cf6");
+  const toggleGroup = id => {
+    setOpenId(openId === id ? "" : id);
+    setCalCode("");
+    setCalNth(1);
+  };
+  const submitAdd = () => {
+    const name = String(addName || "").trim() || "새 근무조";
+    const patch = ammkGroupPresetPatch({
+      id: "new",
+      name: name
+    }, [], addPreset, 0);
+    p.onAdd(Object.assign({
+      name: name,
+      color: addColor,
+      members: ""
+    }, patch));
+    setAddName("");
+    setAddOpen(false);
+  };
+  const presetNote = plan => {
+    const cycles = (plan.profile.patterns || []).length;
+    return `${plan.profile.name} · ${plan.days.length}일 순환${cycles > 1 ? " (패턴 " + cycles + "종)" : ""}`;
+  };
+  return svEl("div", {
+    className: "space-y-2.5",
+    "data-testid": "ammk-group-manager"
+  }, svEl("p", {
+    className: "text-[11px] text-slate-500 leading-relaxed"
+  }, "달력 위 ", svEl("b", {
+    className: "text-slate-700"
+  }, "같이 보기"), "와 ", svEl("b", {
+    className: "text-slate-700"
+  }, "전체 조"), "에서 함께 볼 근무조를 추가하고, 조마다 근무 형태를 따로 정할 수 있습니다."), groups.length === 0 ? svEl("p", {
+    className: "text-[11px] text-slate-400"
+  }, "등록된 근무조가 없습니다.") : svEl("div", {
+    className: "space-y-1.5"
+  }, groups.map(g => {
+    const own = ammkGroupPresetId(g);
+    const plan = ammkBuildGroupPlan(own || p.profileId, Number(g.patternIdx) || 0, null);
+    const open = openId === g.id;
+    const isMine = g.id === p.myGroupId;
+    return svEl("div", {
+      key: g.id,
+      className: "rounded-2xl bg-white border border-slate-200 px-2.5 py-2 space-y-2",
+      "data-testid": "ammk-group-row-" + g.id
+    }, svEl("div", {
+      className: "flex items-center gap-1.5"
+    }, svEl("span", {
+      className: "w-3 h-3 rounded-full shrink-0 border border-white shadow-xs",
+      style: {
+        backgroundColor: g.color || "#475569"
+      }
+    }), svEl("input", {
+      type: "text",
+      value: g.name || "",
+      maxLength: 10,
+      onChange: e => p.onPatch(g.id, {
+        name: e.target.value
+      }),
+      "data-testid": "ammk-group-name-" + g.id,
+      className: "flex-1 min-w-0 px-2 py-1 rounded-lg bg-slate-50 border border-slate-200 text-[12px] font-extrabold text-slate-900"
+    }), isMine ? svEl("span", {
+      className: "shrink-0 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-blue-600 text-white"
+    }, "내 근무") : null, svEl("button", {
+      type: "button",
+      onClick: () => toggleGroup(g.id),
+      "data-testid": "ammk-group-edit-" + g.id,
+      className: `shrink-0 px-2 py-1 rounded-lg text-[10.5px] font-extrabold border transition ${open ? "bg-slate-900 text-white border-slate-900" : "bg-slate-50 text-slate-600 border-slate-200"}`
+    }, open ? "닫기" : "근무 형태")), svEl("div", {
+      className: "flex flex-wrap items-center gap-1"
+    }, svEl("span", {
+      className: `px-1.5 py-0.5 rounded-full text-[9.5px] font-extrabold ${own ? "bg-indigo-50 text-indigo-700 border border-indigo-100" : "bg-slate-100 text-slate-500"}`,
+      "data-testid": "ammk-group-summary-" + g.id
+    }, own ? presetNote(plan) : "내 근무 형태와 같게"), !own && !isMine ? svEl("button", {
+      type: "button",
+      onClick: () => p.onSetVisible(g.id),
+      className: "text-[9.5px] font-extrabold text-indigo-600 underline underline-offset-2"
+    }, "같이 보기") : null, !isMine ? svEl("button", {
+      type: "button",
+      onClick: () => p.onRemove(g.id),
+      "data-testid": "ammk-group-remove-" + g.id,
+      className: "ml-auto text-[9.5px] font-extrabold text-rose-500"
+    }, "삭제") : null), open ? svEl("div", {
+      className: "space-y-2 pt-1.5 border-t border-slate-100"
+    }, svEl("p", {
+      className: "text-[10.5px] font-extrabold text-slate-600"
+    }, "근무 형태"), svEl("div", {
+      className: "flex flex-wrap gap-1",
+      "data-testid": "ammk-group-presets-" + g.id
+    }, [{
+      id: "",
+      name: "내 근무와 같게"
+    }].concat(AMMK_GROUP_PRESET_OPTIONS.map(id => ({
+      id: id,
+      name: AMMK_PROFILES[id].name
+    }))).map(opt => svEl("button", {
+      key: opt.id || "inherit",
+      type: "button",
+      onClick: () => p.onPatch(g.id, ammkGroupPresetPatch(g, groups, opt.id, 0)),
+      "data-testid": "ammk-group-preset-" + g.id + "-" + (opt.id || "inherit"),
+      className: `px-2 py-1 rounded-lg text-[10.5px] font-extrabold border transition ${(own || "") === opt.id ? "border-indigo-600 bg-indigo-50 text-indigo-800 ring-1 ring-indigo-100" : "border-slate-200 bg-white text-slate-600"}`
+    }, opt.name))), own ? svEl("div", {
+      className: "space-y-2"
+    }, plan.profile.weekday ? svEl("p", {
+      className: "text-[10px] text-slate-500 bg-slate-50 rounded-xl px-2.5 py-2 leading-relaxed"
+    }, "주 5일 근무는 월~금 출근 · 토·일·공휴일 휴무로 자동 맞춥니다.") : svEl(AmmkCalibrate, {
+      profile: plan.profile,
+      days: plan.days,
+      code: calCode,
+      nth: calNth,
+      testPrefix: "ammk-group-" + g.id,
+      onChangeCode: nextCode => {
+        setCalCode(nextCode);
+      },
+      onChangeNth: n => {
+        setCalNth(n);
+        if (calCode) p.onPatch(g.id, ammkGroupCalibratePatch(g, own, Number(g.patternIdx) || 0, calCode, n));
+      }
+    }), (plan.profile.patterns || []).length > 1 ? svEl(AmmkPatternPicker, {
+      profile: plan.profile,
+      value: Number(g.patternIdx) || 0,
+      testPrefix: "ammk-group-" + g.id,
+      onChange: idx => p.onPatch(g.id, ammkGroupPresetPatch(g, groups, own, idx))
+    }) : null, svEl(AmmkPreviewStrip, {
+      preview: plan.preview,
+      profile: plan.profile,
+      testPrefix: "ammk-group-" + g.id,
+      caption: calCode ? ammkBadgeOf(plan.profile, calCode) + " " + calNth + "\uC77C\uC9F8 \uAE30\uC900" : "\uD328\uD134 \uCCAB\uB0A0 \uAE30\uC900"
+    })) : svEl("p", {
+      className: "text-[10px] text-slate-400 leading-relaxed"
+    }, "내 근무 형태(위 근무 형태 설정)를 그대로 따라갑니다. 따로 보려면 근무 형태를 골라 주세요.")) : null);
+  })), addOpen ? svEl("div", {
+    className: "rounded-2xl bg-slate-50 border border-dashed border-indigo-300 p-2.5 space-y-2",
+    "data-testid": "ammk-group-add-form"
+  }, svEl("input", {
+    type: "text",
+    value: addName,
+    maxLength: 10,
+    placeholder: "조 이름 (예: \uC124\uBE44\uD300, \uC0DD\uC0B01\uD300)",
+    onChange: e => setAddName(e.target.value),
+    "data-testid": "ammk-group-add-name",
+    className: "w-full px-2.5 py-1.5 rounded-xl bg-white border border-slate-200 text-[12px] font-extrabold text-slate-900"
+  }), svEl("div", {
+    className: "flex flex-wrap gap-1"
+  }, AMMK_GROUP_PRESET_OPTIONS.map(id => svEl("button", {
+    key: id,
+    type: "button",
+    onClick: () => setAddPreset(id),
+    "data-testid": "ammk-group-add-preset-" + id,
+    className: `px-2 py-1 rounded-lg text-[10.5px] font-extrabold border ${addPreset === id ? "border-indigo-600 bg-indigo-50 text-indigo-800" : "border-slate-200 bg-white text-slate-600"}`
+  }, AMMK_PROFILES[id].name))), svEl("div", {
+    className: "flex items-center gap-1"
+  }, AMMK_COLOR_PALETTE.map(pal => svEl("button", {
+    key: pal.id,
+    type: "button",
+    onClick: () => setAddColor(pal.hex),
+    "aria-label": pal.id,
+    className: `w-5 h-5 rounded-full ${pal.bg} ${addColor === pal.hex ? "ring-2 ring-offset-1 ring-slate-900" : ""}`
+  }))), svEl("div", {
+    className: "flex gap-1.5"
+  }, svEl("button", {
+    type: "button",
+    onClick: submitAdd,
+    "data-testid": "ammk-group-add-submit",
+    className: "flex-1 py-2 rounded-xl bg-indigo-600 text-white text-[11.5px] font-extrabold"
+  }, "이 근무조 추가"), svEl("button", {
+    type: "button",
+    onClick: () => setAddOpen(false),
+    className: "px-3 py-2 rounded-xl bg-white border border-slate-200 text-[11.5px] font-bold text-slate-600"
+  }, "취소"))) : svEl("button", {
+    type: "button",
+    onClick: () => setAddOpen(true),
+    "data-testid": "ammk-group-add",
+    className: "w-full py-2 rounded-xl border border-dashed border-indigo-300 text-[11.5px] font-extrabold text-indigo-600 bg-indigo-50/40"
+  }, "+ 타 근무조 추가"), svEl("p", {
+    className: "text-[9.5px] leading-relaxed text-slate-400"
+  }, "추가한 조는 달력 \"같이 보기\" 칩을 눌러 켜면 날짜 칸에 조 이름과 근무가 함께 보이고, \"전체 조\" 탭 주간 근무표에도 한 줄로 나옵니다."));
 };
 
 const AmmkShiftPanel = p => {
@@ -5765,7 +6084,7 @@ const SV_TUTORIAL_PAGES = [{
     text: "조원 실시간 공유 — 근무 변경·휴가 일정이 조원 달력에 바로 반영"
   }, {
     icon: "📋",
-    text: "게시판 · 설비 공유 — 공지, 근무 교대 요청, 설비 사진을 함께 보기"
+    text: "식단 사진 공유 — 오늘의 식단을 조원과 함께 올리고 보기"
   }, {
     icon: "📱",
     text: "홈 화면 위젯 5종 — 오늘 근무·2일·4일·조 전체·팀 4일을 앱 없이 바로"
@@ -5924,6 +6243,7 @@ function App() {
   const [shiftPatternIdx, setShiftPatternIdx] = useState(() => Number(ammkReadProfileMeta().patternIdx) || 0);
   const [shiftCustom, setShiftCustom] = useState(() => ammkReadCustom());
   const [shiftProfileOpen, setShiftProfileOpen] = useState(false);
+  const [groupManagerOpen, setGroupManagerOpen] = useState(false);
   const [overrides, setOverrides] = useState(() => loadState("overrides", {}));
   const [subOverrides, setSubOverrides] = useState(() => loadState("subOverrides", {}));
   const [memos, setMemos] = useState(() => loadState("memos", INITIAL_MEMOS));
@@ -6437,8 +6757,25 @@ function App() {
     });
     const keepId = opts && opts.keepGroup && plan.groups.some(g => g.id === opts.keepGroup) ? opts.keepGroup : plan.groups[0].id;
     const prof = plan.profile;
+    // 같은 근무 형태에서 패턴·기준만 바꿀 때는 조 이름·색·근무자를 그대로 둔다
+    // (다른 근무 형태로 바뀌면 프리셋의 조 편성으로 초기화 — 화면 안내와 같음)
+    if (presetId === shiftPresetId) {
+      const prevById = {};
+      (groups || []).forEach(g => {
+        prevById[g.id] = g;
+      });
+      plan.groups.forEach(g => {
+        const old = prevById[g.id];
+        if (!old) return;
+        g.name = old.name || g.name;
+        g.color = old.color || g.color;
+        g.members = old.members || "";
+      });
+    }
+    // 독자 근무 형태를 쓰는 타 근무조는 살려 둔다
+    const keepOthers = (groups || []).filter(g => ammkGroupPresetId(g) && g.id !== keepId && !plan.groups.some(x => x.id === g.id));
     setPattern(plan.days);
-    setGroups(plan.groups);
+    setGroups(plan.groups.concat(keepOthers));
     setMyGroupId(keepId);
     setAnchorDate(plan.anchorDate);
     setShiftTimes(Object.assign({}, prof.shiftTimes));
@@ -6456,6 +6793,22 @@ function App() {
     } catch (e) {}
     return plan;
   };
+  // 👥 AMMK — 같이 보기 · 타 근무조 관리 (승현 님 11-28)
+  const ammkPatchGroup = (groupId, patch) => setGroups(prev => prev.map(g => g.id === groupId ? Object.assign({}, g, patch) : g));
+  const ammkAddGroup = data => setGroups(prev => prev.concat([Object.assign({
+    id: "G" + Date.now().toString(36),
+    name: "새 근무조",
+    color: "#8b5cf6",
+    members: "",
+    offset: 0
+  }, data || {})]));
+  const ammkRemoveGroup = groupId => {
+    setGroups(prev => prev.filter(g => g.id !== groupId));
+    setVisibleOtherGroups(prev => prev.filter(id => id !== groupId));
+    playSfx("tap");
+    notify("근무조를 목록에서 지웠습니다.");
+  };
+  const ammkToggleOtherVisible = groupId => setVisibleOtherGroups(prev => prev.includes(groupId) ? prev.filter(id => id !== groupId) : prev.concat([groupId]));
   // 프리셋·직접 만든 근무 이름이 바뀌면 달력 색·이름을 즉시 갈아 끼운다
   useEffect(() => {
     const prof = ammkProfileOf(shiftPresetId);
@@ -6468,7 +6821,8 @@ function App() {
      마스터가 끄면 모든 사용자의 하단 메뉴에서 '설비 공유'가 사라지고,
      다시 켜면 모든 폰에 즉시 나타난다. 상태는 Firestore(workspaces/{팀}/appConfig/settings)에
      저장하고 이 기기에도 캐시한다. */
-  const visibleNavItems = useMemo(() => (navItems || []).filter(item => item.id !== "equipment" || equipmentMenuOpen), [navItems, equipmentMenuOpen]);
+  // AMMK — 설비 공유 메뉴는 쓰지 않는다 (저장된 메뉴 순서에 남아 있어도 항상 숨김)
+  const visibleNavItems = useMemo(() => (navItems || []).filter(item => item.id !== "equipment"), [navItems]);
   const cacheEquipmentMenuOpen = open => {
     try {
       localStorage.setItem("ammk_v1_equipmentMenuOpen", JSON.stringify(!!open));
@@ -6747,6 +7101,9 @@ function App() {
     const shift = getShiftForGroupDate(myGroupId, cell.dateKey);
     const subShift = getSubShiftForGroupDate(myGroupId, cell.dateKey);
     const meta = SHIFT_META[shift] || SHIFT_META["휴"];
+    // 주 5일 근무는 기본 출근/휴무를 칸에 찍지 않는다 (바꾼 날·부가 근태·메모만)
+    const baseShift = ammkGroupIsWeekday(myGroup) ? shiftForGroupDate(groups, pattern, anchorDate, {}, myGroupId, cell.dateKey) : shift;
+    const shiftHidden = ammkHideDefaultBadge(myGroup, shift, baseShift);
     const isSelected = selectedDateKey === cell.dateKey;
     const isToday = cell.dateKey === currentDateKey();
     const dayMemos = (memos[cell.dateKey] || []).filter(m => {
@@ -6767,7 +7124,7 @@ function App() {
       className: `text-[8.5px] truncate max-w-[34px] leading-none ${holiday?.isRed ? "text-rose-500 font-semibold" : "text-slate-400"}`
     }, holiday ? holiday.name : lunar)), /*#__PURE__*/React.createElement("div", {
       className: "my-0.5 flex flex-col items-center justify-center"
-    }, shift === "휴" ? /*#__PURE__*/React.createElement("span", {
+    }, shiftHidden ? null : shift === "휴" ? /*#__PURE__*/React.createElement("span", {
       className: `w-7 h-7 flex items-center justify-center ${svShiftBadgeFont("휴")} font-extrabold text-rose-500`
     }, svShiftBadge("휴")) : /*#__PURE__*/React.createElement("span", {
       className: `w-7 h-7 rounded-full flex items-center justify-center ${svShiftBadgeFont(shift)} font-extrabold shadow-xs ${meta.badgeBg} ${meta.badgeText}`
@@ -6777,18 +7134,20 @@ function App() {
       className: "flex flex-wrap justify-center gap-0.5 mt-0.5"
     }, visibleOtherGroups.map(ogId => {
       const og = groups.find(g => g.id === ogId);
-      if (!og) return null;
+      if (!og || og.id === myGroupId) return null;
       const oShift = getShiftForGroupDate(ogId, cell.dateKey);
-      const oStyle = OTHER_GROUP_SHIFT_STYLE[oShift] || OTHER_GROUP_SHIFT_STYLE["휴"];
+      // 주 5일 근무 조는 휴무일에는 아무것도 찍지 않는다 (변동 사항만 간결히)
+      if (ammkGroupIsWeekday(og) && oShift === "휴") return null;
+      const oMeta = ammkGroupMeta(og, oShift);
       return /*#__PURE__*/React.createElement("span", {
         key: ogId,
         style: {
-          backgroundColor: oStyle.backgroundColor,
-          backgroundImage: oStyle.backgroundImage,
-          color: "#ffffff"
+          backgroundColor: oMeta.hex,
+          backgroundImage: "linear-gradient(180deg, rgba(255,255,255,0.22), rgba(255,255,255,0))",
+          color: oMeta.textHex || "#ffffff"
         },
         className: "text-[9px] px-1 rounded font-extrabold leading-tight shadow-xs"
-      }, og.name.replace("조", ""), ":", oShift);
+      }, og.name.replace("조", ""), "·", ammkGroupBadge(og, oShift));
     })), showWeather ? /*#__PURE__*/React.createElement("div", {
       className: "w-full flex-1 flex flex-col items-center justify-center gap-[1px] mt-0.5 pb-0.5"
     }, weatherCache.days[cell.dateKey] ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
@@ -8904,6 +9263,23 @@ function App() {
       setShiftCustom(Object.assign({}, svUpdateShiftLabel(code, patch)));
     }
   }));
+  // 👥 AMMK — 설정 > 같이 보기 · 타 근무조 관리 (승현 님 11-28)
+  const ammkGroupManagerEl = svEl(SettingsAccordion, {
+    id: "shift-groups",
+    icon: "👥",
+    title: "같이 보기 · 타 근무조",
+    summary: `${groups.length}개 조 · 같이 보기 ${visibleOtherGroups.length}개`,
+    open: groupManagerOpen,
+    onToggle: () => setGroupManagerOpen(v => !v)
+  }, svEl(AmmkGroupManager, {
+    groups: groups,
+    myGroupId: myGroupId,
+    profileId: shiftPresetId,
+    onPatch: ammkPatchGroup,
+    onAdd: ammkAddGroup,
+    onRemove: ammkRemoveGroup,
+    onSetVisible: ammkToggleOtherVisible
+  }));
   const attendanceCompareEl = /*#__PURE__*/React.createElement(AttendanceComparePanel, {
     statement: salaryStatement,
     normalHourly: salaryStatement.normalHourly,
@@ -9013,7 +9389,7 @@ function App() {
     size: 19
   })), /*#__PURE__*/React.createElement("button", {
     onClick: () => setActiveTab("settings"),
-    className: "flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 text-xs font-bold text-slate-800"
+    className: "flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 text-xs font-bold text-slate-800 whitespace-nowrap"
   }, /*#__PURE__*/React.createElement("span", {
     className: "w-2.5 h-2.5 rounded-full",
     style: {
@@ -9207,12 +9583,12 @@ function App() {
   const renderCell = (g, cell) => {
     const sh = getShiftForGroupDate(g.id, cell.dateKey);
     const sub = getSubShiftForGroupDate(g.id, cell.dateKey);
-    const meta = SHIFT_META[sh] || SHIFT_META["\uD734"];
+    const meta = ammkGroupMeta(g, sh);
     const badge = sh === "\uD734" ? React.createElement("span", {
       className: `flex items-center justify-center w-7 h-7 ${svShiftBadgeFont("휴")} font-extrabold text-rose-500`
     }, svShiftBadge("휴")) : React.createElement("span", {
       className: `w-7 h-7 rounded-full flex items-center justify-center ${svShiftBadgeFont(sh)} font-extrabold ${meta.badgeBg} ${meta.badgeText}`
-    }, svShiftBadge(sh));
+    }, ammkGroupBadge(g, sh));
     const subBadge = sub ? React.createElement("span", {
       className: "text-[8px] font-extrabold text-emerald-600 leading-none mt-0.5"
     }, sub) : null;
@@ -9265,186 +9641,7 @@ function App() {
   return React.createElement("div", {
     className: "p-3 pt-2 bg-slate-100/70 min-h-full"
   }, headEl, groups.length === 0 ? emptyEl : weeks.map(week => renderWeekCard(week)), groups.length > 0 ? footEl : null);
-})(), activeTab === "equipment" && equipmentMenuOpen && /*#__PURE__*/React.createElement("div", {
-    className: "p-4"
-  }, cloudCacheBadgeVisible ? /*#__PURE__*/React.createElement("div", {
-    className: "mb-3 flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50/80 border border-amber-100 text-[12.5px] font-bold text-amber-700"
-  }, /*#__PURE__*/React.createElement("span", null, "\uD83D\uDCE1"), /*#__PURE__*/React.createElement("span", null, "\uC624\uD504\uB77C\uC778 \xB7 \uB9C8\uC9C0\uB9C9 \uC800\uC7A5\uB41C \uAE00 \uD45C\uC2DC \uC911")) : null, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center justify-between mb-3"
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h2", {
-    className: "text-xl font-extrabold text-slate-900"
-  }, "\uC124\uBE44 \uACF5\uC720 \uC11C\uBC84"), /*#__PURE__*/React.createElement("p", {
-    className: "text-[13px] text-slate-500 leading-snug"
-  }, "\uD638\uAE30\uBCC4 \uD3F4\uB354\uC5D0 \uC124\uBE44 \uC0AC\uC9C4\uACFC \uC810\uAC80 \uC774\uB825\uC744 \uACF5\uC720\uD558\uC138\uC694.")), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setNewFolderOpen(true),
-    className: "flex items-center gap-1 px-3 py-2 rounded-xl bg-slate-100 text-slate-700 text-[13px] font-bold"
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "plus",
-    size: 14
-  }), " \uD3F4\uB354 \uCD94\uAC00")), /*#__PURE__*/React.createElement("div", {
-    className: "relative mb-4"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "search",
-    size: 16
-  })), /*#__PURE__*/React.createElement("input", {
-    type: "text",
-    value: equipSearch,
-    onChange: e => setEquipSearch(e.target.value),
-    placeholder: "\uC124\uBE44\uBA85, \uC99D\uC0C1, \uBD80\uD488\uBA85 \uAC80\uC0C9 (\uC608: \uC138\uC815\uAE30, \uB178\uC990, \uC13C\uC11C)...",
-    className: "w-full pl-9 pr-8 py-3 rounded-xl bg-slate-100 text-[14px] text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-  }), equipSearch && /*#__PURE__*/React.createElement("button", {
-    onClick: () => setEquipSearch(""),
-    className: "absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400"
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "close",
-    size: 14
-  }))), equipSearch.trim() ? /*#__PURE__*/React.createElement("div", {
-    className: "space-y-2.5"
-  }, /*#__PURE__*/React.createElement("p", {
-    className: "text-xs font-bold text-slate-500"
-  }, "'", equipSearch, "' \uAC80\uC0C9 \uACB0\uACFC"), equipFolders.flatMap(f => (f.items || []).map(it => ({
-    ...it,
-    folderName: f.name,
-    folderId: f.id
-  }))).filter(it => it.title.toLowerCase().includes(equipSearch.toLowerCase()) || it.content.toLowerCase().includes(equipSearch.toLowerCase()) || it.folderName.toLowerCase().includes(equipSearch.toLowerCase())).map(it => /*#__PURE__*/React.createElement("div", {
-    key: it.id,
-    className: "p-3.5 rounded-2xl border border-slate-200 bg-white"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "inline-block px-2 py-0.5 rounded bg-blue-50 text-blue-600 text-[11px] font-bold mb-1"
-  }, "\uD83D\uDCC1 ", it.folderName), /*#__PURE__*/React.createElement("h3", {
-    className: "text-[16px] font-bold text-slate-900"
-  }, it.title), /*#__PURE__*/React.createElement("p", {
-    className: "text-[14.5px] leading-[1.6] text-slate-700 mt-1.5"
-  }, it.content), it.image && /*#__PURE__*/React.createElement("img", {
-    src: it.image,
-    alt: it.title || "",
-    onClick: () => setPhotoLightbox({
-      src: it.image,
-      title: it.title || it.folderName || "설비 사진",
-      zoom: 1
-    }),
-    className: "mt-2.5 w-full max-h-60 object-contain bg-slate-50 rounded-xl border border-slate-100 cursor-zoom-in"
-  }), /*#__PURE__*/React.createElement("div", {
-    className: "mt-2.5 flex items-center justify-between gap-2 text-[12.5px] text-slate-400"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "truncate"
-  }, it.author, " \xB7 ", it.date), canEditPost(it) && /*#__PURE__*/React.createElement("span", {
-    className: "flex items-center gap-1.5 shrink-0"
-  }, /*#__PURE__*/React.createElement("button", {
-    onClick: () => openEquipEdit(it, it.folderId),
-    className: "flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 text-[12.5px] font-bold text-slate-700"
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "edit",
-    size: 12
-  }), " \uC218\uC815"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setEquipDeleteTarget({
-      id: it.id,
-      title: it.title,
-      folderId: it.folderId
-    }),
-    className: "flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-50 text-[12.5px] font-bold text-rose-600"
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "trash",
-    size: 12
-  }), " \uC0AD\uC81C")))))) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-    className: "grid grid-cols-2 gap-2.5 mb-4"
-  }, equipFolders.map(folder => {
-    const isSelected = folder.id === selectedFolderId;
-    return /*#__PURE__*/React.createElement("button", {
-      key: folder.id,
-      onClick: () => setSelectedFolderId(folder.id),
-      className: `p-3 rounded-2xl border text-left transition ${isSelected ? "bg-blue-50/70 border-blue-500 shadow-xs" : "bg-slate-50 border-slate-200/80 hover:bg-slate-100"}`
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "flex items-center justify-between mb-1"
-    }, /*#__PURE__*/React.createElement(Icon, {
-      name: "folder",
-      size: 20,
-      className: isSelected ? "text-blue-600" : "text-amber-500"
-    }), /*#__PURE__*/React.createElement("span", {
-      className: "text-xs font-bold text-slate-400"
-    }, folder.items.length, "\uAC74")), /*#__PURE__*/React.createElement("div", {
-      className: "text-[14.5px] font-extrabold text-slate-900 truncate"
-    }, folder.name), /*#__PURE__*/React.createElement("div", {
-      className: "text-[12px] text-slate-500 truncate mt-1"
-    }, folder.desc));
-  })), (() => {
-    const currentFolder = equipFolders.find(f => f.id === selectedFolderId) || equipFolders[0];
-    if (!currentFolder) return null;
-    return /*#__PURE__*/React.createElement("div", {
-      className: "border-t border-slate-100 pt-4"
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "flex items-center justify-between mb-3"
-    }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h3", {
-      className: "text-[16px] font-extrabold text-slate-900"
-    }, "\uD83D\uDCC1 ", currentFolder.name), /*#__PURE__*/React.createElement("p", {
-      className: "text-xs text-slate-500 mt-0.5"
-    }, currentFolder.desc)), /*#__PURE__*/React.createElement("button", {
-      onClick: () => {
-        setEquipItemForm({
-          title: "",
-          content: "",
-          image: null,
-          folderId: currentFolder.id
-        });
-        setEquipEditing(null);
-        setNewEquipItemOpen(true);
-      },
-      className: "flex items-center gap-1 px-3.5 py-2 rounded-full bg-blue-600 text-white text-[13px] font-bold"
-    }, /*#__PURE__*/React.createElement(Icon, {
-      name: "plus",
-      size: 14
-    }), " \uC0AC\uC9C4\xB7\uAE00 \uB4F1\uB85D")), currentFolder.items.length === 0 ? /*#__PURE__*/React.createElement("div", {
-      className: "py-10 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200"
-    }, /*#__PURE__*/React.createElement("p", {
-      className: "text-sm text-slate-400"
-    }, "\uC544\uC9C1 \uB4F1\uB85D\uB41C \uC124\uBE44 \uC0AC\uC9C4\uC774\uB098 \uC810\uAC80 \uC774\uB825\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.")) : /*#__PURE__*/React.createElement("div", {
-      className: "space-y-3"
-    }, currentFolder.items.map(item => /*#__PURE__*/React.createElement("div", {
-      key: item.id,
-      className: "p-3.5 rounded-2xl border border-slate-200 bg-white shadow-2xs"
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "flex items-center justify-between"
-    }, /*#__PURE__*/React.createElement("h4", {
-      className: "text-[16px] font-bold text-slate-900"
-    }, item.title), /*#__PURE__*/React.createElement("span", {
-      className: "text-[12px] text-slate-400"
-    }, item.date)), /*#__PURE__*/React.createElement("p", {
-      className: "text-[14.5px] leading-[1.65] text-slate-700 mt-2"
-    }, item.content), item.image && /*#__PURE__*/React.createElement("img", {
-      src: item.image,
-      alt: item.title,
-      onClick: () => setPhotoLightbox({
-        src: item.image,
-        title: item.title || "설비 사진",
-        zoom: 1
-      }),
-      className: "mt-2.5 w-full max-h-64 object-contain bg-slate-50 rounded-xl border border-slate-100 cursor-zoom-in"
-    }), /*#__PURE__*/React.createElement("div", {
-      className: "mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between gap-2 text-[12.5px] text-slate-400"
-    }, /*#__PURE__*/React.createElement("span", {
-      className: "truncate"
-    }, "\uC791\uC131\uC790: ", item.author), canEditPost(item) && /*#__PURE__*/React.createElement("span", {
-      className: "flex items-center gap-1.5 shrink-0"
-    }, /*#__PURE__*/React.createElement("button", {
-      onClick: () => openEquipEdit(item, currentFolder.id),
-      className: "flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 text-[12.5px] font-bold text-slate-700"
-    }, /*#__PURE__*/React.createElement(Icon, {
-      name: "edit",
-      size: 12
-    }), " \uC218\uC815"), /*#__PURE__*/React.createElement("button", {
-      onClick: () => setEquipDeleteTarget({
-        id: item.id,
-        title: item.title,
-        folderId: currentFolder.id
-      }),
-      className: "flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-50 text-[12.5px] font-bold text-rose-600"
-    }, /*#__PURE__*/React.createElement(Icon, {
-      name: "trash",
-      size: 12
-    }), " \uC0AD\uC81C")))))));
-  })())), activeTab === "alarm" && (() => {
+})(), null, activeTab === "alarm" && (() => {
     const upcoming = buildAlarmOccurrences();
     const next = upcoming.length ? upcoming[0] : null;
     const nextAt = next ? new Date(next.triggerAtMs) : null;
@@ -9768,6 +9965,7 @@ function App() {
     className: "w-full py-2.5 rounded-xl bg-blue-500 text-white text-xs font-extrabold"
   }, "\uC9C0\uAE08 \uC5C5\uB370\uC774\uD2B8 (v", updateState.latest.version, ")")),
   ammkShiftProfileEl,
+  ammkGroupManagerEl,
   /*#__PURE__*/React.createElement(SettingsAccordion, {
     id: "info-input",
     icon: "📝",
@@ -9981,33 +10179,7 @@ function App() {
     "data-sfx": "none",
     className: "accent-blue-600 w-5 h-5 shrink-0"
   }))),
-  /*#__PURE__*/React.createElement("section", {
-    className: "p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2.5"
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h3", {
-    className: "text-xs font-extrabold text-slate-800"
-  }, "\uD83C\uDFA8 앱 아이콘 선택"), /*#__PURE__*/React.createElement("p", {
-    className: "text-[11px] text-slate-400 mt-0.5"
-  }, "홈 화면에 보일 아이콘을 고르세요.")), /*#__PURE__*/React.createElement("div", {
-    className: "grid grid-cols-3 gap-2"
-  }, APP_ICON_OPTIONS.map(opt => /*#__PURE__*/React.createElement("button", {
-    key: opt.key,
-    onClick: () => pickAppIcon(opt.key),
-    className: `p-2 rounded-xl border flex flex-col items-center gap-1.5 transition ${appIcon === opt.key ? "bg-white border-blue-600 ring-2 ring-blue-100" : "bg-white border-slate-200 active:scale-95"}`
-  }, /*#__PURE__*/React.createElement("img", {
-    src: "./icon-192.png",
-    alt: opt.label,
-    className: "w-16 h-16 rounded-[18px] shadow-sm"
-  }), /*#__PURE__*/React.createElement("span", {
-    className: "text-[10px] leading-tight font-extrabold text-slate-700 text-center"
-  }, opt.emoji, " ", opt.label), appIcon === opt.key ? /*#__PURE__*/React.createElement("span", {
-    className: "px-1.5 py-0.5 rounded-full bg-blue-600 text-white text-[9px] font-extrabold"
-  }, "사용 중") : /*#__PURE__*/React.createElement("span", {
-    className: "px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400 text-[9px] font-bold"
-  }, "선택")))), hasAndroidIcon() ? /*#__PURE__*/React.createElement("p", {
-    className: "text-[10px] text-slate-400 leading-relaxed"
-  }, "홈 화면 반영까지 1~2초 걸릴 수 있고, 기기에 따라 앱이 잠깐 닫힐 수 있습니다.") : /*#__PURE__*/React.createElement("p", {
-    className: "text-[10px] text-amber-600 leading-relaxed"
-  }, "웹 미리보기에서는 아이콘을 바꿀 수 없습니다.")),
+null,
   /*#__PURE__*/React.createElement("section", {
     className: "p-4 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white flex items-center justify-between"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h3", {
@@ -10076,24 +10248,7 @@ function App() {
   }), /*#__PURE__*/React.createElement("button", {
     onClick: verifyMasterCode,
     className: "px-4 py-2.5 rounded-xl bg-amber-500 text-white text-xs font-extrabold"
-  }, "\uC778\uC99D")), isMaster && /*#__PURE__*/React.createElement("div", {
-    className: "pt-2.5 border-t border-amber-200/70 space-y-1.5"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center justify-between gap-2"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "min-w-0"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "text-xs font-extrabold text-amber-900"
-  }, "🔧 설비공유 메뉴 공개 (전체 사용자)"), /*#__PURE__*/React.createElement("p", {
-    className: "text-[10px] text-amber-700/80 mt-0.5"
-  }, equipmentMenuOpen ? "지금 모든 사용자의 하단 메뉴에 설비공유가 보입니다." : "지금 모든 사용자의 하단 메뉴에서 설비공유가 숨겨져 있습니다.")), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setEquipmentMenuPublic(!equipmentMenuOpen),
-    className: `w-11 h-6 rounded-full p-0.5 shrink-0 transition ${equipmentMenuOpen ? "bg-emerald-500" : "bg-slate-300"}`
-  }, /*#__PURE__*/React.createElement("div", {
-    className: `w-5 h-5 rounded-full bg-white transition-transform ${equipmentMenuOpen ? "translate-x-5" : "translate-x-0"}`
-  }))), /*#__PURE__*/React.createElement("p", {
-    className: "text-[10px] text-amber-700/70"
-  }, "끄면 모든 폰에서 즉시 사라지고, 다시 켜면 즉시 나타납니다. (기본: 공개)")), /*#__PURE__*/React.createElement("p", {
+  }, "\uC778\uC99D")), false, /*#__PURE__*/React.createElement("p", {
     className: "text-[10px] text-amber-700/70"
   }, "\uC778\uC99D \uC0C1\uD0DC\uB294 \uC774 \uAE30\uAE30\uC5D0\uB9CC \uC800\uC7A5\uB429\uB2C8\uB2E4.")),
   /*#__PURE__*/React.createElement("section", {
@@ -10589,6 +10744,7 @@ function App() {
     return /*#__PURE__*/React.createElement("button", {
       key: sub,
       onClick: () => setDraftSubShift(prev => prev === sub ? "" : sub),
+      "data-testid": "day-sub-" + sub,
       className: `py-2 rounded-xl text-xs font-extrabold border transition ${active ? `${SUB_SHIFT_META[sub].bg} ${SUB_SHIFT_META[sub].border} shadow-xs` : "border-slate-200 bg-white text-slate-700"}`
     }, active ? `✓ ${sub}` : sub);
   })))), salaryEarlyLeaveEl, (deviceEvents[selectedDateKey] || []).length > 0 && /*#__PURE__*/React.createElement("div", {
