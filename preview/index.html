@@ -7921,85 +7921,104 @@ function App() {
   }, (summaryDetailType === "주" ? monthSummary.dayOvertime : monthSummary.nightOvertime).map(item => /*#__PURE__*/React.createElement("span", {
     key: item.dateKey,
     className: "px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-700"
-  }, item.month, "/", item.day, " (", item.reason, ")"))))), salaryCardEl), activeTab === "teams" && /*#__PURE__*/React.createElement("div", {
-    className: "p-4"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center justify-between mb-3"
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h2", {
-    className: "text-base font-extrabold text-slate-900"
-  }, companyName, " \uC804\uCCB4 \uC870 \uBE44\uAD50"), /*#__PURE__*/React.createElement("p", {
-    className: "text-xs text-slate-500"
-  }, "\uB0A0\uC9DC\uBCC4 \uBAA8\uB4E0 \uC870\uC758 \uADFC\uBB34\uB97C \uD55C\uB208\uC5D0 \uBE44\uAD50\uD569\uB2C8\uB2E4.")), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setActiveTab("settings"),
-    className: "text-xs font-semibold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-xl"
-  }, "\uADFC\uBB34\uC790\xB7\uC870 \uD3B8\uC9D1")), /*#__PURE__*/React.createElement("div", {
-    className: "grid grid-cols-1 gap-2 mb-4"
-  }, groups.map(g => /*#__PURE__*/React.createElement("div", {
-    key: g.id,
-    className: `p-3 rounded-xl border flex items-center justify-between ${g.id === myGroupId ? "bg-blue-50/50 border-blue-200" : "bg-slate-50 border-slate-100"}`
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center gap-2.5"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "w-3 h-3 rounded-full",
-    style: {
-      backgroundColor: g.color
-    }
-  }), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center gap-1.5"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "text-xs font-extrabold text-slate-900"
-  }, g.name), g.id === myGroupId && /*#__PURE__*/React.createElement("span", {
-    className: "text-[10px] px-1.5 py-0.2 bg-blue-600 text-white rounded font-bold"
-  }, "\uB0B4 \uC870")), /*#__PURE__*/React.createElement("p", {
-    className: "text-xs text-slate-500 mt-0.5"
-  }, g.members || "등록된 근무자 없음")))))), /*#__PURE__*/React.createElement("div", {
-    className: "border border-slate-200 rounded-2xl overflow-hidden bg-white"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "grid bg-slate-100 text-xs font-bold text-slate-600 py-2.5 px-3 border-b border-slate-200",
-    style: {
-      gridTemplateColumns: `88px repeat(${groups.length}, 1fr)`
-    }
-  }, /*#__PURE__*/React.createElement("span", null, "\uB0A0\uC9DC"), groups.map(g => /*#__PURE__*/React.createElement("span", {
-    key: g.id,
-    className: "text-center"
-  }, g.name))), /*#__PURE__*/React.createElement("div", {
-    className: "divide-y divide-slate-100 max-h-[54vh] overflow-y-auto"
-  }, Array.from({
-    length: new Date(viewDate.year, viewDate.month + 1, 0).getDate()
-  }, (_, idx) => {
-    const d = idx + 1;
-    const dateObj = new Date(viewDate.year, viewDate.month, d);
-    const dow = dateObj.getDay();
-    const dowStr = ["일", "월", "화", "수", "목", "금", "토"][dow];
-    const dateKey = formatDateKey(viewDate.year, viewDate.month, d);
+  }, item.month, "/", item.day, " (", item.reason, ")"))))), salaryCardEl), activeTab === "teams" && (() => {
+  const todayK = currentDateKey();
+  const wy = viewDate.year;
+  const wm = viewDate.month;
+  const daysInMonth = new Date(wy, wm + 1, 0).getDate();
+  const firstDow = new Date(wy, wm, 1).getDay();
+  const weekCount = Math.ceil((firstDow + daysInMonth) / 7);
+  const teamGridStyle = {
+    gridTemplateColumns: "38px repeat(7, 1fr)"
+  };
+  const buildWeek = w => Array.from({
+    length: 7
+  }, (_, i) => {
+    const offset = w * 7 + i - firstDow;
+    const dt = new Date(wy, wm, 1 + offset);
+    const dateKey = formatDateKey(dt.getFullYear(), dt.getMonth(), dt.getDate());
     const hol = HOLIDAYS[dateKey];
-    return /*#__PURE__*/React.createElement("div", {
-      key: dateKey,
-      onClick: () => openDayDetail(dateKey),
-      className: "grid items-center py-2 px-3 text-xs hover:bg-slate-50 cursor-pointer",
-      style: {
-        gridTemplateColumns: `88px repeat(${groups.length}, 1fr)`
-      }
-    }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
-      className: `font-bold ${dow === 0 || hol?.isRed ? "text-rose-500" : dow === 6 ? "text-blue-500" : "text-slate-800"}`
-    }, d, "\uC77C (", dowStr, ")"), hol && /*#__PURE__*/React.createElement("div", {
-      className: "text-[9px] text-rose-500 truncate"
-    }, hol.name)), groups.map(g => {
-      const sh = getShiftForGroupDate(g.id, dateKey);
-      const sub = getSubShiftForGroupDate(g.id, dateKey);
-      const meta = SHIFT_META[sh] || SHIFT_META["휴"];
-      return /*#__PURE__*/React.createElement("div", {
-        key: g.id,
-        className: "flex flex-col items-center"
-      }, sh === "휴" ? /*#__PURE__*/React.createElement("span", {
-        className: "text-xs font-bold text-rose-500"
-      }, "\uD734") : /*#__PURE__*/React.createElement("span", {
-        className: `w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-extrabold ${meta.badgeBg} ${meta.badgeText}`
-      }, sh), sub && /*#__PURE__*/React.createElement("span", {
-        className: "text-[8px] font-extrabold text-emerald-600"
-      }, sub));
-    }));
-  })))), activeTab === "equipment" && equipmentMenuOpen && /*#__PURE__*/React.createElement("div", {
+    return {
+      day: dt.getDate(),
+      dow: i,
+      dateKey,
+      isRedDate: i === 0 || !!(hol && hol.isRed),
+      inCurrentMonth: dt.getFullYear() === wy && dt.getMonth() === wm,
+      isToday: dateKey === todayK
+    };
+  });
+  const renderDateHead = cell => {
+    const colorCls = cell.isToday ? "rounded-full bg-indigo-600 text-white" : cell.isRedDate ? "text-rose-500" : cell.dow === 6 ? "text-blue-500" : "text-slate-700";
+    return React.createElement("button", {
+      key: cell.dateKey,
+      onClick: () => openDayDetail(cell.dateKey),
+      className: "flex items-center justify-center"
+    }, React.createElement("span", {
+      className: `flex items-center justify-center w-[20px] h-[20px] text-[13px] font-extrabold leading-none ${colorCls}${cell.inCurrentMonth ? "" : " opacity-35"}`
+    }, cell.day));
+  };
+  const renderCell = (g, cell) => {
+    const sh = getShiftForGroupDate(g.id, cell.dateKey);
+    const sub = getSubShiftForGroupDate(g.id, cell.dateKey);
+    const meta = SHIFT_META[sh] || SHIFT_META["\uD734"];
+    const badge = sh === "\uD734" ? React.createElement("span", {
+      className: "flex items-center justify-center w-7 h-7 text-xs font-extrabold text-rose-500"
+    }, "\uD734") : React.createElement("span", {
+      className: `w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-extrabold ${meta.badgeBg} ${meta.badgeText}`
+    }, sh);
+    const subBadge = sub ? React.createElement("span", {
+      className: "text-[8px] font-extrabold text-emerald-600 leading-none mt-0.5"
+    }, sub) : null;
+    return React.createElement("div", {
+      key: cell.dateKey,
+      className: `flex flex-col items-center${cell.inCurrentMonth ? "" : " opacity-35"}`
+    }, badge, subBadge);
+  };
+  const renderGroupRow = (g, week) => React.createElement("div", {
+    key: g.id,
+    className: `py-1 rounded-xl -mx-1${g.id === myGroupId ? " bg-indigo-50/85" : ""}`
+  }, React.createElement("div", {
+    className: "grid items-center px-1",
+    style: teamGridStyle
+  }, React.createElement("span", {
+    className: "text-[11px] font-extrabold",
+    style: {
+      color: g.color || "#475569"
+    }
+  }, g.name), week.map(cell => renderCell(g, cell))));
+  const renderWeekCard = week => React.createElement("div", {
+    key: week[0].dateKey,
+    className: "rounded-2xl bg-white border border-slate-100 shadow-xs px-2.5 py-3 mb-2.5",
+    style: {
+      boxShadow: "0 1px 3px rgba(15, 23, 42, 0.05)"
+    }
+  }, React.createElement("div", {
+    className: "grid px-1 pb-1.5",
+    style: teamGridStyle
+  }, React.createElement("span", {
+    key: "lead"
+  }), week.map(cell => renderDateHead(cell))), groups.map(g => renderGroupRow(g, week)));
+  const weeks = Array.from({
+    length: weekCount
+  }, (_, w) => buildWeek(w));
+  const headEl = React.createElement("div", {
+    className: "flex items-center justify-between mb-2 px-0.5"
+  }, React.createElement("h2", {
+    className: "text-[13px] font-extrabold text-slate-900"
+  }, "\uC804\uCCB4 \uC870 \uADFC\uBB34\uD45C"), React.createElement("button", {
+    onClick: () => setActiveTab("settings"),
+    className: "text-[11px] font-bold text-blue-600 bg-blue-50 px-2.5 py-1.5 rounded-xl"
+  }, "\uADFC\uBB34\uC790\u00B7\uC870 \uD3B8\uC9D1"));
+  const emptyEl = React.createElement("div", {
+    className: "py-12 text-center text-xs text-slate-500"
+  }, "\uB4F1\uB85D\uB41C \uC870\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4. \uADFC\uBB34\uC790\u00B7\uC870 \uD3B8\uC9D1\uC5D0\uC11C \uC870\uB97C \uCD94\uAC00\uD574 \uC8FC\uC138\uC694.");
+  const footEl = React.createElement("p", {
+    className: "text-[10px] text-slate-400 text-center pt-0.5"
+  }, "\uB0A0\uC9DC\uB97C \uB204\uB974\uBA74 \uADF8\uB0A0 \uADFC\uBB34\uB97C \uBC14\uAFC0 \uC218 \uC788\uC2B5\uB2C8\uB2E4.");
+  return React.createElement("div", {
+    className: "p-3 pt-2"
+  }, headEl, groups.length === 0 ? emptyEl : weeks.map(week => renderWeekCard(week)), groups.length > 0 ? footEl : null);
+})(), activeTab === "equipment" && equipmentMenuOpen && /*#__PURE__*/React.createElement("div", {
     className: "p-4"
   }, cloudCacheBadgeVisible ? /*#__PURE__*/React.createElement("div", {
     className: "mb-3 flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50/80 border border-amber-100 text-[12.5px] font-bold text-amber-700"
