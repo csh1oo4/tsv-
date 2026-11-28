@@ -9492,7 +9492,7 @@ function App() {
     className: "p-3 rounded-2xl bg-amber-50/80 border border-amber-200/70 flex flex-col items-center text-center active:scale-98 transition"
   }, /*#__PURE__*/React.createElement("span", {
     className: "px-2.5 py-0.5 rounded-full bg-amber-400 text-slate-900 text-xs font-extrabold mb-1.5"
-  }, svShiftLong("주") + " (\uD2B9\uADFC)"), /*#__PURE__*/React.createElement("span", {
+  }, svShiftLong(svFirstWorkCode()) + " (\uD2B9\uADFC)"), /*#__PURE__*/React.createElement("span", {
     className: "text-sm font-extrabold text-slate-900"
   }, monthSummary.dayTotal, "\uC77C(", monthSummary.dayOvertime.length, "\uC77C)"), /*#__PURE__*/React.createElement("span", {
     className: "text-[10px] text-amber-700 mt-0.5"
@@ -9536,7 +9536,7 @@ function App() {
     className: "flex items-center justify-between mb-2"
   }, /*#__PURE__*/React.createElement("span", {
     className: "text-xs font-bold text-slate-800"
-  }, summaryDetailType === "주" ? svShiftLong("주") + " 특근 해당일" : svShiftLong("야") + " 특근 해당일"), /*#__PURE__*/React.createElement("button", {
+  }, summaryDetailType === "주" ? svShiftLong(svFirstWorkCode()) + " 특근 해당일" : svShiftLong("야") + " 특근 해당일"), /*#__PURE__*/React.createElement("button", {
     onClick: () => setSummaryDetailType(null),
     className: "text-xs text-slate-400"
   }, "\uB2EB\uAE30")), (summaryDetailType === "주" ? monthSummary.dayOvertime : monthSummary.nightOvertime).length === 0 ? /*#__PURE__*/React.createElement("p", {
