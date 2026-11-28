@@ -1681,6 +1681,8 @@ const AMMK_PROFILES = {
     desc: "오전 · 오후 · 야간 · 휴무 / A·B·C·D 4개 조",
     cycle: "8·16·24일 순환",
     teamStep: 2,
+    // 승현 님 11-28 — 순환 방향(정순 오전→오후→야간 / 역순 야간→오후→오전)을 고를 수 있다
+    reversible: true,
     codes: ["주", "오", "야", "휴"],
     badge: {
       주: "오전",
@@ -2187,6 +2189,50 @@ const ammkNthMax = (days, code) => {
   if (!len) return 1;
   return Math.min(len, ammkRunLength(days, code));
 };
+/* ── 순환 방향 역순 (승현 님 11-28 요청) ────────────────────────────────
+   휴무 구간은 제자리에 두고 근무 구간의 순서만 뒤집는다.
+     주2·오2·야2·휴2        → 야2·오2·주2·휴2
+     주4·오4·야4·휴4        → 야4·오4·주4·휴4
+     주6·휴2·오6·휴2·야6·휴2 → 야6·휴2·오6·휴2·주6·휴2
+   (휴무가 근무 뒤에 붙는 6근2휴에서도 '야간 → 오후 → 오전' 순서가 그대로 나온다) */
+const ammkReverseDays = days => {
+  const list = Array.isArray(days) ? days : [];
+  const runs = [];
+  list.forEach(code => {
+    const last = runs[runs.length - 1];
+    if (last && last.code === code) last.len++;else runs.push({
+      code: code,
+      len: 1
+    });
+  });
+  const workAt = [];
+  runs.forEach((r, i) => {
+    if (r.code !== "휴") workAt.push(i);
+  });
+  if (workAt.length < 2) return list.slice();
+  const workCodes = workAt.map(i => runs[i].code).reverse();
+  const out = [];
+  runs.forEach((r, i) => {
+    const w = workAt.indexOf(i);
+    const code = w >= 0 ? workCodes[w] : r.code;
+    for (let k = 0; k < r.len; k++) out.push(code);
+  });
+  return out;
+};
+/* 그 근무 형태가 순환 방향을 고를 수 있는지 (지금은 4조 3교대만) */
+const ammkProfileReversible = prof => !!(prof && prof.reversible);
+/* 패턴 배열 — 역순이면 뒤집은 배열, 정순·미지원 형태는 그대로 */
+const ammkPatternDays = (prof, patternIdx, reverse) => {
+  const pats = (prof && prof.patterns) || [];
+  const pIdx = Math.max(0, Math.min(pats.length - 1, Number(patternIdx) || 0));
+  const pat = pats[pIdx] || pats[0] || {
+    days: []
+  };
+  const days = (pat.days || []).slice();
+  return reverse && ammkProfileReversible(prof) ? ammkReverseDays(days) : days;
+};
+/* 저장된 순환 방향 (예전 저장값에는 없으므로 없으면 정순) */
+const ammkReadReverse = () => !!ammkReadProfileMeta().reverse;
 /* 패턴의 idx 자리가 그 근무의 며칠째인지 (같은 근무가 이어지는 구간 안에서 센다) */
 const ammkRunNthOf = (days, idx) => {
   const list = Array.isArray(days) ? days : [];
@@ -2229,11 +2275,12 @@ const ammkPatternStep = (prof, pat) => {
   return prof && prof.teamStep ? prof.teamStep : 0;
 };
 /* 타 근무조 하나의 근무표 — 패턴·기준일·시작 위치·14일 미리보기 */
-const ammkBuildGroupPlan = (presetId, patternIdx, anchorInfo, todayKey) => {
+const ammkBuildGroupPlan = (presetId, patternIdx, anchorInfo, todayKey, reverse) => {
   const prof = ammkProfileOf(presetId);
   const pIdx = Math.max(0, Math.min((prof.patterns || []).length - 1, Number(patternIdx) || 0));
   const pat = prof.patterns[pIdx] || prof.patterns[0];
-  const days = pat.days.slice();
+  const rev = !!reverse && ammkProfileReversible(prof);
+  const days = ammkPatternDays(prof, pIdx, rev);
   const len = days.length;
   const today = todayKey || currentDateKey();
   let anchor = today;
@@ -2268,6 +2315,7 @@ const ammkBuildGroupPlan = (presetId, patternIdx, anchorInfo, todayKey) => {
     profileId: prof.id,
     profile: prof,
     patternIdx: pIdx,
+    reverse: rev,
     days: days,
     anchorDate: anchor,
     offset: pos,
@@ -2400,7 +2448,8 @@ const ammkPlanProfile = (presetId, patternIdx, anchorInfo, opts) => {
   const prof = ammkProfileOf(presetId);
   const pIdx = Math.max(0, Math.min((prof.patterns || []).length - 1, Number(patternIdx) || 0));
   const pat = prof.patterns[pIdx] || prof.patterns[0];
-  const days = pat.days.slice();
+  const rev = !!(opts && opts.reverse) && ammkProfileReversible(prof);
+  const days = ammkPatternDays(prof, pIdx, rev);
   const len = days.length;
   const step = ammkPatternStep(prof, pat);
   const teams = prof.teams || [{
@@ -2453,6 +2502,7 @@ const ammkPlanProfile = (presetId, patternIdx, anchorInfo, opts) => {
     profileId: prof.id,
     profile: prof,
     patternIdx: pIdx,
+    reverse: rev,
     days: days,
     groups: groupsNext,
     anchorDate: anchor,
@@ -5234,6 +5284,45 @@ const AmmkPatternPicker = p => {
   })));
 };
 
+/* 🔄 순환 방향 — 4조 3교대만 (승현 님 11-28 요청)
+   정순 오전→오후→야간 / 역순 야간→오후→오전. 온보딩 1단계·설정·타 근무조 편집이 함께 쓴다. */
+const AMMK_DIRECTION_OPTIONS = [{
+  id: false,
+  label: "정순",
+  desc: "오전 → 오후 → 야간",
+  testid: "forward"
+}, {
+  id: true,
+  label: "역순",
+  desc: "야간 → 오후 → 오전",
+  testid: "reverse"
+}];
+const AmmkDirectionPicker = p => {
+  const prof = p.profile;
+  if (!ammkProfileReversible(prof)) return null;
+  return svEl("div", {
+    "data-testid": (p.testPrefix || "ammk") + "-direction"
+  }, svEl("p", {
+    className: "text-[11px] font-extrabold text-slate-700 mb-1.5"
+  }, "순환 방향"), svEl("div", {
+    className: "flex gap-1"
+  }, AMMK_DIRECTION_OPTIONS.map(opt => {
+    const active = !!p.value === opt.id;
+    return svEl("button", {
+      key: opt.testid,
+      type: "button",
+      onClick: () => p.onChange(opt.id),
+      "data-testid": (p.testPrefix || "ammk") + "-direction-" + opt.testid,
+      "aria-pressed": active ? "true" : "false",
+      className: `flex-1 px-2 py-1.5 rounded-xl border text-left transition ${active ? "border-blue-600 bg-blue-50 ring-1 ring-blue-100" : "border-slate-200 bg-white active:bg-slate-50"}`
+    }, svEl("span", {
+      className: `block text-[11px] font-extrabold ${active ? "text-blue-800" : "text-slate-700"}`
+    }, opt.label), svEl("span", {
+      className: "block text-[9.5px] font-bold text-slate-400 leading-tight mt-0.5 whitespace-nowrap"
+    }, opt.desc));
+  })));
+};
+
 const AmmkCalibrate = p => {
   const prof = p.profile;
   const days = p.days || [];
@@ -5396,19 +5485,21 @@ const AmmkCustomShiftEditor = p => {
 const AMMK_GROUP_PRESET_OPTIONS = ["shift4", "ammk3", "shift2", "weekday", "custom"];
 
 /* 조의 근무 형태를 바꿀 때 함께 저장할 값 (패턴·기준일·시작 위치) */
-const ammkGroupPresetPatch = (grp, allGroups, presetId, patternIdx) => {
+const ammkGroupPresetPatch = (grp, allGroups, presetId, patternIdx, reverse) => {
   if (!presetId) {
     return {
       presetId: "",
       pattern: null,
       anchorDate: "",
       offset: 0,
-      patternIdx: 0
+      patternIdx: 0,
+      reverse: false
     };
   }
   const prof = ammkProfileOf(presetId);
+  const rev = !!reverse && ammkProfileReversible(prof);
   const pIdx = Math.max(0, Math.min((prof.patterns || []).length - 1, Number(patternIdx) || 0));
-  const plan = ammkBuildGroupPlan(presetId, pIdx, null);
+  const plan = ammkBuildGroupPlan(presetId, pIdx, null, null, rev);
   const idx = Math.max(0, (allGroups || []).findIndex(x => x.id === (grp && grp.id)));
   const step = ammkPatternStep(prof, prof.patterns[pIdx]);
   const offset = prof.weekday ? 0 : idx * step % Math.max(1, plan.days.length);
@@ -5417,22 +5508,24 @@ const ammkGroupPresetPatch = (grp, allGroups, presetId, patternIdx) => {
     pattern: plan.days,
     anchorDate: plan.anchorDate,
     offset: offset,
-    patternIdx: pIdx
+    patternIdx: pIdx,
+    reverse: rev
   };
 };
 
 /* '오늘 무슨 근무, 며칠째?' 기준을 그 조에 맞춰 저장한다 */
-const ammkGroupCalibratePatch = (grp, presetId, patternIdx, code, nth) => {
+const ammkGroupCalibratePatch = (grp, presetId, patternIdx, code, nth, reverse) => {
   const plan = ammkBuildGroupPlan(presetId, patternIdx, code ? {
     code: code,
     nth: nth
-  } : null);
+  } : null, null, reverse);
   return {
     presetId: plan.profileId,
     pattern: plan.days,
     anchorDate: plan.anchorDate,
     offset: plan.offset,
-    patternIdx: plan.patternIdx
+    patternIdx: plan.patternIdx,
+    reverse: !!plan.reverse
   };
 };
 
@@ -5448,7 +5541,7 @@ const AmmkGroupManager = p => {
   const [addName, setAddName] = React.useState("");
   const [addPreset, setAddPreset] = React.useState("ammk3");
   const [addColor, setAddColor] = React.useState("#8b5cf6");
-  const planOfGroup = g => ammkBuildGroupPlan(ammkGroupPresetId(g) || p.profileId, Number(g.patternIdx) || 0, null);
+  const planOfGroup = g => ammkBuildGroupPlan(ammkGroupPresetId(g) || p.profileId, Number(g.patternIdx) || 0, null, null, !!g.reverse);
   /* 패널을 열 때 '오늘 무슨 근무, 며칠째?'를 그 조의 실제 근무표에서 채운다 */
   const openGroup = g => {
     setOpenId(g.id);
@@ -5472,7 +5565,16 @@ const AmmkGroupManager = p => {
   };
   const patchCalibration = (g, own, code, nth) => {
     if (!own || !code) return;
-    p.onPatch(g.id, ammkGroupCalibratePatch(g, own, Number(g.patternIdx) || 0, code, nth));
+    p.onPatch(g.id, ammkGroupCalibratePatch(g, own, Number(g.patternIdx) || 0, code, nth, !!g.reverse));
+  };
+  /* 순환 방향을 바꿔도 '오늘 무슨 근무, 며칠째'는 그대로 유지한다 */
+  const patchDirection = (g, own, sched, nextReverse) => {
+    if (!own) return;
+    const keepCode = sched && sched.todayCode ? sched.todayCode : "";
+    const keepNth = sched && sched.todayNth ? sched.todayNth : 1;
+    p.onPatch(g.id, ammkGroupCalibratePatch(g, own, Number(g.patternIdx) || 0, keepCode, keepNth, nextReverse));
+    setCalCode(keepCode);
+    setCalNth(keepNth);
   };
   const submitAdd = () => {
     const name = String(addName || "").trim() || "새 근무조";
@@ -5480,7 +5582,7 @@ const AmmkGroupManager = p => {
     const patch = ammkGroupPresetPatch({
       id: newId,
       name: name
-    }, groups, addPreset, 0);
+    }, groups, addPreset, 0, false);
     const next = Object.assign({
       id: newId,
       name: name,
@@ -5578,7 +5680,7 @@ const AmmkGroupManager = p => {
       key: opt.id || "inherit",
       type: "button",
       onClick: () => {
-        p.onPatch(g.id, ammkGroupPresetPatch(g, groups, opt.id, 0));
+        p.onPatch(g.id, ammkGroupPresetPatch(g, groups, opt.id, 0, false));
         setCalCode("");
         setCalNth(1);
       },
@@ -5610,10 +5712,15 @@ const AmmkGroupManager = p => {
       value: Number(g.patternIdx) || 0,
       testPrefix: "ammk-group-" + g.id,
       onChange: idx => {
-        p.onPatch(g.id, ammkGroupPresetPatch(g, groups, own, idx));
+        p.onPatch(g.id, ammkGroupPresetPatch(g, groups, own, idx, !!g.reverse));
         setCalCode("");
         setCalNth(1);
       }
+    }) : null, own ? svEl(AmmkDirectionPicker, {
+      profile: plan.profile,
+      value: !!g.reverse,
+      testPrefix: "ammk-group-" + g.id,
+      onChange: nextReverse => patchDirection(g, own, sched, nextReverse)
     }) : null, sched ? svEl(AmmkPreviewStrip, {
       preview: sched.preview,
       profile: plan.profile,
@@ -5674,16 +5781,20 @@ const AmmkShiftPanel = p => {
   const [pIdx, setPIdx] = React.useState(Number(p.patternIdx) || 0);
   const [code, setCode] = React.useState("");
   const [nth, setNth] = React.useState(1);
+  const [reverse, setReverse] = React.useState(!!p.reverse);
   const prof = ammkProfileOf(preset);
   const plan = React.useMemo(() => ammkPlanProfile(preset, pIdx, code ? {
     code: code,
     nth: nth
-  } : null), [preset, pIdx, code, nth]);
+  } : null, {
+    reverse: reverse
+  }), [preset, pIdx, code, nth, reverse]);
   const pickPreset = id => {
     setPreset(id);
     setPIdx(0);
     setCode("");
     setNth(1);
+    setReverse(false);
   };
   const pickCode = nextCode => {
     setCode(nextCode);
@@ -5693,7 +5804,7 @@ const AmmkShiftPanel = p => {
     p.onApply(preset, pIdx, code ? {
       code: code,
       nth: nth
-    } : null);
+    } : null, ammkProfileReversible(prof) ? reverse : false);
   };
   return svEl("div", {
     className: "space-y-2.5",
@@ -5716,6 +5827,10 @@ const AmmkShiftPanel = p => {
       setPIdx(idx);
       setCode("");
     }
+  }), svEl(AmmkDirectionPicker, {
+    profile: prof,
+    value: reverse,
+    onChange: setReverse
   }), svEl(AmmkCalibrate, {
     profile: prof,
     days: plan.days,
@@ -5726,7 +5841,7 @@ const AmmkShiftPanel = p => {
   }), svEl(AmmkPreviewStrip, {
     preview: plan.preview,
     profile: prof,
-    caption: code ? `${ammkBadgeOf(prof, code)} ${nth}일째 기준` : "패턴 첫날 기준"
+    caption: code ? `${ammkBadgeOf(prof, code)} ${nth}일째 기준` : reverse ? "역순 · 패턴 첫날 기준" : "패턴 첫날 기준"
   }), preset === "custom" ? svEl(AmmkCustomShiftEditor, {
     profile: prof,
     custom: p.custom,
@@ -5789,6 +5904,7 @@ const OnboardingScreen = p => {
   const [pIdx, setPIdx] = React.useState(0);
   const [code, setCode] = React.useState("");
   const [nth, setNth] = React.useState(1);
+  const [reverse, setReverse] = React.useState(false);
   const [groupId, setGroupId] = React.useState(""); // 일부러 비워 둔다 — 본인이 직접 고르게
   const [name, setName] = React.useState(() => String(p.name || "").trim());
   const [leave, setLeave] = React.useState(() => svLeaveValue(p.annualLeaveDays));
@@ -5801,7 +5917,9 @@ const OnboardingScreen = p => {
     code: code,
     nth: nth
   } : null;
-  const plan = React.useMemo(() => ammkPlanProfile(preset, pIdx, anchorInfo), [preset, pIdx, code, nth]);
+  const plan = React.useMemo(() => ammkPlanProfile(preset, pIdx, anchorInfo, {
+    reverse: reverse
+  }), [preset, pIdx, code, nth, reverse]);
   const groups = plan.groups;
 
   const nameOk = name.trim().length > 0;
@@ -5825,6 +5943,7 @@ const OnboardingScreen = p => {
     const patch = {
       profileId: preset,
       patternIdx: pIdx,
+      reverse: ammkProfileReversible(prof) ? reverse : false,
       anchor: anchorInfo,
       groupId: groupId,
       name: name.trim()
@@ -5864,6 +5983,7 @@ const OnboardingScreen = p => {
       setPIdx(0);
       setCode("");
       setNth(1);
+      setReverse(false);
       setGroupId("");
     }
   })), svEl("div", {
@@ -5876,6 +5996,12 @@ const OnboardingScreen = p => {
       setCode("");
       setNth(1);
     }
+  })), svEl("div", {
+    className: "mt-2"
+  }, svEl(AmmkDirectionPicker, {
+    profile: prof,
+    value: reverse,
+    onChange: setReverse
   }))), svEl(AmmkCalibrate, {
     profile: prof,
     days: plan.days,
@@ -5889,7 +6015,7 @@ const OnboardingScreen = p => {
   }), svEl(AmmkPreviewStrip, {
     preview: plan.preview,
     profile: prof,
-    caption: code ? `${ammkBadgeOf(prof, code)} ${nth}일째 기준` : "패턴 첫날 기준"
+    caption: code ? `${ammkBadgeOf(prof, code)} ${nth}일째 기준` : reverse ? "역순 · 패턴 첫날 기준" : "패턴 첫날 기준"
   }));
 
   const stepTwoBody = svEl("div", {
@@ -6353,6 +6479,8 @@ function App() {
   // 🧭 AMMK — 지금 고른 근무 형태(프리셋)
   const [shiftPresetId, setShiftPresetId] = useState(() => ammkReadPreset());
   const [shiftPatternIdx, setShiftPatternIdx] = useState(() => Number(ammkReadProfileMeta().patternIdx) || 0);
+  // 🔄 순환 방향 (4조 3교대 전용 · 기본 정순)
+  const [shiftReverse, setShiftReverse] = useState(() => ammkReadReverse());
   const [shiftCustom, setShiftCustom] = useState(() => ammkReadCustom());
   const [shiftProfileOpen, setShiftProfileOpen] = useState(false);
   const [groupManagerOpen, setGroupManagerOpen] = useState(false);
@@ -6865,7 +6993,8 @@ function App() {
   /* 🧭 AMMK — 근무 형태(프리셋) 적용: 패턴·조 편성·기준일·근무 시간을 한 번에 맞춘다 */
   const ammkApplyProfile = (presetId, patternIdx, anchorInfo, opts) => {
     const plan = ammkPlanProfile(presetId, patternIdx, anchorInfo, {
-      groupId: opts && opts.keepGroup
+      groupId: opts && opts.keepGroup,
+      reverse: !!(opts && opts.reverse)
     });
     const keepId = opts && opts.keepGroup && plan.groups.some(g => g.id === opts.keepGroup) ? opts.keepGroup : plan.groups[0].id;
     const prof = plan.profile;
@@ -6894,13 +7023,15 @@ function App() {
     setOverrides({});
     setShiftPresetId(plan.profileId);
     setShiftPatternIdx(plan.patternIdx);
+    setShiftReverse(!!plan.reverse);
     SV_ACTIVE_PROFILE = prof;
     ammkApplyShiftMeta(prof, shiftCustom);
     try {
       localStorage.setItem(AMMK_PROFILE_KEY, plan.profileId);
       ammkWriteJson(AMMK_PROFILE_META_KEY, {
         profileId: plan.profileId,
-        patternIdx: plan.patternIdx
+        patternIdx: plan.patternIdx,
+        reverse: !!plan.reverse
       });
     } catch (e) {}
     return plan;
@@ -6932,7 +7063,7 @@ function App() {
     SV_ACTIVE_PROFILE = prof;
     ammkApplyShiftMeta(prof, shiftCustom);
   }, [shiftPresetId, shiftCustom]);
-  const ammkShiftProfileSummary = `${ammkProfileOf(shiftPresetId).name} · ${pattern.length}일 순환 · ${groups.length}개 조`;
+  const ammkShiftProfileSummary = `${ammkProfileOf(shiftPresetId).name}${ammkProfileReversible(ammkProfileOf(shiftPresetId)) && shiftReverse ? " · 역순" : ""} · ${pattern.length}일 순환 · ${groups.length}개 조`;
 
   /* ---------------------------------------------------------------- v2.5 설비공유 메뉴 공개
      마스터가 끄면 모든 사용자의 하단 메뉴에서 '설비 공유'가 사라지고,
@@ -9368,10 +9499,12 @@ function App() {
   }, svEl(AmmkShiftPanel, {
     profileId: shiftPresetId,
     patternIdx: shiftPatternIdx,
+    reverse: shiftReverse,
     custom: shiftCustom,
-    onApply: (presetId, patternIdx, anchorInfo) => {
+    onApply: (presetId, patternIdx, anchorInfo, reverse) => {
       const plan = ammkApplyProfile(presetId, patternIdx, anchorInfo, {
-        keepGroup: myGroupId
+        keepGroup: myGroupId,
+        reverse: !!reverse
       });
       playSfx("save");
       notify(`${plan.profile.name} 근무 형태로 바뀌었습니다. 달력\u00B7전체 조\u00B7알람\u00B7급여에 바로 적용됩니다.`);
@@ -9407,6 +9540,7 @@ function App() {
   // 🚀 v2.6-preview — 첫 실행 1회 선입력 화면 (필수: 조·이름 / 선택: 연차·시급)
   const onboardingEl = onboardingOpen ? svEl(OnboardingScreen, {
     profileId: shiftPresetId,
+    reverse: shiftReverse,
     groups: groups,
     myGroupId: myGroupId,
     name: cloudSettings.authorName || "",
@@ -9415,7 +9549,8 @@ function App() {
     normalHourly: salarySettings.normalHourly,
     onComplete: patch => {
       if (patch.profileId) ammkApplyProfile(patch.profileId, patch.patternIdx || 0, patch.anchor || null, {
-        keepGroup: patch.groupId
+        keepGroup: patch.groupId,
+        reverse: !!patch.reverse
       });
       if (patch.groupId) setMyGroupId(patch.groupId);
       if (typeof patch.name === 'string' && patch.name) {
