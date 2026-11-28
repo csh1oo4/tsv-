@@ -717,6 +717,26 @@ const Icon = ({
         x2: "13",
         y2: "12.5"
       }));
+    case "meal":
+      // 식단 — 밥그릇 + 젓가락 (모노라인)
+      return /*#__PURE__*/React.createElement("svg", props, /*#__PURE__*/React.createElement("path", {
+        d: "M3.5 11.5h17c0 4.7-3.8 8.5-8.5 8.5S3.5 16.2 3.5 11.5z"
+      }), /*#__PURE__*/React.createElement("line", {
+        x1: "7.5",
+        y1: "20",
+        x2: "16.5",
+        y2: "20"
+      }), /*#__PURE__*/React.createElement("line", {
+        x1: "9.5",
+        y1: "8.8",
+        x2: "17.5",
+        y2: "2.8"
+      }), /*#__PURE__*/React.createElement("line", {
+        x1: "12",
+        y1: "9.2",
+        x2: "20",
+        y2: "3.2"
+      }));
     case "folder":
       return /*#__PURE__*/React.createElement("svg", props, /*#__PURE__*/React.createElement("path", {
         d: "M3 6.5A2.5 2.5 0 0 1 5.5 4H9l2 2.5h7.5A2.5 2.5 0 0 1 21 9v8.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5v-11z"
@@ -1521,14 +1541,33 @@ const DEFAULT_NAV_ITEMS = [{
   label: "알람",
   icon: "alarm"
 }, {
-  id: "board",
-  label: "게시판",
-  icon: "board"
+  id: "meal",
+  label: "식단",
+  icon: "meal"
 }, {
   id: "settings",
   label: "설정",
   icon: "settings"
 }];
+/* v2.6-preview 2026-11-28 승현 님 요청 — 하단 메뉴의 '게시판'을 '식단'으로 바꾸고 게시판은 잠근다.
+   · 게시판 코드(BOARD_CATEGORIES·boardPosts 구독/캐시·글쓰기 모달·상세 모달)는 지우지 않고 그대로 둔다.
+     다시 열어 달라고 하시면 이 값을 true로 되돌리면 된다. */
+const BOARD_TAB_ENABLED = false;
+/* 식단 글 정렬 기준 — Firestore Timestamp·숫자·id(m_<ms>) 어느 쪽이 와도 최신이 위로 오게 한다. */
+const mealPostMs = post => {
+  if (!post) return 0;
+  const direct = Number(post.createdMs);
+  if (isFinite(direct) && direct > 0) return direct;
+  const c = post.createdAt;
+  if (c && typeof c === "object") {
+    if (typeof c.toMillis === "function") return Number(c.toMillis()) || 0;
+    if (typeof c.seconds === "number") return c.seconds * 1000 + Math.floor((Number(c.nanoseconds) || 0) / 1e6);
+  }
+  if (typeof c === "number") return c;
+  const m = String(post.id || "").match(/(\d{10,})/);
+  return m ? Number(m[1]) : 0;
+};
+const sortMealPosts = list => (Array.isArray(list) ? list.slice() : []).sort((a, b) => mealPostMs(b) - mealPostMs(a));
 const INITIAL_GROUPS = [{
   id: "A",
   name: "A조",
@@ -1930,7 +1969,7 @@ const readCloudCache = teamCode => {
     return null;
   }
 };
-const cloudCacheHasData = payload => !!payload && ((payload.boardPosts || []).length > 0 || (payload.equipFolders || []).length > 0 || (payload.equipPosts || []).length > 0 || (payload.equipmentPosts || []).length > 0 || (payload.sharedEvents || []).length > 0);
+const cloudCacheHasData = payload => !!payload && ((payload.boardPosts || []).length > 0 || (payload.mealPosts || []).length > 0 || (payload.equipFolders || []).length > 0 || (payload.equipPosts || []).length > 0 || (payload.equipmentPosts || []).length > 0 || (payload.sharedEvents || []).length > 0);
 const stripCloudCacheImages = payload => {
   const clean = item => {
     if (!item || typeof item !== "object") return item;
@@ -1943,13 +1982,16 @@ const stripCloudCacheImages = payload => {
   return Object.assign({}, payload, {
     boardPosts: (payload.boardPosts || []).map(clean),
     equipPosts: (payload.equipPosts || []).map(clean),
-    equipmentPosts: (payload.equipmentPosts || []).map(clean)
+    equipmentPosts: (payload.equipmentPosts || []).map(clean),
+    // 식단도 사진을 빼고 남긴다(용량이 모자랄 때의 마지막 단계)
+    mealPosts: (payload.mealPosts || []).map(clean)
   });
 };
 const trimCloudCache = payload => Object.assign({}, payload, {
   boardPosts: (payload.boardPosts || []).slice(0, CLOUD_CACHE_TRIM),
   equipPosts: (payload.equipPosts || []).slice(0, CLOUD_CACHE_TRIM),
   equipmentPosts: (payload.equipmentPosts || []).slice(0, CLOUD_CACHE_TRIM),
+  mealPosts: (payload.mealPosts || []).slice(0, 3),
   sharedEvents: (payload.sharedEvents || []).slice(0, CLOUD_CACHE_TRIM * 2)
 });
 const writeCloudCache = (teamCode, payload) => {
@@ -3984,42 +4026,6 @@ const renderAnnualLeaveBlock = p => {
   }, "\u203B \uB2EC\uB825\uC5D0\uC11C \uADFC\uBB34\uB97C \uC5F0\uCC28\u00B7\uBC18\uCC28\uB85C \uBC14\uAFB8\uBA74 \uC0AC\uC6A9\uC77C\uACFC \uC794\uC5EC \uC77C\uC218\uAC00 \uC790\uB3D9\uC73C\uB85C \uBCC0\uACBD\uB429\uB2C8\uB2E4."));
 };
 
-/* ─────────────── v2.6-preview · 📸 근태표 사진 대조 (Gemini API 연동) ───────────────
-   2026-11-26 승현 님 승인: 급여 계산기 안에서 근태시간표 사진을 읽어
-   계산기가 계산한 항목별 시간과 1:1로 맞는지 확인하는 메뉴.
-   · Gemini API 키는 이 브라우저 localStorage(tsv_duty_gemini_key_v1)에만 저장한다.
-     (소스·저장소·Firebase 어디에도 키를 넣지 않는다.)
-   · 사진은 브라우저에서 최대 변 2000px JPEG로 줄인 뒤 Gemini에 한 번 보내고 저장하지 않는다.
-   · 키가 없어도 6개 시간을 직접 입력해 대조할 수 있다. */
-
-/* 2026-11-26 승현 님 실기기 오류 ①:
-   "This model models/gemini-2.5-flash is no longer available to new users.
-    Please update your code to use models/gemini-3.8-flash ..."
-   → 기본 모델을 gemini-3.8-flash 로 바꾸고, 그래도 400/404(모델 없음·종료)이면
-     사용 가능한 모델 목록을 조회해 최신 gemini-*-flash 로 1회 자동 재시도한다.
-   2026-11-26 승현 님 실기기 오류 ②(같은 날):
-   "This model is currently experiencing high demand. Spikes in demand are usually temporary."
-   → 일시적 과부하(503 UNAVAILABLE · 429 RESOURCE_EXHAUSTED · high demand/overloaded/try again later)도
-     폴백 대상에 넣고, 목록에서 상위 flash 후보 최대 3개를 순서대로 시도한다.
-     키·권한·결제 오류는 모델을 바꿔도 같으므로 폴백하지 않고 그대로 안내한다. */
-const SV_GEMINI_MODEL = "gemini-3.8-flash";
-const SV_GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
-const SV_GEMINI_KEY_STORE = "tsv_duty_gemini_key_v1";
-const SV_GEMINI_KEY_HELP = "https://aistudio.google.com/apikey";
-
-const loadGeminiApiKey = () => {
-  try {
-    return localStorage.getItem(SV_GEMINI_KEY_STORE) || "";
-  } catch (e) {
-    return "";
-  }
-};
-const saveGeminiApiKey = key => {
-  try {
-    const v = String(key || "").trim();
-    if (v) localStorage.setItem(SV_GEMINI_KEY_STORE, v);else localStorage.removeItem(SV_GEMINI_KEY_STORE);
-  } catch (e) {}
-};
 
 /* 근태시간표의 6개 시간 열 (급여 계산기 항목과 같은 순서·배수) */
 const SV_PHOTO_FIELDS = [{
@@ -4089,361 +4095,23 @@ const buildPhotoComparison = (photoHours, statement, normalHourly) => {
   };
 };
 
-/* 사진 → 최대 변 2000px JPEG dataURL */
-const svReadPhotoFile = file => new Promise(resolve => {
-  try {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new window.Image();
-      img.onload = () => {
-        try {
-          const max = 2000;
-          const scale = Math.min(1, max / Math.max(img.width || 1, img.height || 1));
-          const w = Math.max(1, Math.round((img.width || 1) * scale));
-          const h = Math.max(1, Math.round((img.height || 1) * scale));
-          const canvas = document.createElement("canvas");
-          canvas.width = w;
-          canvas.height = h;
-          const ctx = canvas.getContext("2d");
-          ctx.drawImage(img, 0, 0, w, h);
-          resolve({
-            dataUrl: canvas.toDataURL("image/jpeg", 0.9),
-            width: w,
-            height: h,
-            fileName: file.name || "attendance.jpg"
-          });
-        } catch (e) {
-          resolve(null);
-        }
-      };
-      img.onerror = () => resolve(null);
-      img.src = reader.result;
-    };
-    reader.onerror = () => resolve(null);
-    reader.readAsDataURL(file);
-  } catch (e) {
-    resolve(null);
-  }
-});
-
-const svGeminiPrompt = name => ["\uCC99\uBD80\uD55C \uADFC\uD0DC\uC2DC\uAC04\uD45C(\uCD9C\uD1F4\uADFC \uAE30\uB85D\uD45C) \uC0AC\uC9C4\uC5D0\uC11C \"" + name + "\" \uB2D8\uC758 \uD589\uC744 \uCC3E\uC544 \uD569\uACC4(\uACC4) \uC5F4\uC758 \uAC12\uC744 \uC77D\uC5B4\uC918.",
-  "",
-  "\uC0AC\uC9C4\uC774 90\uB3C4 \uB610\uB294 \uC5EC\uB7EC \uBC29\uD5A5\uC73C\uB85C \uD68C\uC804\uB418\uC5B4 \uC788\uC744 \uC218 \uC788\uB2E4. \uD45C \uBA38\uB9AC\uAE00\uC758 \uC5F4 \uC774\uB984\uACFC \uBC30\uC218\uB97C \uAE30\uC900\uC73C\uB85C \uC5F4\uC744 \uB9DE\uCDB0\uB77C:",
-  "\uC2EC\uC57C(0.5), \uD1A0\uC694\uC2EC\uC57C(0.5), \uC5F0\uC7A5(1.5), \uC2EC\uC57C\uC5F0\uC7A5(1.5), \uD734\uC77C\uC5F0\uC7A5(2.0), \uD734\uC77C\uC2EC\uC57C\uC5F0\uC7A5(2.0), \uC18C\uACC4(\uACC4)",
-  "",
-  "\uC775\uB2E4\uC74C JSON \uD615\uC2DD\uB9CC \uCD9C\uB825\uD574. \uAC12\uC740 \uC2DC\uAC04(h) \uC22B\uC790\uB9CC \uC4F0\uACE0, \uD45C\uC5D0 \uC801\uD78C \uADF8\uB300\uB85C \uC801\uC5B4. \uBE48\uCE78\uC740 0, \uD574\uB2F9 \uC774\uB984\uC744 \uCC3E\uC9C0 \uBABB\uD558\uBA74 \uBAA8\uB4E0 \uAC12\uC744 null.",
-  '{"name":"' + name + '","night":0,"satNight":0,"ot":0,"nightEx":0,"holEx":0,"holNightEx":0,"total":0,"confidence":"high|medium|low"}',
-  "",
-  "\uC8FC\uC758: \uC606\uAC04 \uD589\uC744 \uB2E4\uB978 \uC0AC\uB78C\uACFC \uD5F7\uAC08\uB9AC\uC9C0 \uB9D0\uACE0 \uC774\uB984\uC774 \uC815\uD655\uD788 \uC77C\uCE58\uD558\uB294 \uD589\uB9CC \uC77D\uB294\uB2E4. \uC22B\uC790\uB97C \uCD94\uCE21\uD558\uC9C0 \uB9D0\uACE0 \uBCF4\uC774\uB294 \uAC12\uC744 \uADF8\uB300\uB85C \uC801\uB294\uB2E4."].join("\n");
-
-/* ── 모델 자동 폴백 ─────────────────────────────────────────────────────────
-   폴백하는 경우
-     ① 모델이 없거나 종료됨 (400 NOT_FOUND / 404 / "no longer available")
-     ② 구글 쪽 일시 폭주·과부하 (503 UNAVAILABLE · 429 · RESOURCE_EXHAUSTED ·
-        "high demand" / "overloaded" / "try again later")
-   ②는 다른 모델은 멀쩡한 경우가 많아 모델을 바꾸면 통한다.
-   폴백하지 않는 경우(같은 키·같은 요청으로 다시 불러도 결과가 같다)
-     API 키 오류(API_KEY_INVALID) · 권한(403 PERMISSION_DENIED) · 결제/쿼터 설정 · 잘못된 요청 */
-const svGeminiErrorParts = data => {
-  const err = data && data.error || {};
-  return {
-    message: String(err.message || ""),
-    reason: String(err.status || "")
-  };
-};
-
-/* 키·권한처럼 '모델을 바꿔도 소용없는' 오류.
-   ※ 쿼터(429 RESOURCE_EXHAUSTED)는 모델마다 따로 잡혀 있어 다른 모델은 통할 수 있으므로
-     여기 넣지 않는다(폴백 대상). 결제 미설정은 보통 403 PERMISSION_DENIED 로 오므로 함께 걸린다. */
-const svGeminiHardError = (status, data) => {
-  const p = svGeminiErrorParts(data);
-  if (/api[_ ]?key|permission|unauthenticated|not authorized/i.test(p.message)) return true;
-  if (p.reason === "API_KEY_INVALID" || p.reason === "PERMISSION_DENIED" || p.reason === "UNAUTHENTICATED" || p.reason === "INVALID_ARGUMENT") return true;
-  return status === 401 || status === 403;
-};
-
-/* 모델이 없거나 종료됨 */
-const svGeminiModelUnavailable = (status, data) => {
-  if (svGeminiHardError(status, data)) return false;
-  const p = svGeminiErrorParts(data);
-  if (status === 404) return true;
-  if (status !== 400) return false;
-  return p.reason === "NOT_FOUND" || /not found|not supported|no longer available|not available to new users|unsupported|invalid model|deprecated|is not available|does not exist/i.test(p.message);
-};
-
-/* 구글 쪽 일시 폭주·과부하 (같은 키로 다른 모델을 부르면 통할 수 있다) */
-const svGeminiOverloaded = (status, data) => {
-  if (svGeminiHardError(status, data)) return false;
-  const p = svGeminiErrorParts(data);
-  if (status === 429 || status === 500 || status === 502 || status === 503 || status === 504) return true;
-  if (p.reason === "UNAVAILABLE" || p.reason === "RESOURCE_EXHAUSTED" || p.reason === "INTERNAL" || p.reason === "DEADLINE_EXCEEDED") return true;
-  return /high demand|overload|try again later|temporar|capacity|too many requests|server (is )?busy/i.test(p.message);
-};
-
-const svGeminiShouldFallback = (status, data) => svGeminiModelUnavailable(status, data) || svGeminiOverloaded(status, data);
-
-/* 모델 이름 점수 — 버전이 높을수록, 이름이 -flash 로 끝날수록 높다.
-   lite·preview·experimental·pro·임베딩 계열은 뒤로 밀어 둔다. */
-const svGeminiModelScore = name => {
-  const id = String(name || "").replace(/^models\//, "");
-  const m = id.match(/gemini-(\d+(?:\.\d+)?)/i);
-  if (!m) return -1;
-  let score = parseFloat(m[1]) * 100;
-  if (/-flash$/i.test(id)) score += 40;else if (/flash/i.test(id)) score += 20;else score -= 20;
-  if (/lite/i.test(id)) score -= 35;
-  if (/pro/i.test(id)) score -= 60;
-  if (/(embedding|embed|aqa|image|tts|live|native-audio|vision|imagen|veo)/i.test(id)) score -= 200;
-  if (/(preview|exp|experimental|thinking|latest)/i.test(id)) score -= 8;
-  if (/-(\d{3})$/i.test(id)) score -= 3;
-  return score;
-};
-
-/* generateContent 가 되는 gemini-* flash 계열만, 버전 높은 순으로 최대 limit 개 */
-const svGeminiModelIdOf = name => String(name || "").replace(/^models\//, "");
-const svGeminiUsableModel = m => {
-  const id = svGeminiModelIdOf(m && m.name);
-  const methods = m && m.supportedGenerationMethods || [];
-  if (!id || !/gemini-/i.test(id) || !/flash/i.test(id)) return false;
-  if (/(embedding|embed|aqa|tts|live|native-audio|imagen|veo)/i.test(id)) return false;
-  return methods.indexOf("generateContent") >= 0;
-};
-const svPickGeminiFallbackModels = (models, exclude, limit) => {
-  const skip = {};
-  (Array.isArray(exclude) ? exclude : [exclude]).forEach(x => {
-    const id = svGeminiModelIdOf(x);
-    if (id) skip[id] = true;
-  });
-  const seen = {};
-  const usable = [];
-  (models || []).forEach(m => {
-    const id = svGeminiModelIdOf(m && m.name);
-    if (!svGeminiUsableModel(m) || skip[id] || seen[id]) return;
-    seen[id] = true;
-    usable.push(id);
-  });
-  usable.sort((a, b) => svGeminiModelScore(b) - svGeminiModelScore(a));
-  const max = typeof limit === "number" && limit > 0 ? limit : 3;
-  return usable.slice(0, max);
-};
-const svPickGeminiFallbackModel = (models, exclude) => svPickGeminiFallbackModels(models, exclude, 1)[0] || "";
-const SV_GEMINI_MAX_FALLBACKS = 3;
-
-/* 사용 가능한 모델 목록 (키가 살아 있어야 응답한다) */
-const svGeminiListModels = async apiKey => {
-  const res = await fetch(SV_GEMINI_BASE + "?pageSize=200&key=" + encodeURIComponent(apiKey), {
-    method: "GET"
-  });
-  let data = null;
-  try {
-    data = await res.json();
-  } catch (e) {}
-  if (!res.ok) throw new Error("Gemini \uBAA8\uB378 \uBAA9\uB85D \uC870\uD68C \uC2E4\uD328: HTTP " + res.status);
-  return data && data.models || [];
-};
-
-/* Gemini REST 호출 — 사진에서 이름 행의 6개 시간 + 소계를 JSON으로 받는다.
-   돌려주는 값: { result, model, fallback, tried }
-   (fallback=true 면 기본 모델이 막혀 다른 모델로 자동 전환했다는 뜻) */
-const svGeminiReadAttendance = async opts => {
-  const apiKey = String(opts.apiKey || "").trim();
-  const name = String(opts.name || "").trim();
-  if (!apiKey) throw new Error("Gemini API \uD0A4\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4. AI Studio\uC5D0\uC11C \uBB34\uB8CC \uD0A4\uB97C \uBC1C\uAE09\uBC1B\uC544 \uC785\uB825\uD574 \uC8FC\uC138\uC694.");
-  if (!name) throw new Error("\uC774\uB984\uC744 \uC785\uB825\uD574 \uC8FC\uC138\uC694.");
-  const dataUrl = opts.image && opts.image.dataUrl;
-  if (!dataUrl) throw new Error("\uADFC\uD0DC\uD45C \uC0AC\uC9C4\uC744 \uBA3C\uC800 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.");
-  const base64 = String(dataUrl).split(",")[1] || "";
-  const payload = JSON.stringify({
-    contents: [{
-      role: "user",
-      parts: [{
-        text: svGeminiPrompt(name)
-      }, {
-        inline_data: {
-          mime_type: "image/jpeg",
-          data: base64
-        }
-      }]
-    }],
-    generationConfig: {
-      temperature: 0,
-      responseMimeType: "application/json"
-    }
-  });
-  const callModel = async model => {
-    const res = await fetch(SV_GEMINI_BASE + "/" + encodeURIComponent(model) + ":generateContent?key=" + encodeURIComponent(apiKey), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: payload
-    });
-    let data = null;
-    try {
-      data = await res.json();
-    } catch (e) {}
-    return {
-      ok: res.ok,
-      status: res.status,
-      data: data,
-      model: model
-    };
-  };
-  const errorText = r => {
-    const d = r.data;
-    return d && d.error && d.error.message ? d.error.message : "HTTP " + r.status;
-  };
-  const onProgress = typeof opts.onProgress === "function" ? opts.onProgress : () => {};
-  const tried = [];
-  const attempt = async model => {
-    const res = await callModel(model);
-    tried.push({
-      model: res.model,
-      status: res.status,
-      ok: res.ok
-    });
-    return res;
-  };
-  let used = await attempt(SV_GEMINI_MODEL);
-  let last = used;
-  if (!used.ok && svGeminiShouldFallback(used.status, used.data)) {
-    // 모델 종료·미지원 또는 구글 폭주 → 목록에서 상위 gemini-*-flash 후보를 골라 순서대로 시도
-    const busy = svGeminiOverloaded(used.status, used.data);
-    let models = [];
-    try {
-      models = await svGeminiListModels(apiKey);
-    } catch (e) {
-      models = []; // 목록 조회까지 실패하면 첫 응답의 오류를 그대로 보여 준다
-    }
-    const candidates = svPickGeminiFallbackModels(models, [used.model, SV_GEMINI_MODEL], SV_GEMINI_MAX_FALLBACKS);
-    for (let i = 0; i < candidates.length; i++) {
-      const cand = candidates[i];
-      onProgress((busy ? "\uAD6C\uAE00 \uC11C\uBC84\uC5D0 \uC694\uCCAD\uC774 \uBAB0\uB838\uC2B5\uB2C8\uB2E4(503). " : "") + "\uB2E4\uB978 Gemini \uBAA8\uB378\uB85C \uC790\uB3D9 \uC7AC\uC2DC\uB3C4 \uC911\u2026 (" + (i + 1) + "/" + candidates.length + " \u00B7 " + cand + ")");
-      const next = await attempt(cand);
-      last = next;
-      if (next.ok) {
-        used = next;
-        break;
-      }
-      // 키·권한·결제 오류면 다음 모델도 같은 결과라 여기서 멈춘다
-      if (!svGeminiShouldFallback(next.status, next.data)) break;
-    }
-  }
-  if (!used.ok) {
-    const extra = tried.length > 1 ? " (\uC790\uB3D9 \uC804\uD658 \uC2DC\uB3C4: " + tried.map(t => t.model + " " + t.status).join(" \u2192 ") + ")" : "";
-    // 마지막으로 받은 응답의 오류를 그대로 보여 준다(권한·키 오류로 끝났다면 그 이유가 보이게)
-    const hint = svGeminiOverloaded(last.status, last.data) ? " \u274C \uC9C0\uAE08 \uAD6C\uAE00 \uCABD\uC5D0 \uC694\uCCAD\uC774 \uBAB0\uB9B4 \uC0C1\uD0DC\uC785\uB2C8\uB2E4. 10~30\uCD08 \uB4A4 \uB2E4\uC2DC \uB204\uB974\uBA74 \uB300\uAC1C \uB429\uB2C8\uB2E4." : "";
-    throw new Error("Gemini \uC751\uB2F5 \uC624\uB958: " + errorText(last) + extra + hint);
-  }
-  const data = used.data;
-  const parts = data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts || [];
-  const text = parts.map(pp => pp && pp.text || "").join("");
-  let parsed = null;
-  try {
-    parsed = JSON.parse(text);
-  } catch (e) {
-    const m = String(text).match(/\{[\s\S]*\}/);
-    if (m) {
-      try {
-        parsed = JSON.parse(m[0]);
-      } catch (e2) {}
-    }
-  }
-  if (!parsed) throw new Error("\uC0AC\uC9C4\uC5D0\uC11C \uD45C\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uD45C\uAC00 \uC120\uBA85\uD558\uAC8C \uB098\uC624\uB3C4\uB85D \uB2E4\uC2DC \uCC0D\uC5B4 \uC8FC\uC138\uC694.");
-  return {
-    result: parsed,
-    model: used.model,
-    fallback: used.model !== SV_GEMINI_MODEL,
-    tried: tried
-  };
-};
-
-/* 📸 근태표 사진 대조 패널 (자체 상태를 가진 컴포넌트) */
+/* ─────────────── v2.6-preview · 📋 근태표 시간 대조 ───────────────
+   2026-11-28 승현 님 요청:
+     "그리고 근태표 사진대조는 없애주고 대신 6가지 항목 직접 기입만 남겨줘"
+   · 근태시간표에 적힌 6가지 시간(심야·토요심야·연장·심야연장·휴일연장·휴일심야연장)을
+     직접 입력하면 계산기가 계산한 항목별 시간·금액과 바로 대조한다.
+   · 사진 업로드·Gemini API 키 입력은 없앴다. 사진도 키도 어디에도 저장하지 않는다. */
 const AttendanceComparePanel = props => {
   const statement = props.statement;
   const normalHourly = props.normalHourly;
-  const [apiKey, setApiKey] = React.useState(() => loadGeminiApiKey());
-  const [nameInput, setNameInput] = React.useState(() => (props.defaultName || "").trim());
-  const [image, setImage] = React.useState(null);
   const [photoHours, setPhotoHours] = React.useState(svPhotoEmptyHours);
-  const [status, setStatus] = React.useState({
-    state: "idle",
-    message: ""
-  });
-  const [busy, setBusy] = React.useState(false);
   const comparison = buildPhotoComparison(photoHours, statement, normalHourly);
   const setHoursField = (key, value) => {
     setPhotoHours(prev => Object.assign({}, prev, {
       [key]: value
     }));
   };
-  const onPickFile = async e => {
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-    setStatus({
-      state: "busy",
-      message: "\uC0AC\uC9C4\uC744 \uC815\uB9AC\uD558\uB294 \uC911\u2026"
-    });
-    const photo = await svReadPhotoFile(file);
-    if (!photo) {
-      setImage(null);
-      setStatus({
-        state: "error",
-        message: "\uC774\uBBF8\uC9C0\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. JPG\u00B7PNG \uD30C\uC77C\uB85C \uB2E4\uC2DC \uC120\uD0DD\uD574 \uC8FC\uC138\uC694."
-      });
-      return;
-    }
-    setImage(photo);
-    setStatus({
-      state: "idle",
-      message: "\uC0AC\uC9C4 \uC900\uBE44 \uC644\uB8CC (" + photo.width + "\u00D7" + photo.height + "px)"
-    });
-  };
-  const onRead = async () => {
-    setBusy(true);
-    setStatus({
-      state: "busy",
-      message: "\uC0AC\uC9C4\uC744 \uC77D\uB294 \uC911\uC785\uB2C8\uB2E4\u2026 10~20\uCD08 \uAC78\uB9B4 \uC218 \uC788\uC2B5\uB2C8\uB2E4."
-    });
-    try {
-      const read = await svGeminiReadAttendance({
-        apiKey: apiKey,
-        name: nameInput,
-        image: image,
-        onProgress: message => setStatus({
-          state: "warn",
-          message: message
-        })
-      });
-      const parsed = read.result;
-      const next = svPhotoEmptyHours();
-      SV_PHOTO_FIELDS.forEach(f => {
-        const v = parsed[f.key];
-        next[f.key] = v === null || v === undefined || v === "" ? "" : String(Math.round(salaryNum(v) * 10) / 10);
-      });
-      setPhotoHours(next);
-      const readCount = SV_PHOTO_FIELDS.filter(f => next[f.key] !== "").length;
-      const modelNote = read.fallback ? " (\uBAA8\uB378 " + read.model + " \uC790\uB3D9 \uC804\uD658)" : "";
-      setStatus({
-        state: readCount ? "ok" : "warn",
-        message: readCount ? nameInput + " \uB2D8 " + readCount + "\uAC1C \uD56D\uBAA9\uC744 \uC77D\uC5C8\uC2B5\uB2C8\uB2E4. \uAC12\uC774 \uB9DE\uB294\uC9C0 \uD655\uC778\uD574 \uC8FC\uC138\uC694." + (parsed && parsed.confidence ? " (\uC2E0\uB8B0\uB3C4 " + parsed.confidence + ")" : "") + modelNote : "\uC774\uB984\uC744 \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC774\uB984\uC744 \uD655\uC778\uD558\uAC70\uB098 \uC9C1\uC811 \uC785\uB825\uD574 \uC8FC\uC138\uC694." + modelNote
-      });
-    } catch (err) {
-      setStatus({
-        state: "error",
-        message: String(err && err.message || err)
-      });
-    } finally {
-      setBusy(false);
-    }
-  };
-  const resetHours = () => {
-    setPhotoHours(svPhotoEmptyHours());
-    setStatus({
-      state: "idle",
-      message: ""
-    });
-  };
-  const toneOf = state => state === "error" ? "bg-rose-50 border-rose-200 text-rose-700" : state === "ok" ? "bg-emerald-50 border-emerald-200 text-emerald-700" : state === "warn" ? "bg-amber-50 border-amber-200 text-amber-700" : "bg-slate-50 border-slate-200 text-slate-500";
+  const resetHours = () => setPhotoHours(svPhotoEmptyHours());
   return svEl("section", {
     className: "p-4 rounded-2xl bg-white border border-indigo-200/80 space-y-3",
     "data-testid": "compare-panel"
@@ -4453,84 +4121,17 @@ const AttendanceComparePanel = props => {
     className: "min-w-0"
   }, svEl("h3", {
     className: "text-sm font-extrabold text-slate-900"
-  }, "\uD83D\uDCF8 \uADFC\uD0DC\uD45C \uC0AC\uC9C4 \uB300\uC870"), svEl("p", {
+  }, "📋 근태표 시간 대조"), svEl("p", {
     className: "text-[10.5px] text-slate-500 mt-0.5 leading-relaxed"
-  }, "\uADFC\uD0DC\uC2DC\uAC04\uD45C \uC0AC\uC9C4\uC5D0\uC11C \uB0B4 \uC904\uC744 \uC77D\uC5B4 \uACC4\uC0B0\uAE30\uC640 \uD56D\uBAA9\uBCC4 \uC2DC\uAC04\uC774 \uB9DE\uB294\uC9C0 \uD655\uC778\uD569\uB2C8\uB2E4.")), svEl("span", {
+  }, "근태표의 6가지 시간 항목을 직접 입력하면 계산기와 맞는지 바로 대조합니다.")), svEl("span", {
     className: "shrink-0 px-2 py-0.5 rounded-full bg-indigo-50 border border-indigo-200 text-[9.5px] font-extrabold text-indigo-700 whitespace-nowrap"
-  }, statement ? statement.rangeLabel : "\uAE30\uAC04 \uACC4\uC0B0 \uC804")), svEl("div", {
-    className: "rounded-xl bg-indigo-50/60 border border-indigo-100 p-2.5 space-y-1.5"
-  }, svEl("label", {
-    className: "text-[10.5px] font-extrabold text-indigo-800"
-  }, "Gemini API \uD0A4 (\uC774 \uAE30\uAE30\uC5D0\uB9CC \uC800\uC7A5)"), svEl("div", {
-    className: "flex items-center gap-1.5"
-  }, svEl("input", {
-    type: "password",
-    value: apiKey,
-    onChange: e => {
-      setApiKey(e.target.value);
-      saveGeminiApiKey(e.target.value);
-    },
-    placeholder: "AIza\u2026",
-    autoComplete: "off",
-    spellCheck: false,
-    "data-testid": "compare-api-key",
-    className: "flex-1 min-w-0 px-2.5 py-2 rounded-xl bg-white border border-indigo-200 text-[12px] font-bold text-slate-900"
-  }), svEl("a", {
-    href: SV_GEMINI_KEY_HELP,
-    target: "_blank",
-    rel: "noopener noreferrer",
-    className: "px-2.5 py-2 rounded-xl bg-white border border-indigo-200 text-[10.5px] font-extrabold text-indigo-700 whitespace-nowrap"
-  }, "\uD0A4 \uBC1C\uAE09")), svEl("p", {
-    className: "text-[9.5px] leading-relaxed text-indigo-700/80"
-  }, "Google AI Studio(aistudio.google.com/apikey)\uC5D0\uC11C \uD3C9\uC0DD \uBB34\uB8CC \uD0A4\uB97C \uBC1C\uAE09\uBC1B\uC744 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uD0A4\uB294 \uC774 \uBE0C\uB77C\uC6B0\uC800\uC5D0\uB9CC \uC800\uC7A5\uB418\uACE0 \uC11C\uBC84\u00B7\uD300 \uACF5\uC720\uB85C \uC804\uC1A1\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.")), svEl("div", {
-    className: "grid grid-cols-2 gap-1.5"
-  }, svEl("div", null, svEl("label", {
-    className: "text-[10px] font-bold text-slate-500"
-  }, "\uC774\uB984"), svEl("input", {
-    type: "text",
-    value: nameInput,
-    onChange: e => setNameInput(e.target.value),
-    placeholder: "\uC608: \uCD5C\uC2B9\uD604",
-    "data-testid": "compare-name",
-    className: "mt-0.5 w-full px-2.5 py-2 rounded-xl bg-white border border-slate-200 text-[12px] font-bold text-slate-900"
-  })), svEl("div", null, svEl("label", {
-    className: "text-[10px] font-bold text-slate-500"
-  }, "\uADFC\uD0DC\uD45C \uC0AC\uC9C4"), svEl("label", {
-    "data-testid": "compare-file-label",
-    className: "mt-0.5 w-full px-2.5 py-2 rounded-xl bg-white border border-slate-200 text-[11px] font-extrabold text-slate-700 flex items-center justify-center gap-1 cursor-pointer truncate"
-  }, "\uD83D\uDCF7 " + (image ? "\uC0AC\uC9C4 \uBCC0\uACBD" : "\uC0AC\uC9C4 \uC120\uD0DD"), svEl("input", {
-    type: "file",
-    accept: "image/*",
-    onChange: onPickFile,
-    "data-testid": "compare-file",
-    className: "hidden"
-  })))), image ? svEl("img", {
-    src: image.dataUrl,
-    alt: "\uADFC\uD0DC\uD45C \uC0AC\uC9C4",
-    "data-testid": "compare-preview",
-    className: "w-full max-h-40 object-contain rounded-xl border border-slate-200 bg-slate-50"
-  }) : null, svEl("div", {
-    className: "flex items-center gap-1.5"
-  }, svEl("button", {
-    type: "button",
-    onClick: onRead,
-    disabled: busy,
-    "data-testid": "compare-read",
-    className: `flex-1 py-2.5 rounded-xl text-[12px] font-extrabold text-white ${busy ? "bg-indigo-300" : "bg-indigo-600"}`
-  }, busy ? "\uC77D\uB294 \uC911\u2026" : "\uD83D\uDD0D \uC0AC\uC9C4 \uC77D\uACE0 \uB300\uC870\uD558\uAE30"), svEl("button", {
-    type: "button",
-    onClick: resetHours,
-    className: "px-3 py-2.5 rounded-xl bg-white border border-slate-200 text-[11px] font-extrabold text-slate-600 whitespace-nowrap"
-  }, "\uCD08\uAE30\uD654")), status.state !== "idle" && status.message ? svEl("p", {
-    className: `px-2.5 py-2 rounded-xl border text-[10.5px] font-bold leading-relaxed ${toneOf(status.state)}`,
-    "data-testid": "compare-status"
-  }, status.message) : null, svEl("div", null, svEl("div", {
+  }, statement ? statement.rangeLabel : "기간 계산 전")), svEl("div", null, svEl("div", {
     className: "flex items-center justify-between mb-1"
   }, svEl("span", {
     className: "text-[10.5px] font-extrabold text-slate-700"
-  }, "\uD45C\uC5D0\uC11C \uC77D\uC740 \uC2DC\uAC04 (\uC9C1\uC811 \uC218\uC815 \uAC00\uB2A5)"), svEl("span", {
+  }, "근태표 시간 (직접 입력)"), svEl("span", {
     className: "text-[9.5px] font-bold text-slate-400"
-  }, "\uC2DC\uAC04(h)")), svEl("div", {
+  }, "시간(h)")), svEl("div", {
     className: "grid grid-cols-3 gap-1.5"
   }, SV_PHOTO_FIELDS.map(f => svEl("div", {
     key: f.key
@@ -4545,7 +4146,7 @@ const AttendanceComparePanel = props => {
     min: "0",
     value: photoHours[f.key],
     onChange: e => setHoursField(f.key, e.target.value),
-    placeholder: "\u2014",
+    placeholder: "—",
     "data-testid": "compare-hour-" + f.key,
     className: "mt-0.5 w-full px-2 py-1.5 rounded-lg bg-white border border-slate-200 text-[12px] font-extrabold text-slate-900 text-right"
   }))))), comparison.anyPhoto ? svEl("div", {
@@ -4555,18 +4156,18 @@ const AttendanceComparePanel = props => {
     className: "px-3 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-2"
   }, svEl("span", {
     className: "text-[11px] font-extrabold text-slate-700"
-  }, "\uD56D\uBAA9\uBCC4 \uB300\uC870"), svEl("span", {
+  }, "항목별 대조"), svEl("span", {
     className: `px-2 py-0.5 rounded-full text-[10px] font-extrabold ${comparison.matched ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}`,
     "data-testid": "compare-badge"
-  }, comparison.matched ? "\u2705 \uC77C\uCE58" : "\u26A0\uFE0F \uCC28\uC774 \uC788\uC74C")), svEl("div", {
+  }, comparison.matched ? "✅ 일치" : "⚠️ 차이 있음")), svEl("div", {
     className: "px-3 py-1.5 bg-white border-b border-slate-100 grid grid-cols-[1fr,44px,50px,46px] gap-1 text-[9.5px] font-extrabold text-slate-400"
-  }, svEl("span", null, "\uD56D\uBAA9"), svEl("span", {
+  }, svEl("span", null, "항목"), svEl("span", {
     className: "text-right"
-  }, "\uC0AC\uC9C4"), svEl("span", {
+  }, "근태표"), svEl("span", {
     className: "text-right"
-  }, "\uACC4\uC0B0\uAE30"), svEl("span", {
+  }, "계산기"), svEl("span", {
     className: "text-right"
-  }, "\uCC28\uC774")), svEl("div", {
+  }, "차이")), svEl("div", {
     className: "divide-y divide-slate-100"
   }, comparison.fields.map(f => svEl("div", {
     key: f.key,
@@ -4591,22 +4192,29 @@ const AttendanceComparePanel = props => {
     className: "flex items-center justify-between gap-2"
   }, svEl("span", {
     className: "text-[10.5px] font-bold text-slate-500"
-  }, "\uC608\uC0C1 \uC138\uC804 (\uAE30\uBCF8\uAE09 \uD3EC\uD568)"), svEl("span", {
+  }, "예상 세전 (기본급 포함)"), svEl("span", {
     className: "text-[11.5px] font-extrabold text-slate-800 text-right",
     "data-testid": "compare-gross"
-  }, salaryWon(comparison.photoGross), "\uC6D0 / ", salaryWon(comparison.calcGross), "\uC6D0")), svEl("div", {
+  }, salaryWon(comparison.photoGross), "원 / ", salaryWon(comparison.calcGross), "원")), svEl("div", {
     className: "flex items-center justify-between gap-2"
   }, svEl("span", {
     className: "text-[10.5px] font-bold text-slate-500"
-  }, "\uCC28\uC774"), svEl("span", {
+  }, "차이"), svEl("span", {
     className: `text-[12px] font-extrabold ${comparison.grossDiff === 0 ? "text-emerald-600" : "text-rose-600"}`,
     "data-testid": "compare-gross-diff"
-  }, comparison.grossDiff === 0 ? "\uC77C\uCE58 (+0\uC6D0)" : (comparison.grossDiff > 0 ? "+" : "\u2212") + salaryWon(Math.abs(comparison.grossDiff)) + "\uC6D0")))) : svEl("p", {
+  }, comparison.grossDiff === 0 ? "일치 (+0원)" : (comparison.grossDiff > 0 ? "+" : "−") + salaryWon(Math.abs(comparison.grossDiff)) + "원")))) : svEl("p", {
     className: "px-2.5 py-3 rounded-xl bg-slate-50 border border-dashed border-slate-200 text-[10.5px] font-bold text-slate-400 text-center",
     "data-testid": "compare-empty"
-  }, "\uC0AC\uC9C4\uC744 \uC77D\uAC70\uB098 \uC704 6\uAC1C \uC2DC\uAC04\uC744 \uC785\uB825\uD558\uBA74 \uACC4\uC0B0\uAE30\uC640 \uBE44\uAD50\uD45C\uAC00 \uB098\uD0C0\uB0A9\uB2C8\uB2E4."), svEl("p", {
-    className: "text-[9.5px] leading-relaxed text-slate-400"
-  }, "\u203B \uC0AC\uC9C4\uC740 \uC774 \uAE30\uAE30\uC5D0\uC11C \uCD5C\uB300 \uBCC0 2000px JPEG\uB85C \uC904\uC5EC Gemini\uC5D0 \uD55C \uBC88 \uBCF4\uB0B4\uACE0 \uC800\uC7A5\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uAE30\uBCF8\uAE09\uC740 \uC0AC\uC9C4\uC5D0 \uC5C6\uC5B4 \uACC4\uC0B0\uAE30 \uAC12\uC744 \uADF8\uB300\uB85C \uC4F1\uB2C8\uB2E4."));
+  }, "위 6개 시간을 입력하면 계산기와 비교표가 나타납니다."), svEl("div", {
+    className: "flex items-end justify-between gap-2"
+  }, svEl("p", {
+    className: "flex-1 text-[9.5px] leading-relaxed text-slate-400"
+  }, "※ 근태표에 적힌 시간을 그대로 옮겨 적으면 됩니다. 기본급은 근태표에 없어 계산기 값을 그대로 씁니다."), svEl("button", {
+    type: "button",
+    onClick: resetHours,
+    "data-testid": "compare-reset",
+    className: "shrink-0 px-3 py-2 rounded-xl bg-slate-100 text-[11px] font-extrabold text-slate-600 whitespace-nowrap"
+  }, "초기화")));
 };
 
 /* ─────────────── v2.6-preview · 🚀 첫 실행 1회 입력(온보딩) 화면 ───────────────
@@ -4893,7 +4501,7 @@ const OnboardingScreen = p => {
    · 어느 페이지에서든 '건너뛰기' 또는 닫기(✕)로 끄면 '1'을 저장해 다시 자동으로 뜨지 않는다.
    · 설정 탭 '👑 마스터 관리자 권한' 바로 위의 '📖 앱 사용 가이드(튜토리얼 다시 보기)' 카드로
      언제든 1페이지부터 다시 볼 수 있다.
-   · 4페이지: ① 달력·전체 조·날씨 ② 교대 알람 ③ 급여 계산기·명세서·근태표 사진 대조 ④ 조원 공유·게시판·위젯 */
+   · 4페이지: ① 달력·전체 조·날씨 ② 교대 알람 ③ 급여 계산기·명세서·근태표 시간 대조 ④ 조원 공유·위젯 */
 
 const SV_TUTORIAL_KEY = "tsv_duty_tutorial_done_v1";
 
@@ -4951,7 +4559,7 @@ const SV_TUTORIAL_PAGES = [{
 }, {
   id: "salary",
   icon: "💰",
-  title: "자동 월급 계산기 + 근태표 사진 대조",
+  title: "자동 월급 계산기 + 근태표 시간 대조",
   lead: "전월 16일 ~ 당월 15일 기준으로 예상 급여와 실수령액을 자동 계산합니다.",
   must: true,
   points: [{
@@ -4962,7 +4570,7 @@ const SV_TUTORIAL_PAGES = [{
     text: "명세서 상세 보기 — 항목별 금액과 일별 계산 근거(조퇴·연차·무급휴가 반영)를 한 장에"
   }, {
     icon: "🤖",
-    text: "Gemini AI 사진 한 장으로 근태표 자동 대조 — 근태시간·금액 차이를 항목별로 표시"
+    text: "근태표 6가지 시간을 직접 입력하면 계산기와 항목별·금액 차이를 바로 대조"
   }, {
     icon: "🔐",
     text: "급여·근태 정보는 내 폰 브라우저에만 저장 (서버 전송 없음)"
@@ -5136,6 +4744,14 @@ function App() {
   const [memos, setMemos] = useState(() => loadState("memos", INITIAL_MEMOS));
   const [monthlyMemos, setMonthlyMemos] = useState(() => loadState("monthlyMemos", {}));
   const [posts, setPosts] = useState(() => loadState("posts", INITIAL_POSTS));
+  // 🍽 v2.6-preview — 식단: 올린 사진 중 가장 최근 것이 탭 첫 화면에 바로 보인다.
+  const [mealPosts, setMealPosts] = useState(() => loadState("mealPosts", []));
+  const [mealEditorOpen, setMealEditorOpen] = useState(false);
+  const [mealForm, setMealForm] = useState({
+    image: null,
+    memo: ""
+  });
+  const [mealDeleteTarget, setMealDeleteTarget] = useState(null);
   const [equipFolders, setEquipFolders] = useState(() => loadState("equipFolders", INITIAL_EQUIP_FOLDERS));
   const [alarms, setAlarms] = useState(() => loadState("alarms", INITIAL_ALARMS));
 
@@ -5188,6 +4804,7 @@ function App() {
     board: null,
     events: null,
     boardPosts: [],
+    mealPosts: [],
     equipFolders: [],
     equipPosts: [],
     legacyEquipPosts: [],
@@ -5200,9 +4817,17 @@ function App() {
   const [navItems, setNavItems] = useState(() => {
     const savedOrder = loadState("navOrder", null);
     if (Array.isArray(savedOrder) && savedOrder.length > 0) {
-      const mapped = savedOrder.map(id => DEFAULT_NAV_ITEMS.find(item => item.id === id)).filter(Boolean);
-      const missing = DEFAULT_NAV_ITEMS.filter(item => !savedOrder.includes(item.id));
-      return [...mapped, ...missing];
+      // 2026-11-28: 게시판 → 식단. 예전에 저장된 순서에 "board"가 있으면 그 자리에 "meal"을 넣는다.
+      const migrated = savedOrder.map(id => id === "board" ? "meal" : id);
+      const mapped = migrated.map(id => DEFAULT_NAV_ITEMS.find(item => item.id === id)).filter(Boolean);
+      const seen = {};
+      const unique = mapped.filter(item => {
+        if (seen[item.id]) return false;
+        seen[item.id] = true;
+        return true;
+      });
+      const missing = DEFAULT_NAV_ITEMS.filter(item => !seen[item.id]);
+      return [...unique, ...missing];
     }
     return DEFAULT_NAV_ITEMS;
   });
@@ -5376,6 +5001,17 @@ function App() {
       localStorage.setItem("tsvprev_v1_todaywork_v33_annualLeaveDays", JSON.stringify(annualLeaveDays));
     } catch (e) {}
   }, [companyName, pattern, anchorDate, groups, myGroupId, shiftTimes, overrides, subOverrides, memos, monthlyMemos, posts, equipFolders, alarms, navItems, visibleOtherGroups, showCompanyEvents, showWeather, cloudSettings, deviceEnabledCalIds, annualLeaveDays]);
+  // 🍽 식단 사진은 용량이 커서 따로 저장한다 — 실패해도 위 설정 저장을 막지 않게 분리
+  useEffect(() => {
+    const key = "tsvprev_v1_todaywork_v33_mealPosts";
+    try {
+      localStorage.setItem(key, JSON.stringify(sortMealPosts(mealPosts).slice(0, 12)));
+    } catch (e) {
+      try {
+        localStorage.setItem(key, JSON.stringify(sortMealPosts(mealPosts).slice(0, 1)));
+      } catch (e2) {}
+    }
+  }, [mealPosts]);
   // v2.5.3 — 네트워크 연결 여부를 따라가며, 캐시로 보여주는 동안에만 안내 배지를 띄운다.
   useEffect(() => {
     const goOnline = () => setNavigatorOnline(true);
@@ -6964,6 +6600,19 @@ function App() {
     image: data.image || data.imageData || null,
     comments: Array.isArray(data.comments) ? data.comments : []
   });
+  const mapMealDoc = (id, data) => ({
+    id,
+    image: data.image || null,
+    memo: data.memo || "",
+    author: data.author || "",
+    authorId: data.authorId || "",
+    date: data.date || "",
+    createdAt: data.createdAt || null,
+    createdMs: mealPostMs({
+      id,
+      createdAt: data.createdAt
+    })
+  });
   const getWorkspaceRef = () => {
     try {
       if (!cloudSettings.enabled || typeof firebase === "undefined") return null;
@@ -6992,6 +6641,7 @@ function App() {
     teamCode: normalizeTeamCode(cloudSettings.teamCode),
     updatedAt: Date.now(),
     boardPosts: cloudRef.current.boardPosts || [],
+    mealPosts: sortMealPosts(cloudRef.current.mealPosts || []).slice(0, 3),
     equipFolders: cloudRef.current.equipFolders || [],
     equipPosts: cloudRef.current.equipPosts || [],
     equipmentPosts: cloudRef.current.legacyEquipPosts || [],
@@ -7019,6 +6669,19 @@ function App() {
     cloudRef.current.legacyEquipPosts = Array.isArray(cached.equipmentPosts) ? cached.equipmentPosts : [];
     cloudRef.current.sharedEvents = Array.isArray(cached.sharedEvents) ? cached.sharedEvents : [];
     if (typeof cached.equipmentMenuOpen === "boolean") cloudRef.current.equipmentMenuOpen = cached.equipmentMenuOpen;
+    cloudRef.current.mealPosts = Array.isArray(cached.mealPosts) ? cached.mealPosts.map(p => mapMealDoc(p.id, p)) : [];
+    if (cloudRef.current.mealPosts.length) {
+      setMealPosts(prev => {
+        const byId = new Map();
+        sortMealPosts(cloudRef.current.mealPosts).forEach(p => {
+          if (p && p.id) byId.set(p.id, p);
+        });
+        (Array.isArray(prev) ? prev : []).forEach(p => {
+          if (p && p.id && !byId.has(p.id)) byId.set(p.id, p); // 이 기기에서만 올린 식단은 살린다
+        });
+        return sortMealPosts(Array.from(byId.values()));
+      });
+    }
     if (cloudRef.current.boardPosts.length) {
       setPosts(prev => {
         const byId = new Map();
@@ -7129,6 +6792,27 @@ function App() {
       }, err => {
         console.warn("boardPosts error", err);
       }));
+      // 🍽 식단 — 최근 50건만 실시간 구독(최신순)
+      unsubs.push(ws.collection("mealPosts").orderBy("createdAt", "desc").limit(50).onSnapshot(snap => {
+        const read = readCloudSnapshot(snap);
+        if (!read) return;
+        if (read.confirmed) setCloudStatus("connected");
+        cloudRef.current.mealPosts = read.docs.map(d => mapMealDoc(d.id, d.data()));
+        setMealPosts(prev => {
+          const byId = new Map();
+          sortMealPosts(cloudRef.current.mealPosts).forEach(p => {
+            if (p && p.id) byId.set(p.id, p);
+          });
+          // 아직 서버에 올라가지 않은 이 기기의 글은 24시간 안에서만 살린다
+          (Array.isArray(prev) ? prev : []).forEach(p => {
+            if (p && p.id && !byId.has(p.id) && Date.now() - mealPostMs(p) < 24 * 60 * 60 * 1000) byId.set(p.id, p);
+          });
+          return sortMealPosts(Array.from(byId.values()));
+        });
+        saveCloudCacheSoon();
+      }, err => {
+        console.warn("mealPosts error", err);
+      }));
       // v2.5 — 설비공유 메뉴 공개 여부(마스터 설정)를 모든 클라이언트가 실시간으로 구독
       unsubs.push(ws.collection("appConfig").doc("settings").onSnapshot(snap => {
         const data = snap && typeof snap.data === "function" ? snap.data() || {} : {};
@@ -7209,6 +6893,79 @@ function App() {
     const ws = getWorkspaceRef();
     if (!ws) return;
     ws.collection("boardPosts").doc(id).delete().catch(() => {});
+  };
+  /* 🍽 식단 — 사진 한 장 + 한 줄 메모. 사진은 압축된 dataURL 그대로 문서에 담는다. */
+  const saveMealPostToCloud = post => {
+    const ws = getWorkspaceRef();
+    if (!ws) {
+      notify("오프라인 상태라 이 기기에만 저장했습니다");
+      return Promise.resolve(false);
+    }
+    const data = {
+      id: post.id,
+      image: post.image || null,
+      memo: post.memo || "",
+      author: post.author || myAuthorLabel(),
+      authorId: post.authorId || "",
+      date: post.date || ""
+    };
+    data.createdAt = serverTimestamp();
+    return ws.collection("mealPosts").doc(post.id).set(data, {
+      merge: true
+    }).then(() => true).catch(() => {
+      notify("식단 사진을 서버에 보내지 못했습니다");
+      return false;
+    });
+  };
+  const removeMealPostFromCloud = id => {
+    const ws = getWorkspaceRef();
+    if (!ws) return;
+    ws.collection("mealPosts").doc(id).delete().catch(() => {});
+  };
+  const openMealEditor = () => {
+    setMealForm({
+      image: null,
+      memo: ""
+    });
+    setMealEditorOpen(true);
+  };
+  const submitMealPost = () => {
+    const image = mealForm.image;
+    if (!image) {
+      notify("사진을 먼저 선택해 주세요.");
+      return;
+    }
+    const now = new Date();
+    const two = v => String(v).padStart(2, "0");
+    const post = {
+      id: "m_" + Date.now(),
+      image,
+      memo: String(mealForm.memo || "").trim(),
+      author: myAuthorLabel(),
+      authorId: myDeviceId,
+      date: `${now.getFullYear()}.${two(now.getMonth() + 1)}.${two(now.getDate())} ${two(now.getHours())}:${two(now.getMinutes())}`,
+      createdAt: now.getTime(),
+      createdMs: now.getTime()
+    };
+    setMealPosts(prev => sortMealPosts([post, ...(Array.isArray(prev) ? prev : [])]).slice(0, 50));
+    setMealEditorOpen(false);
+    setMealForm({
+      image: null,
+      memo: ""
+    });
+    playSfx("save");
+    saveMealPostToCloud(post).then(ok => {
+      if (ok !== false) notify("식단 사진을 올렸습니다.");
+    });
+  };
+  const confirmMealDelete = () => {
+    const target = mealDeleteTarget;
+    if (!target) return;
+    setMealPosts(prev => (Array.isArray(prev) ? prev : []).filter(p => p.id !== target.id));
+    setMealDeleteTarget(null);
+    removeMealPostFromCloud(target.id);
+    playSfx("save");
+    notify("식단 사진을 삭제했습니다.");
   };
   const pushEquipFolder = folder => {
     const ws = getWorkspaceRef();
@@ -7437,6 +7194,14 @@ function App() {
         setActiveLiveWidget(null);
         return true;
       }
+      if (mealEditorOpen) {
+        setMealEditorOpen(false);
+        return true;
+      }
+      if (mealDeleteTarget) {
+        setMealDeleteTarget(null);
+        return true;
+      }
       if (selectedPostId) {
         setSelectedPostId(null);
         return true;
@@ -7504,7 +7269,7 @@ function App() {
     return () => {
       window.tsvHandleBack = null;
     };
-  }, [ringingAlarm, photoLightbox, gamePreviewOpen, activeLiveWidget, selectedPostId, postEditorOpen, newEquipItemOpen, equipDeleteTarget, newFolderOpen, alarmModalOpen, shareModalOpen, widgetHubOpen, updateModalOpen, dayModalOpen, summaryDetailType, drawerOpen, isReorderingNav]);
+  }, [ringingAlarm, photoLightbox, gamePreviewOpen, activeLiveWidget, selectedPostId, postEditorOpen, newEquipItemOpen, equipDeleteTarget, newFolderOpen, alarmModalOpen, shareModalOpen, widgetHubOpen, updateModalOpen, dayModalOpen, summaryDetailType, drawerOpen, isReorderingNav, mealEditorOpen, mealDeleteTarget]);
 
   /* ---------- 앱 복귀 / 권한 결과 / 업데이트 콜백 ---------- */
   useEffect(() => {
@@ -7884,7 +7649,7 @@ function App() {
     }))
   });
 
-  // 🏖️·📸 v2.6-preview — 정보입력(연차) 요소 · 설정 상위 메뉴 요약 · 근태표 사진 대조 패널
+  // 🏖️·📋 v2.6-preview — 정보입력(연차) 요소 · 설정 상위 메뉴 요약 · 근태표 시간 대조 패널
   const annualLeaveEl = renderAnnualLeaveBlock({
     stats: annualLeaveStats,
     onChange: setAnnualLeaveDays
@@ -7896,7 +7661,7 @@ function App() {
   const infoInputSummary = `${companyName} · ${myGroup.name} · 연차 잔여 ${svLeaveValue(annualLeaveStats.remaining)}일`;
   const paySummaryMonth = salaryResolveSettings(salarySettings, salaryStatement.monthKey || salaryCurrentMonthKey());
   const paySummary = `${salaryWon(paySummaryMonth.baseHourly)}원/시급 · ${paySummaryMonth.deductionMode === "gross" ? "세전만 보기" : paySummaryMonth.deductionMode === "simple" ? "간이 공제율 " + Math.round(salaryNum(paySummaryMonth.simpleRate) * 100) / 100 + "%" : "간이세액 자동"} · 이력 ${salarySortedHistory(salarySettings).length}건`;
-  const geminiCompareEl = /*#__PURE__*/React.createElement(AttendanceComparePanel, {
+  const attendanceCompareEl = /*#__PURE__*/React.createElement(AttendanceComparePanel, {
     statement: salaryStatement,
     normalHourly: salaryStatement.normalHourly,
     defaultName: cloudSettings.authorName || ""
@@ -8524,7 +8289,7 @@ function App() {
         className: "text-[11px] font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg hover:bg-slate-200"
       }, "\uC6B8\uB9BC\xB7\uAC8C\uC784 \uD14C\uC2A4\uD2B8"))));
     })));
-  })(), activeTab === "board" && /*#__PURE__*/React.createElement("div", {
+  })(), BOARD_TAB_ENABLED && activeTab === "board" && /*#__PURE__*/React.createElement("div", {
     className: "p-4"
   }, cloudCacheBadgeVisible ? /*#__PURE__*/React.createElement("div", {
     className: "mb-3 flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50/80 border border-amber-100 text-[12.5px] font-bold text-amber-700"
@@ -8595,7 +8360,116 @@ function App() {
       alt: "",
       className: "w-12 h-12 rounded-lg object-cover shrink-0 border border-slate-200"
     })))));
-  }))), activeTab === "settings" && /*#__PURE__*/React.createElement("div", {
+  }))), activeTab === "meal" && (() => {
+    const list = sortMealPosts(mealPosts);
+    const latest = list.find(p => p && p.image) || null;
+    const older = latest ? list.filter(p => p.id !== latest.id) : list;
+    return /*#__PURE__*/React.createElement("div", {
+      className: "p-4",
+      "data-testid": "meal-tab"
+    }, cloudCacheBadgeVisible ? /*#__PURE__*/React.createElement("div", {
+      className: "mb-3 flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50/80 border border-amber-100 text-[12.5px] font-bold text-amber-700"
+    }, /*#__PURE__*/React.createElement("span", null, "\uD83D\uDCE1"), /*#__PURE__*/React.createElement("span", null, "\uC624\uD504\uB77C\uC778 \u00B7 \uB9C8\uC9C0\uB9C9 \uC800\uC7A5\uB41C \uC0AC\uC9C4 \uD45C\uC2DC \uC911")) : null, /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center justify-between gap-2 mb-3"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "min-w-0"
+    }, /*#__PURE__*/React.createElement("h2", {
+      className: "text-xl font-extrabold text-slate-900"
+    }, "\uD83C\uDF7D \uC2DD\uB2E8"), /*#__PURE__*/React.createElement("p", {
+      className: "text-[13px] text-slate-500 leading-snug"
+    }, "\uAC00\uC7A5 \uCD5C\uADFC\uC5D0 \uC62C\uB9B0 \uC2DD\uB2E8 \uC0AC\uC9C4\uC774 \uB9E8 \uC704\uC5D0 \uBC14\uB85C \uBCF4\uC785\uB2C8\uB2E4.")), /*#__PURE__*/React.createElement("button", {
+      onClick: openMealEditor,
+      "data-testid": "meal-upload-top",
+      className: "shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-full bg-rose-500 text-white text-xs font-bold shadow-xs"
+    }, "\uD83D\uDCF8 \uC2DD\uB2E8 \uC62C\uB9AC\uAE30")), latest ? /*#__PURE__*/React.createElement("div", {
+      className: "rounded-2xl border border-slate-200 bg-white p-2 space-y-2 shadow-2xs",
+      "data-testid": "meal-latest"
+    }, /*#__PURE__*/React.createElement("img", {
+      src: latest.image,
+      alt: "\uC2DD\uB2E8 \uC0AC\uC9C4",
+      onClick: () => setPhotoLightbox({
+        src: latest.image,
+        title: latest.memo || "\uC2DD\uB2E8 \uC0AC\uC9C4",
+        zoom: 1
+      }),
+      "data-testid": "meal-latest-photo",
+      className: "w-full rounded-2xl object-contain bg-slate-50 border border-slate-200 max-h-[62vh] cursor-zoom-in"
+    }), /*#__PURE__*/React.createElement("div", {
+      className: "flex items-start justify-between gap-2 px-1 pb-0.5"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "min-w-0"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "inline-block px-2 py-0.5 rounded-full bg-rose-50 text-rose-600 text-[10.5px] font-extrabold"
+    }, "\uCD5C\uC2E0"), /*#__PURE__*/React.createElement("p", {
+      className: "text-[13px] font-bold text-slate-600 mt-1 truncate",
+      "data-testid": "meal-latest-meta"
+    }, latest.date, latest.author ? " \u00B7 " + latest.author : ""), latest.memo ? /*#__PURE__*/React.createElement("p", {
+      className: "text-[13.5px] text-slate-700 mt-0.5 leading-snug"
+    }, latest.memo) : null), canEditPost(latest) ? /*#__PURE__*/React.createElement("button", {
+      onClick: () => setMealDeleteTarget(latest),
+      "data-testid": "meal-latest-delete",
+      className: "shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-50 text-[12.5px] font-bold text-rose-600"
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "trash",
+      size: 12
+    }), " \uC0AD\uC81C") : null)) : /*#__PURE__*/React.createElement("div", {
+      className: "py-14 px-4 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200",
+      "data-testid": "meal-empty"
+    }, /*#__PURE__*/React.createElement("p", {
+      className: "text-4xl"
+    }, "\uD83C\uDF7D"), /*#__PURE__*/React.createElement("p", {
+      className: "mt-2 text-[14.5px] font-extrabold text-slate-700"
+    }, "\uC544\uC9C1 \uC62C\uB9B0 \uC2DD\uB2E8 \uC0AC\uC9C4\uC774 \uC5C6\uC2B5\uB2C8\uB2E4."), /*#__PURE__*/React.createElement("p", {
+      className: "mt-1 text-[12.5px] text-slate-400 leading-relaxed"
+    }, "\uC624\uB298 \uBA39\uC740 \uC2DD\uB2E8 \uC0AC\uC9C4\uC744 \uC62C\uB824 \uC870\uC6D0\uB4E4\uACFC \uACF5\uC720\uD574 \uBCF4\uC138\uC694."), /*#__PURE__*/React.createElement("button", {
+      onClick: openMealEditor,
+      "data-testid": "meal-upload-empty",
+      className: "mt-4 inline-flex items-center gap-1 px-4 py-2.5 rounded-full bg-rose-500 text-white text-[13px] font-extrabold shadow-sm"
+    }, "\uD83D\uDCF8 \uC2DD\uB2E8 \uC62C\uB9AC\uAE30")), !latest && list.length ? /*#__PURE__*/React.createElement("p", {
+      className: "mt-3 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-100 text-[11.5px] font-bold text-amber-700"
+    }, "\uC0AC\uC9C4\uC740 \uBD88\uB7EC\uC624\uC9C0 \uBABB\uD588\uC9C0\uB9CC \uC2DD\uB2E8 \uAE30\uB85D\uC740 \uB0A8\uC544 \uC788\uC2B5\uB2C8\uB2E4. \uC0C8 \uC0AC\uC9C4\uC744 \uC62C\uB9AC\uBA74 \uB2E4\uC2DC \uD45C\uC2DC\uB429\uB2C8\uB2E4.") : null, older.length ? /*#__PURE__*/React.createElement("div", {
+      className: "mt-5"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center justify-between mb-2"
+    }, /*#__PURE__*/React.createElement("h3", {
+      className: "text-[15px] font-extrabold text-slate-900"
+    }, "\uC774\uC804 \uC2DD\uB2E8 \uAE30\uB85D"), /*#__PURE__*/React.createElement("span", {
+      className: "text-xs font-bold text-slate-400"
+    }, older.length, "\uAC74")), /*#__PURE__*/React.createElement("div", {
+      className: "divide-y divide-slate-100 border-t border-b border-slate-100",
+      "data-testid": "meal-history"
+    }, older.map(post => /*#__PURE__*/React.createElement("div", {
+      key: post.id,
+      onClick: () => post.image && setPhotoLightbox({
+        src: post.image,
+        title: (post.date || "") + (post.author ? " \u00B7 " + post.author : ""),
+        zoom: 1
+      }),
+      className: "py-3 flex items-center gap-3 px-1 " + (post.image ? "cursor-zoom-in hover:bg-slate-50" : "")
+    }, post.image ? /*#__PURE__*/React.createElement("img", {
+      src: post.image,
+      alt: "",
+      className: "w-12 h-12 rounded-lg object-cover shrink-0 border border-slate-200 bg-slate-50"
+    }) : /*#__PURE__*/React.createElement("div", {
+      className: "w-12 h-12 rounded-lg shrink-0 border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-300"
+    }, "\uD83C\uDF7D"), /*#__PURE__*/React.createElement("div", {
+      className: "min-w-0 flex-1"
+    }, /*#__PURE__*/React.createElement("p", {
+      className: "text-[13.5px] font-bold text-slate-800 truncate"
+    }, post.memo || "\uC2DD\uB2E8 \uC0AC\uC9C4"), /*#__PURE__*/React.createElement("p", {
+      className: "text-[12px] text-slate-400 mt-0.5 truncate"
+    }, post.date, post.author ? " \u00B7 " + post.author : "")), canEditPost(post) ? /*#__PURE__*/React.createElement("button", {
+      onClick: e => {
+        e.stopPropagation();
+        setMealDeleteTarget(post);
+      },
+      "aria-label": "\uC2DD\uB2E8 \uC0AD\uC81C",
+      className: "shrink-0 p-2 rounded-lg bg-rose-50 text-rose-600"
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "trash",
+      size: 13
+    })) : null)))) : null);
+  })(), activeTab === "settings" && /*#__PURE__*/React.createElement("div", {
     className: "p-4 space-y-5"
   }, /*#__PURE__*/React.createElement("section", {
     className: "p-4 rounded-2xl bg-gradient-to-r from-slate-900 to-slate-700 text-white space-y-2.5"
@@ -8819,7 +8693,7 @@ function App() {
     onToggle: () => setSalarySectionOpen(v => !v)
   }, /*#__PURE__*/React.createElement("div", {
     className: "space-y-2.5"
-  }, salarySettingsEl, geminiCompareEl)),
+  }, salarySettingsEl, attendanceCompareEl)),
   /*#__PURE__*/React.createElement("section", {
     className: "p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2.5"
   }, /*#__PURE__*/React.createElement("label", {
@@ -9554,7 +9428,97 @@ function App() {
   }, "\uC0BC\uC131 \uCE98\uB9B0\uB354 \xB7 \uAD6C\uAE00 \uCE98\uB9B0\uB354 \xB7 \uC544\uC774\uD3F0 \uCE98\uB9B0\uB354\uC5D0 \uC77C\uAD04 \uB4F1\uB85D")), /*#__PURE__*/React.createElement(Icon, {
     name: "download",
     size: 22
-  })))), postEditorOpen && /*#__PURE__*/React.createElement("div", {
+  })))), mealEditorOpen && /*#__PURE__*/React.createElement("div", {
+    className: "fixed inset-0 z-50 flex items-end justify-center bg-slate-900/45"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "w-full max-w-md bg-white rounded-t-3xl p-5 space-y-3"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center justify-between pb-2 border-b border-slate-100"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "text-lg font-extrabold text-slate-900"
+  }, "\uD83D\uDCF8 \uC2DD\uB2E8 \uC0AC\uC9C4 \uC62C\uB9AC\uAE30"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setMealEditorOpen(false),
+    className: "p-1 text-slate-500"
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "close",
+    size: 18
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2"
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-slate-100 text-[13px] font-bold text-slate-700 cursor-pointer"
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "image",
+    size: 16
+  }), mealForm.image ? " \uC0AC\uC9C4 \uBC14\uAFC0\uAE30" : " \uC0AC\uC9C4 \uC120\uD0DD", /*#__PURE__*/React.createElement("input", {
+    type: "file",
+    accept: "image/*",
+    "data-testid": "meal-file",
+    onChange: e => {
+      const file = e.target.files && e.target.files[0];
+      // 식단 사진은 오프라인 캐시에도 담기도록 조금 더 작게(약 300KB) 압축한다
+      if (file) compressImageFile(file, {
+        count: 1,
+        budget: 300 * 1024,
+        maxDim: 1440
+      }, url => {
+        if (url) setMealForm(prev => Object.assign({}, prev, {
+          image: url
+        }));
+      });
+      e.target.value = "";
+    },
+    className: "hidden"
+  })), mealForm.image ? /*#__PURE__*/React.createElement("button", {
+    onClick: () => setMealForm(prev => Object.assign({}, prev, {
+      image: null
+    })),
+    className: "text-[13px] text-rose-500 font-bold"
+  }, "\uC0AC\uC9C4 \uC9C0\uC6B0\uAE30") : null), /*#__PURE__*/React.createElement("input", {
+    type: "text",
+    value: mealForm.memo,
+    maxLength: 80,
+    onChange: e => setMealForm(prev => Object.assign({}, prev, {
+      memo: e.target.value
+    })),
+    placeholder: "\uD55C \uC904 \uBA54\uBAA8 (\uC120\uD0DD) \uC608: \uC624\uB298 \uC810\uC2EC \uAE40\uCE58\uCC0C\uAC1C",
+    "data-testid": "meal-memo",
+    className: "w-full px-3 py-3 rounded-xl border border-slate-200 text-[15px]"
+  }), mealForm.image ? /*#__PURE__*/React.createElement("img", {
+    src: mealForm.image,
+    alt: "",
+    "data-testid": "meal-preview",
+    className: "w-full max-h-52 object-contain bg-slate-50 rounded-xl border border-slate-200"
+  }) : null, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => setMealEditorOpen(false),
+    className: "px-4 py-3 rounded-xl bg-slate-100 text-[13.5px] font-bold text-slate-600"
+  }, "\uCDE8\uC18C"), /*#__PURE__*/React.createElement("button", {
+    onClick: submitMealPost,
+    disabled: !mealForm.image,
+    "data-testid": "meal-submit",
+    className: `flex-1 px-4 py-3 rounded-xl text-[14px] font-extrabold text-white ${mealForm.image ? "bg-rose-500" : "bg-rose-300"}`
+  }, "\uC62C\uB9AC\uAE30")))), mealDeleteTarget && /*#__PURE__*/React.createElement("div", {
+    className: "fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 px-6"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "w-full max-w-xs bg-white rounded-2xl p-5 space-y-3 text-center"
+  }, /*#__PURE__*/React.createElement("p", {
+    className: "text-3xl"
+  }, "\uD83D\uDDD1"), /*#__PURE__*/React.createElement("h3", {
+    className: "text-[16px] font-extrabold text-slate-900"
+  }, "\uC2DD\uB2E8 \uC0AC\uC9C4\uC744 \uC0AD\uC81C\uD560\uAE4C\uC694?"), /*#__PURE__*/React.createElement("p", {
+    className: "text-[12.5px] text-slate-500 leading-relaxed"
+  }, mealDeleteTarget.date || "", mealDeleteTarget.memo ? " \u00B7 " + mealDeleteTarget.memo : ""), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2 pt-1"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => setMealDeleteTarget(null),
+    "data-testid": "meal-delete-cancel",
+    className: "flex-1 py-2.5 rounded-xl bg-slate-100 text-[13.5px] font-bold text-slate-600"
+  }, "\uCDE8\uC18C"), /*#__PURE__*/React.createElement("button", {
+    onClick: confirmMealDelete,
+    "data-testid": "meal-delete-confirm",
+    className: "flex-1 py-2.5 rounded-xl bg-rose-500 text-[13.5px] font-extrabold text-white"
+  }, "\uC0AD\uC81C")))), postEditorOpen && /*#__PURE__*/React.createElement("div", {
     className: "fixed inset-0 z-50 flex items-end justify-center bg-slate-900/45"
   }, /*#__PURE__*/React.createElement("div", {
     className: "w-full max-w-md bg-white rounded-t-3xl p-5 space-y-3"
