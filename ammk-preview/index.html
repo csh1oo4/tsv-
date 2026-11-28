@@ -2167,6 +2167,41 @@ const svShiftLong = code => (SHIFT_META[code] && SHIFT_META[code].label) || code
 const svShiftBadgeFont = code => svShiftBadge(code).length >= 3 ? "text-[8.5px] leading-none tracking-tighter" : "text-xs";
 const svIsDayCode = code => ["주", "오", "출", "재", "외"].indexOf(code) >= 0;
 
+/* 같은 근무가 이어지는 최대 길이(며칠째까지 있는지) — 직접 만든 근무·비번처럼 1일짜리도 있다 */
+const ammkRunLength = (days, code) => {
+  let best = 0;
+  const list = Array.isArray(days) ? days : [];
+  const len = list.length;
+  for (let i = 0; i < len; i++) {
+    if (list[i] !== code) continue;
+    let count = 0;
+    while (count < len && list[(i + count) % len] === code) count++;
+    if (count > best) best = count;
+    if (best === len) break;
+  }
+  return Math.max(1, best);
+};
+/* '그 근무 며칠째?' 버튼은 1 ~ 이 길이까지만 보여 준다 */
+const ammkNthMax = (days, code) => {
+  const len = Array.isArray(days) ? days.length : 0;
+  if (!len) return 1;
+  return Math.min(len, ammkRunLength(days, code));
+};
+/* 패턴의 idx 자리가 그 근무의 며칠째인지 (같은 근무가 이어지는 구간 안에서 센다) */
+const ammkRunNthOf = (days, idx) => {
+  const list = Array.isArray(days) ? days : [];
+  const len = list.length;
+  if (!len) return 1;
+  let i = ((idx % len) + len) % len;
+  const code = list[i];
+  let nth = 1;
+  while (nth < len && list[((i - 1) % len + len) % len] === code) {
+    nth++;
+    i--;
+  }
+  return nth;
+};
+
 /* ── 조별 근무 형태 (승현 님 11-28 요청) ────────────────────────────────
    groups[] 의 한 항목이 presetId·pattern·anchorDate·offset 을 스스로 가지면
    그 조만의 근무 형태로 계산하고, 없으면 '내 근무 형태'를 그대로 따른다. */
@@ -2210,7 +2245,11 @@ const ammkBuildGroupPlan = (presetId, patternIdx, anchorInfo, todayKey) => {
     anchor = formatDateKey(t.getFullYear(), t.getMonth(), t.getDate() - back);
   } else if (anchorInfo && anchorInfo.code) {
     const first = days.indexOf(anchorInfo.code);
-    if (first >= 0) pos = (first + Math.max(1, Number(anchorInfo.nth) || 1) - 1) % len;
+    if (first >= 0) {
+      // 그 근무가 이어지는 날수까지만 셀 수 있다 (비번·휴무 1일째 등)
+      const nth = Math.min(Math.max(1, Number(anchorInfo.nth) || 1), ammkNthMax(days, anchorInfo.code));
+      pos = (first + nth - 1) % len;
+    }
   }
   const base = parseDateKey(today);
   const startIdx = ((Math.round((base - parseDateKey(anchor)) / 86400000) + pos) % len + len) % len;
@@ -2233,6 +2272,48 @@ const ammkBuildGroupPlan = (presetId, patternIdx, anchorInfo, todayKey) => {
     anchorDate: anchor,
     offset: pos,
     preview: preview
+  };
+};
+/* 저장된 조(anchorDate·offset·pattern)로 오늘부터 14일을 계산한다.
+   달력 계산(shiftForGroupDate)과 **같은 식**이라 '앞으로 14일 미리보기'와 실제 달력이 어긋나지 않는다. */
+const ammkGroupSchedule = (grp, days, todayKey) => {
+  const list = Array.isArray(days) ? days : [];
+  const len = list.length;
+  const today = todayKey || currentDateKey();
+  const base = parseDateKey(today);
+  const anchor = parseDateKey((grp && grp.anchorDate) || today);
+  const offset = Number(grp && grp.offset) || 0;
+  const weekday = ammkGroupIsWeekday(grp);
+  const preview = [];
+  let startIdx = 0;
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + i);
+    const dateKey = formatDateKey(d.getFullYear(), d.getMonth(), d.getDate());
+    let code = "휴";
+    if (len) {
+      const diff = Math.round((parseDateKey(dateKey) - anchor) / 86400000);
+      const idx = ((diff + offset) % len + len) % len;
+      code = list[idx];
+      if (i === 0) startIdx = idx;
+      // 요일 기준(주 5일) 근무 형태는 빨간 공휴일을 자동으로 휴무로 바꾼다
+      if (code !== "휴" && weekday) {
+        const hol = HOLIDAYS[dateKey];
+        if (hol && hol.isRed) code = "휴";
+      }
+    }
+    preview.push({
+      dateKey: dateKey,
+      month: d.getMonth() + 1,
+      day: d.getDate(),
+      dow: d.getDay(),
+      code: code
+    });
+  }
+  return {
+    preview: preview,
+    startIdx: startIdx,
+    todayCode: preview[0].code,
+    todayNth: ammkRunNthOf(list, startIdx)
   };
 };
 /* 주 5일 근무 조는 달력 칸에 기본 '출근/휴무' 배지를 찍지 않는다
@@ -2336,7 +2417,10 @@ const ammkPlanProfile = (presetId, patternIdx, anchorInfo, opts) => {
   let p = 0;
   if (anchorInfo && anchorInfo.code && len > 0) {
     const first = days.indexOf(anchorInfo.code);
-    if (first >= 0) p = (first + Math.max(0, (Number(anchorInfo.nth) || 1) - 1)) % len;
+    if (first >= 0) {
+      const nth = Math.min(Math.max(1, Number(anchorInfo.nth) || 1), ammkNthMax(days, anchorInfo.code));
+      p = (first + nth - 1) % len;
+    }
   }
   // 기준은 '내 조'를 맞춘다 — 다른 조는 그만큼만 같이 밀린다(조별 간격 유지)
   const wantId = opts && opts.groupId && groupsNext.some(g => g.id === opts.groupId) ? opts.groupId : groupsNext[0].id;
@@ -5080,25 +5164,8 @@ const AttendanceComparePanel = props => {
    · AmmkPatternPicker : 대표 패턴 고르기
    · AmmkCalibrate     : '오늘 무슨 근무, 며칠째?' 기준 맞추기
    · AmmkPreviewStrip  : 앞으로 14일 미리보기
-   · AmmkShiftPanel    : 설정 탭에 들어가는 카드(위 조각 + 직접 만들기 편집) */
-const ammkRunLength = (days, code) => {
-  let best = 0;
-  const list = Array.isArray(days) ? days : [];
-  const len = list.length;
-  for (let i = 0; i < len; i++) {
-    if (list[i] !== code) continue;
-    let count = 0;
-    while (count < len && list[(i + count) % len] === code) count++;
-    if (count > best) best = count;
-    if (best === len) break;
-  }
-  return Math.max(1, best);
-};
-const ammkNthMax = (days, code) => {
-  const len = Array.isArray(days) ? days.length : 0;
-  if (!len) return 1;
-  return Math.min(len, ammkRunLength(days, code));
-};
+   · AmmkShiftPanel    : 설정 탭에 들어가는 카드(위 조각 + 직접 만들기 편집)
+   (ammkRunLength · ammkNthMax 는 ammk-block.js 에 있다) */
 
 /* 프리셋(선택 중인 것)의 이름·색을 화면에 먼저 보여 주기 위한 도우미 */
 const ammkMetaOf = (prof, code) => Object.assign({}, SHIFT_META[code] || {}, (prof && prof.shiftMeta || {})[code] || {});
@@ -5371,6 +5438,9 @@ const ammkGroupCalibratePatch = (grp, presetId, patternIdx, code, nth) => {
 
 const AmmkGroupManager = p => {
   const groups = p.groups || [];
+  const visibleIds = p.visibleIds || [];
+  // 내 근무 조는 위 🧭 근무 형태 설정에서 관리한다 — 이 목록에는 '같이 볼 다른 조'만 보여 준다
+  const otherGroups = groups.filter(g => g.id !== p.myGroupId);
   const [openId, setOpenId] = React.useState("");
   const [calCode, setCalCode] = React.useState("");
   const [calNth, setCalNth] = React.useState(1);
@@ -5378,24 +5448,51 @@ const AmmkGroupManager = p => {
   const [addName, setAddName] = React.useState("");
   const [addPreset, setAddPreset] = React.useState("ammk3");
   const [addColor, setAddColor] = React.useState("#8b5cf6");
+  const planOfGroup = g => ammkBuildGroupPlan(ammkGroupPresetId(g) || p.profileId, Number(g.patternIdx) || 0, null);
+  /* 패널을 열 때 '오늘 무슨 근무, 며칠째?'를 그 조의 실제 근무표에서 채운다 */
+  const openGroup = g => {
+    setOpenId(g.id);
+    const own = ammkGroupPresetId(g);
+    if (own && !ammkGroupIsWeekday(g)) {
+      const sched = ammkGroupSchedule(g, planOfGroup(g).days);
+      setCalCode(sched.todayCode);
+      setCalNth(sched.todayNth);
+    } else {
+      setCalCode("");
+      setCalNth(1);
+    }
+  };
   const toggleGroup = id => {
-    setOpenId(openId === id ? "" : id);
-    setCalCode("");
-    setCalNth(1);
+    if (openId === id) {
+      setOpenId("");
+      return;
+    }
+    const g = groups.find(x => x.id === id);
+    if (g) openGroup(g);
+  };
+  const patchCalibration = (g, own, code, nth) => {
+    if (!own || !code) return;
+    p.onPatch(g.id, ammkGroupCalibratePatch(g, own, Number(g.patternIdx) || 0, code, nth));
   };
   const submitAdd = () => {
     const name = String(addName || "").trim() || "새 근무조";
+    const newId = "G" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
     const patch = ammkGroupPresetPatch({
-      id: "new",
+      id: newId,
       name: name
-    }, [], addPreset, 0);
-    p.onAdd(Object.assign({
+    }, groups, addPreset, 0);
+    const next = Object.assign({
+      id: newId,
       name: name,
       color: addColor,
       members: ""
-    }, patch));
+    }, patch);
+    p.onAdd(next);
     setAddName("");
     setAddOpen(false);
+    // 추가만 하고 끝내지 않고, 방금 만든 조의 근무 형태 패널을 바로 펼친다
+    // (주 5일 근무는 맞출 교대 기준이 없으므로 접어 둔다)
+    if (ammkProfileOf(addPreset).weekday) setOpenId("");else openGroup(next);
   };
   const presetNote = plan => {
     const cycles = (plan.profile.patterns || []).length;
@@ -5406,19 +5503,24 @@ const AmmkGroupManager = p => {
     "data-testid": "ammk-group-manager"
   }, svEl("p", {
     className: "text-[11px] text-slate-500 leading-relaxed"
-  }, "달력 위 ", svEl("b", {
+  }, "내 근무 조는 위 ", svEl("b", {
+    className: "text-slate-700"
+  }, "🧭 근무 형태 설정"), "에서 관리합니다. 여기서는 달력 ", svEl("b", {
     className: "text-slate-700"
   }, "같이 보기"), "와 ", svEl("b", {
     className: "text-slate-700"
-  }, "전체 조"), "에서 함께 볼 근무조를 추가하고, 조마다 근무 형태를 따로 정할 수 있습니다."), groups.length === 0 ? svEl("p", {
+  }, "전체 조"), "에 함께 볼 다른 조를 추가하고, 조마다 근무 형태를 따로 정합니다."), otherGroups.length === 0 ? svEl("p", {
     className: "text-[11px] text-slate-400"
-  }, "등록된 근무조가 없습니다.") : svEl("div", {
+  }, "같이 볼 타 근무조가 없습니다. 아래 ‘+ 타 근무조 추가’로 넣어 보세요.") : svEl("div", {
     className: "space-y-1.5"
-  }, groups.map(g => {
+  }, otherGroups.map(g => {
     const own = ammkGroupPresetId(g);
-    const plan = ammkBuildGroupPlan(own || p.profileId, Number(g.patternIdx) || 0, null);
+    const plan = planOfGroup(g);
     const open = openId === g.id;
-    const isMine = g.id === p.myGroupId;
+    const sched = own ? ammkGroupSchedule(g, plan.days) : null;
+    const watching = visibleIds.indexOf(g.id) >= 0;
+    // 라벨과 14일 미리보기·달력이 같은 근무표에서 나오도록 오늘 근무로 표기를 만든다
+    const caption = !sched ? "" : plan.profile.weekday ? "요일 기준" : `${ammkBadgeOf(plan.profile, sched.todayCode)} ${sched.todayNth}일째 기준`;
     return svEl("div", {
       key: g.id,
       className: "rounded-2xl bg-white border border-slate-200 px-2.5 py-2 space-y-2",
@@ -5439,9 +5541,7 @@ const AmmkGroupManager = p => {
       }),
       "data-testid": "ammk-group-name-" + g.id,
       className: "flex-1 min-w-0 px-2 py-1 rounded-lg bg-slate-50 border border-slate-200 text-[12px] font-extrabold text-slate-900"
-    }), isMine ? svEl("span", {
-      className: "shrink-0 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-blue-600 text-white"
-    }, "내 근무") : null, svEl("button", {
+    }), svEl("button", {
       type: "button",
       onClick: () => toggleGroup(g.id),
       "data-testid": "ammk-group-edit-" + g.id,
@@ -5451,16 +5551,17 @@ const AmmkGroupManager = p => {
     }, svEl("span", {
       className: `px-1.5 py-0.5 rounded-full text-[9.5px] font-extrabold ${own ? "bg-indigo-50 text-indigo-700 border border-indigo-100" : "bg-slate-100 text-slate-500"}`,
       "data-testid": "ammk-group-summary-" + g.id
-    }, own ? presetNote(plan) : "내 근무 형태와 같게"), !own && !isMine ? svEl("button", {
+    }, own ? presetNote(plan) : "내 근무 형태와 같게"), svEl("button", {
       type: "button",
       onClick: () => p.onSetVisible(g.id),
-      className: "text-[9.5px] font-extrabold text-indigo-600 underline underline-offset-2"
-    }, "같이 보기") : null, !isMine ? svEl("button", {
+      "data-testid": "ammk-group-visible-" + g.id,
+      className: `text-[9.5px] font-extrabold underline underline-offset-2 ${watching ? "text-emerald-600" : "text-indigo-600"}`
+    }, watching ? "✓ 같이 보는 중" : "같이 보기"), svEl("button", {
       type: "button",
       onClick: () => p.onRemove(g.id),
       "data-testid": "ammk-group-remove-" + g.id,
       className: "ml-auto text-[9.5px] font-extrabold text-rose-500"
-    }, "삭제") : null), open ? svEl("div", {
+    }, "삭제")), open ? svEl("div", {
       className: "space-y-2 pt-1.5 border-t border-slate-100"
     }, svEl("p", {
       className: "text-[10.5px] font-extrabold text-slate-600"
@@ -5476,7 +5577,11 @@ const AmmkGroupManager = p => {
     }))).map(opt => svEl("button", {
       key: opt.id || "inherit",
       type: "button",
-      onClick: () => p.onPatch(g.id, ammkGroupPresetPatch(g, groups, opt.id, 0)),
+      onClick: () => {
+        p.onPatch(g.id, ammkGroupPresetPatch(g, groups, opt.id, 0));
+        setCalCode("");
+        setCalNth(1);
+      },
       "data-testid": "ammk-group-preset-" + g.id + "-" + (opt.id || "inherit"),
       className: `px-2 py-1 rounded-lg text-[10.5px] font-extrabold border transition ${(own || "") === opt.id ? "border-indigo-600 bg-indigo-50 text-indigo-800 ring-1 ring-indigo-100" : "border-slate-200 bg-white text-slate-600"}`
     }, opt.name))), own ? svEl("div", {
@@ -5490,23 +5595,31 @@ const AmmkGroupManager = p => {
       nth: calNth,
       testPrefix: "ammk-group-" + g.id,
       onChangeCode: nextCode => {
+        // 같은 근무를 다시 누르면 선택이 풀리는 기본 동작 대신, 이미 맞춰 둔 기준을 그대로 둔다
+        if (!nextCode) return;
         setCalCode(nextCode);
+        setCalNth(1);
+        patchCalibration(g, own, nextCode, 1);
       },
       onChangeNth: n => {
         setCalNth(n);
-        if (calCode) p.onPatch(g.id, ammkGroupCalibratePatch(g, own, Number(g.patternIdx) || 0, calCode, n));
+        if (calCode) patchCalibration(g, own, calCode, n);
       }
     }), (plan.profile.patterns || []).length > 1 ? svEl(AmmkPatternPicker, {
       profile: plan.profile,
       value: Number(g.patternIdx) || 0,
       testPrefix: "ammk-group-" + g.id,
-      onChange: idx => p.onPatch(g.id, ammkGroupPresetPatch(g, groups, own, idx))
-    }) : null, svEl(AmmkPreviewStrip, {
-      preview: plan.preview,
+      onChange: idx => {
+        p.onPatch(g.id, ammkGroupPresetPatch(g, groups, own, idx));
+        setCalCode("");
+        setCalNth(1);
+      }
+    }) : null, sched ? svEl(AmmkPreviewStrip, {
+      preview: sched.preview,
       profile: plan.profile,
       testPrefix: "ammk-group-" + g.id,
-      caption: calCode ? ammkBadgeOf(plan.profile, calCode) + " " + calNth + "\uC77C\uC9F8 \uAE30\uC900" : "\uD328\uD134 \uCCAB\uB0A0 \uAE30\uC900"
-    })) : svEl("p", {
+      caption: caption
+    }) : null) : svEl("p", {
       className: "text-[10px] text-slate-400 leading-relaxed"
     }, "내 근무 형태(위 근무 형태 설정)를 그대로 따라갑니다. 따로 보려면 근무 형태를 골라 주세요.")) : null);
   })), addOpen ? svEl("div", {
@@ -5516,7 +5629,7 @@ const AmmkGroupManager = p => {
     type: "text",
     value: addName,
     maxLength: 10,
-    placeholder: "조 이름 (예: \uC124\uBE44\uD300, \uC0DD\uC0B01\uD300)",
+    placeholder: "조 이름 (예: 설비팀, 생산1팀)",
     onChange: e => setAddName(e.target.value),
     "data-testid": "ammk-group-add-name",
     className: "w-full px-2.5 py-1.5 rounded-xl bg-white border border-slate-200 text-[12px] font-extrabold text-slate-900"
@@ -5556,7 +5669,6 @@ const AmmkGroupManager = p => {
     className: "text-[9.5px] leading-relaxed text-slate-400"
   }, "추가한 조는 달력 \"같이 보기\" 칩을 눌러 켜면 날짜 칸에 조 이름과 근무가 함께 보이고, \"전체 조\" 탭 주간 근무표에도 한 줄로 나옵니다."));
 };
-
 const AmmkShiftPanel = p => {
   const [preset, setPreset] = React.useState(p.profileId || AMMK_DEFAULT_PRESET);
   const [pIdx, setPIdx] = React.useState(Number(p.patternIdx) || 0);
@@ -6795,13 +6907,18 @@ function App() {
   };
   // 👥 AMMK — 같이 보기 · 타 근무조 관리 (승현 님 11-28)
   const ammkPatchGroup = (groupId, patch) => setGroups(prev => prev.map(g => g.id === groupId ? Object.assign({}, g, patch) : g));
-  const ammkAddGroup = data => setGroups(prev => prev.concat([Object.assign({
-    id: "G" + Date.now().toString(36),
-    name: "새 근무조",
-    color: "#8b5cf6",
-    members: "",
-    offset: 0
-  }, data || {})]));
+  const ammkAddGroup = data => {
+    // id 는 setGroups 바깥에서 한 번만 만든다(업데이터가 다시 돌아도 id 가 바뀌지 않게)
+    const next = Object.assign({
+      id: "G" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+      name: "새 근무조",
+      color: "#8b5cf6",
+      members: "",
+      offset: 0
+    }, data || {});
+    setGroups(prev => prev.concat([next]));
+    return next.id;
+  };
   const ammkRemoveGroup = groupId => {
     setGroups(prev => prev.filter(g => g.id !== groupId));
     setVisibleOtherGroups(prev => prev.filter(id => id !== groupId));
@@ -9268,7 +9385,7 @@ function App() {
     id: "shift-groups",
     icon: "👥",
     title: "같이 보기 · 타 근무조",
-    summary: `${groups.length}개 조 · 같이 보기 ${visibleOtherGroups.length}개`,
+    summary: `${groups.filter(g => g.id !== myGroupId).length}개 조 · 같이 보기 ${visibleOtherGroups.length}개`,
     open: groupManagerOpen,
     onToggle: () => setGroupManagerOpen(v => !v)
   }, svEl(AmmkGroupManager, {
@@ -9278,7 +9395,8 @@ function App() {
     onPatch: ammkPatchGroup,
     onAdd: ammkAddGroup,
     onRemove: ammkRemoveGroup,
-    onSetVisible: ammkToggleOtherVisible
+    onSetVisible: ammkToggleOtherVisible,
+    visibleIds: visibleOtherGroups
   }));
   const attendanceCompareEl = /*#__PURE__*/React.createElement(AttendanceComparePanel, {
     statement: salaryStatement,
